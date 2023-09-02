@@ -1,179 +1,107 @@
-use std::{fs::File, fmt::Error, collections::LinkedList, io::Read, string::String};
-use serde_json::Value;
+use std::collections::HashMap;
+use std::fs::File;
+use std::hash::Hash;
+use std::io::Read;
+use std::fmt::Error;
 
-fn bencodedStringToJson(bencoded_string: String) -> Result<String, Error> {
+use dict::Dict;
 
-    let mut json_string = String::new();
+#[derive(Debug)]
+enum TorrentFileValue {
+    String(String),
+    Integer(i64),
+    Boolean(bool),
+    Bytes(Vec<u8>),
+    List(Vec<TorrentFileValue>),
+    Dictionary(HashMap<String, TorrentFileValue>),
+}
 
-    let mut keyword = String::new();
-    let mut next_word_length = 0;
-    let mut next_word_length_str = String::new();
-    let mut next_word = String::new();
+impl TorrentFileValue {
+    fn from_string(s: String) -> TorrentFileValue {
+        TorrentFileValue::String(s)
+    }
 
-    let mut list_depth: LinkedList<String> = LinkedList::new();
-
-    let mut in_int = false;
-    let mut skip_steps = 0;
-
-    for (n, c) in bencoded_string.chars().enumerate() {
-        if skip_steps > 0 {
-            skip_steps -= 1;
-            continue;
-        }
-
-        if next_word_length > 1 {
-            next_word.push(c);
-            next_word_length -= 1;
-            continue;
-        }
-
-        if next_word_length == 1 {
-
-            next_word.push(c);
-            next_word_length -= 1;
-
-            if next_word == "pieces" {
-                skip_steps = 0;
-                next_word.push_str("\":");
-
-                for j in bencoded_string[n..].chars() {
-                    skip_steps += 1;
-                    if j == ':' {
-                        break;
-                    }
-                    next_word_length_str.push(j);
-                }
-
-                next_word_length = next_word_length_str.parse::<i32>().unwrap();
-                next_word_length_str.clear();
-
-                for j in bencoded_string[n+skip_steps..].as_bytes() {
-                    if next_word_length == 0 {
-                        break;
-                    }
-                    skip_steps += 1;
-                    next_word_length -= 1;
-
-                    next_word.push(*j as char);
-                }
-
-                json_string.push('"');
-                json_string.push_str(next_word.as_str());
-                next_word.clear();
-                continue;
-            }
-
-            next_word.push('"');
-
-            if ["announce", "announce-list", "comment", "created by", "creation date", "encoding", "info", "length", "name", "piece length", "private", "files", "path", "url-list"].contains(&&next_word[0..next_word.len()-1]) { // , "md5sum"
-                next_word.push(':');
-                if !(json_string.ends_with('{') || json_string.ends_with('[')) {
-                    json_string.push(',');
-                }
-            }
-
-            json_string.push('"');
-            json_string.push_str(next_word.as_str());
-            next_word.clear();
-            continue;
-        }
-
-        match c {
-            'i' => {
-                // next_word.clear();
-                skip_steps = 0;
-                for j in bencoded_string[n+1..].chars() {
-                    skip_steps += 1;
-                    if j == 'e' {
-                        break;
-                    }
-                    next_word.push(j);
-                }
-
-                json_string.push_str(next_word.as_str());
-                next_word.clear();
-                continue;
-            },
-            'l' => {
-                list_depth.push_back('l'.to_string());
-
-                if json_string.ends_with(']') {
-                    json_string.push(',');
-                }
-                json_string.push('[');
-
-                continue;
-            },
-            'd' => {
-                list_depth.push_back('d'.to_string());
-
-                if json_string.ends_with('}') {
-                    json_string.push(',');
-                }
-                json_string.push('{');
-
-                continue;
-            },
-            'e' => {
-                match list_depth.pop_back() {
-                    Some(collection) => {
-                        match collection.as_str() {
-                            "l" => {
-                                json_string.push(']');
-                            },
-                            "d" => {
-                                json_string.push('}');
-                            },
-                            _ => {
-                                panic!("Invalid list depth");
-                            }
-                        }
-                            
-                    }
-                    None => {
-                        panic!("Invalid bencoded string");
-                    }
-                    
-                }
-
-                next_word.clear();
-            },
-            '1'..='9' => {
-                skip_steps = 0;
-                for (i,j ) in bencoded_string[n..].chars().enumerate() {
-                    if j == ':' {
-                        break;
-                    }
-                    skip_steps += 1;
-                    next_word_length_str.push(j);
-                }
-                next_word_length = next_word_length_str.parse::<i32>().unwrap();
-                next_word_length_str.clear();
-
-                continue;
-            }
-            _ => {
-                // pass
-            }
+    fn pop_string(&mut self) -> String {
+        match self {
+            TorrentFileValue::String(s) => s.clone(),
+            _ => panic!("Not a string"),
         }
     }
 
-    Ok(json_string)
+    fn from_integer(i: i64) -> TorrentFileValue {
+        TorrentFileValue::Integer(i)
+    }
+
+    fn pop_integer(&mut self) -> i64 {
+        match self {
+            TorrentFileValue::Integer(i) => *i,
+            _ => panic!("Not an integer"),
+        }
+    }
+
+    fn from_boolean(b: bool) -> TorrentFileValue {
+        TorrentFileValue::Boolean(b)
+    }
+
+    fn pop_boolean(&mut self) -> bool {
+        match self {
+            TorrentFileValue::Boolean(b) => *b,
+            _ => panic!("Not a boolean"),
+        }
+    }
+
+    fn from_bytes(b: Vec<u8>) -> TorrentFileValue {
+        TorrentFileValue::Bytes(b)
+    }
+
+    fn pop_bytes(&mut self) -> &mut Vec<u8> {
+        match self {
+            TorrentFileValue::Bytes(b) => b,
+            _ => panic!("Not a byte string"),
+        }
+    }
+
+    fn from_list(l: Vec<TorrentFileValue>) -> TorrentFileValue {
+        TorrentFileValue::List(l)
+    }
+
+    fn pop_list(&mut self) -> Option<&mut Vec<TorrentFileValue>> {
+        match self {
+            TorrentFileValue::List(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    fn from_dictionary(d: HashMap<String, TorrentFileValue>) -> TorrentFileValue {
+        TorrentFileValue::Dictionary(d)
+    }
+
+    fn pop_dict(&mut self) -> Option<&mut HashMap<String, TorrentFileValue>> {
+        match self {
+            TorrentFileValue::Dictionary(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    fn add_to_dict(&mut self, key: String, value: TorrentFileValue) {
+        match self {
+            TorrentFileValue::Dictionary(d) => {
+                d.insert(key, value);
+            }
+            _ => panic!("Not a dictionary"),
+        }
+    }
+
 }
+
 
 fn main() {
     let mut torrent_file = File::open("kamasutra.torrent").unwrap();
-    let mut bencoded_string = String::new();
-    torrent_file.read_to_string(&mut bencoded_string).unwrap();
-    
-    
-    let torrent_file_json = bencodedStringToJson(bencoded_string).unwrap();
-    
-    println!("{}", torrent_file_json);
+    let mut bencoded_string: Vec<u8> = Vec::new();
 
+    torrent_file.read_to_end(&mut bencoded_string);
 
-    let torrent_json: Value = serde_json::from_str(&torrent_file_json).unwrap();
+    let torrent_file_value = parse_torrent_file(bencoded_string).unwrap();
 
-    // println!("{}", torrent_json["info"]["name"]);
-
+    println!("{:?}", torrent_file_value);
 }
