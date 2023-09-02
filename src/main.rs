@@ -15,8 +15,7 @@ fn main() {
     };
 
     println!("{:?}", torrent_data);
-    let torrent_data = read_bytes_as_string(&torrent_data);
-    println!("{}", torrent_data);
+    
     // Parse the torrent file
     // match parse_torrent_file(&torrent_data) {
     //     Ok((_, torrent)) => {

@@ -28,5 +28,16 @@ fn parse_announce(input: &[u8]) -> IResult<&[u8], String> {
 
 pub fn parse_torrent_file(input: &[u8]) -> IResult<&[u8], TorrentFile> {
     // Implement parsing for the entire torrent file here
+
+    let mut TorrentFile = TorrentFile::new();
+
+    let mut current_index = 1;
+
+
+    if input[current_index] == '}' as u8 {
+        return Ok((&input[current_index..], TorrentFile::Info(Info {})));
+    }
+    
+
     Ok((input, TorrentFile::Info(Info {})))
 }
