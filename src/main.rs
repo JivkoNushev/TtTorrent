@@ -1,7 +1,11 @@
 mod torrent_file;
 mod utils;
 
-use crate::torrent_file::{TorrentFile, parse_torrent_file, read_torrent_file_as_bytes};
+use crate::torrent_file::{
+    TorrentFile, Info, FileInfo, 
+    parse_torrent_file, 
+    read_torrent_file_as_bytes
+};
 use crate::utils::read_bytes_as_string;
 
 fn main() {
@@ -14,16 +18,19 @@ fn main() {
         }
     };
 
-    println!("{:?}", torrent_data);
-    
+    // println!("{:?}", torrent_data);
+
+
     // Parse the torrent file
-    // match parse_torrent_file(&torrent_data) {
-    //     Ok((_, torrent)) => {
-    //         // Handle the parsed torrent structure here
-    //     }
-    //     Err(e) => {
-    //         println!("Error parsing torrent file: {:?}", e);
-    //     }
-    // }
+
+    let torrent_file: TorrentFile = match parse_torrent_file(&torrent_data) {
+        Ok((_, torrent_file)) => torrent_file,
+        Err(e) => {
+            println!("Error parsing torrent file: {:?}", e);
+            return;
+        }
+    };
+
+    println!("{:?}", torrent_file);
 
 }
