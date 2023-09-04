@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{torrent_file::{TorrentFile, Info, FileInfo}, utils::read_bytes_as_string};
 
 pub use nom::{
@@ -21,9 +23,7 @@ fn parse_info<'a>(input: &'a[u8], current_index: &mut usize) -> IResult<&'a[u8],
         let keyword = parse_string(input, current_index).unwrap().1;
 
         parse_info_keyword(keyword, input, current_index, &mut info);
-
     }
-
 
     Ok((input, info))
 }
@@ -90,7 +90,7 @@ fn parse_string<'a>(input: &'a[u8], current_index: &mut usize) -> IResult<&'a[u8
     // Implement parsing for strings here
     let s = read_bytes_as_string(input[*current_index..].as_ref());
 
-    println!("String: {:?}", input[*current_index..].as_ref());
+    // println!("String: {:?}", input[*current_index..].as_ref());
     
     let mut string_length = parse_integer(input[*current_index..].as_ref()).unwrap().1;
 
@@ -109,7 +109,7 @@ fn parse_pieces<'a>(input: &'a[u8], current_index: &mut usize) -> IResult<&'a[u8
     
     let mut byte_count = parse_integer(input[*current_index..].as_ref()).unwrap().1;
 
-    println!("Byte count: {}", byte_count);
+    // println!("Byte count: {}", byte_count);
 
     if byte_count % 20 != 0 {
         // TODO: ERROR HANDLING
@@ -117,19 +117,22 @@ fn parse_pieces<'a>(input: &'a[u8], current_index: &mut usize) -> IResult<&'a[u8
     }
 
     *current_index += byte_count.to_string().len() + 1; // move to the start of the key +1 means the colon
-    println!("Current index: {}", *current_index);
+
+    // println!("Current index: {}", *current_index);
+
     while byte_count > 0 {
         let piece = input[*current_index..*current_index + 20].to_vec();
         pieces.push(piece);
         *current_index += 20;
         byte_count -= 20;
     }
-    println!("Current index: {}", *current_index);
-    println!("REst of the input {:?}", &input[*current_index..]);
-    println!("input len: {}", input.len());
 
-    let input_str = read_bytes_as_string(input.as_ref());
-    println!("input str: {}", input_str);
+    // println!("Current index: {}", *current_index);
+    // println!("REst of the input {:?}", &input[*current_index..]);
+    // println!("input len: {}", input.len());
+
+    // let input_str = read_bytes_as_string(input.as_ref());
+    // println!("input str: {}", input_str);
 
     Ok((input, pieces))
 }
@@ -209,7 +212,7 @@ fn parse_info_keyword<'a>(key: String, input: &'a[u8], current_index: &mut usize
         info.piece_length = piece_length;
     }
     else if key == "pieces" {
-        println!("Parsing pieces");
+        // println!("Parsing pieces");
         let pieces = parse_pieces(input, current_index).unwrap().1;
         info.pieces = pieces;
     }
@@ -285,7 +288,9 @@ pub fn parse_torrent_file(input: &[u8]) -> IResult<&[u8], TorrentFile> {
     let mut current_index = 1;
 
     while current_index != input.len() - 1 {
-        if input[current_index] == '}' as u8 {
+        
+        // TODO: never enters this if; redundant 
+        if input[current_index] == 'e' as u8 {
             return Ok((&input[current_index..], torrent_file));
         }
 
@@ -294,6 +299,6 @@ pub fn parse_torrent_file(input: &[u8]) -> IResult<&[u8], TorrentFile> {
         parse_torrent_file_keyword(keyword, input, &mut current_index, &mut torrent_file);
     }
 
-    Ok((input, torrent_file))
+    Ok((&input[current_index..], torrent_file))
 }
 
