@@ -1,30 +1,61 @@
-pub use nom::{
+use nom::{
     IResult,
-    bytes::complete::{take, take_while1},
-    character::complete::{char, digit1},
-    combinator::map_res,
     bytes::complete::{tag, take_while_m_n},
 
 };
 
 use std::collections::HashMap;
-use crate::torrent_file::BencodedValue;
 
-use super::SHA1_HASH;
+use super::{BencodedValue, Sha1Hash};
+
+/// Parses a Bencoded torrent file from a byte slice and returns a BencodedValue.
+///
+/// This function takes a byte slice `input` containing a Bencoded torrent file and
+/// returns a BencodedValue representing the parsed data structure.
+///
+/// # Arguments
+///
+/// * `input` - A reference to a byte slice containing the Bencoded torrent file to be parsed.
+///
+/// # Returns
+///
+/// A `BencodedValue` representing the parsed data structure.
+///
+/// # Example
+///
+/// ```rust
+/// let torrent_bytes = b"d6:lengthi123e4:name5:fileaee";
+/// let result = parse_torrent_file(torrent_bytes);
+/// ```
+///
+/// In this example, the `parse_torrent_file` function parses a Bencoded torrent file
+/// and returns a `BencodedValue` representing the parsed data.
+pub fn parse_torrent_file(input: &[u8]) -> BencodedValue {
+    create_dict(input, &mut 0)
+}
+
 
 fn parse_bencoded_integer(input: &[u8]) -> IResult<&[u8], (i32, usize)> {
-    let (remaining, number_bytes) = nom::sequence::preceded(tag(b"i"), nom::sequence::terminated(take_while_m_n(1, 10, |c| c >= b'0' && c <= b'9'), tag(b"e")))(input)?;
-    
+    let (remaining, number_bytes) = nom::sequence::preceded(
+        tag(b"i"), // Parse the "i" prefix
+        nom::sequence::terminated(
+            take_while_m_n(1, 10, |c| c >= b'0' && c <= b'9'), // Parse a numeric string
+            tag(b"e"), // Parse the "e" suffix
+        ),
+    )(input)?;
+
     let length = number_bytes.len();
     let number = std::str::from_utf8(number_bytes)
-    .unwrap()
-    .parse::<i32>()
-    .unwrap();
+        .unwrap()
+        .parse::<i32>()
+        .unwrap();
 
     Ok((remaining, (number, length)))
 }
 
+
 fn parse_integer(input: &[u8]) -> IResult<&[u8], (i32, usize)> {
+    // Parse a number with length from 1 to 10
     let (remaining, number_bytes) = take_while_m_n(1, 10, |c| c >= b'0' && c <= b'9')(input)?;
     
     let length = number_bytes.len();
@@ -36,13 +67,9 @@ fn parse_integer(input: &[u8]) -> IResult<&[u8], (i32, usize)> {
     Ok((remaining, (number, length)))
 }
 
-pub fn parse_torrent_file(input: &[u8]) -> BencodedValue {
-    create_dict(input, &mut 0)
-}
-
 fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
     
-    *cur_index += 1;
+    *cur_index += 1; // byte 'd'
     let mut dict = BencodedValue::Dict(HashMap::new());
 
     let mut key = String::new();
@@ -70,7 +97,7 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
                 Err(e) => panic!("[Error] Can't parse integer at index {cur_index} with error message: {e}\nTrying to parse a word for dictionary")
             }
     
-            *cur_index += 1; // ':'
+            *cur_index += 1; // byte ':'
     
             if key.is_empty() {
                 let str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index+word_len]).expect("Couldn't parse a key value from a UTF-8 encoded byte array while parsing a dictionary");
@@ -87,10 +114,10 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
 
                     let byte_string = torrent_file[*cur_index..*cur_index+word_len].to_vec();
 
-                    let split_bytes: Vec<SHA1_HASH> = byte_string
-                        .chunks_exact(20) // Split into chunks of size 20
+                    let split_bytes: Vec<Sha1Hash> = byte_string
+                        .chunks_exact(20)
                         .map(|chunk| {
-                            let mut sha1_chunk: SHA1_HASH = [0; 20];
+                            let mut sha1_chunk: Sha1Hash = [0; 20];
                             sha1_chunk.copy_from_slice(chunk);
                             sha1_chunk
                         })
@@ -112,14 +139,14 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
             }
         }
     }
-    *cur_index += 1;
+    *cur_index += 1; // byte 'e'
 
     dict
 }
 
 fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
     
-    *cur_index += 1;
+    *cur_index += 1; // byte 'l'
     let mut list = BencodedValue::List(Vec::new());
 
     while torrent_file[*cur_index] != b'e' {
@@ -145,7 +172,7 @@ fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
                 Err(e) => panic!("[Error] Can't parse integer at index {cur_index} with error message: {e}\nTrying to parse a word for list")
             }
     
-            *cur_index += 1; // ':'
+            *cur_index += 1; // byte ':'
             
     
             let str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index+word_len]).expect("Couldn't parse a word value from a UTF-8 encoded byte array while parsing a list");
@@ -156,7 +183,7 @@ fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
             *cur_index += word_len;
         }
     }
-    *cur_index += 1;
+    *cur_index += 1; // byte 'e'
 
     list
 }
@@ -165,7 +192,7 @@ fn create_int(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
 
     match parse_bencoded_integer(&torrent_file[*cur_index..]) {
         Ok((_, (num, num_len))) => {
-            *cur_index += num_len + 2;
+            *cur_index += num_len + 2; // including the 'i' and 'e' bytes
             return BencodedValue::Integer(num);
         },
         Err(e) => eprintln!("Error parsing bencoded value: {e}\nUsed 0 for integer")

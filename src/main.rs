@@ -4,11 +4,11 @@ mod utils;
 use std::collections::HashMap;
 
 use crate::torrent_file::{
-    TorrentFile, Info, FileInfo, BencodedValue,
+    BencodedValue,
     parse_torrent_file, 
     read_torrent_file_as_bytes
 };
-use crate::utils::read_bytes_as_string;
+use crate::utils::print_bytes_as_string;
 
 
 fn main() {
