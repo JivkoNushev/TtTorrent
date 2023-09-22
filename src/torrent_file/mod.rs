@@ -73,3 +73,28 @@ impl FileInfo {
         }
     }
 }
+
+use std::{collections::HashMap};
+
+#[derive(Debug, Clone)]
+pub enum BencodedValue {
+    Integer(i32),
+    ByteString(Vec<u8>),
+    List(Vec<BencodedValue>),
+    Dict(HashMap<String, BencodedValue>),
+    String(String),
+}
+
+impl BencodedValue {
+    fn insert_into_dict(&mut self, key: String, value: BencodedValue) {   
+        if let BencodedValue::Dict(d) = self {
+            d.insert(key, value);
+        }
+    }
+
+    fn insert_into_list(&mut self, value: BencodedValue) {
+        if let BencodedValue::List(l) = self {
+            l.push(value)
+        }
+    }
+}

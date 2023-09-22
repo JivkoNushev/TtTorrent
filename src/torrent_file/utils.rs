@@ -1,5 +1,3 @@
-use crate::torrent_file::{TorrentFile, Info};
-
 use std::io::{Result, Read};
 
 pub fn read_torrent_file_as_bytes(path: &str) -> Result<Vec<u8>> {
