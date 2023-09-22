@@ -1,8 +1,13 @@
+use std::{collections::HashMap};
+
 mod parsers;
 mod utils;
 
 pub use parsers::parse_torrent_file;
 pub use utils::read_torrent_file_as_bytes;
+
+
+type SHA1_HASH = [u8;20];
 
 
 #[derive(Debug)]
@@ -74,12 +79,11 @@ impl FileInfo {
     }
 }
 
-use std::{collections::HashMap};
 
 #[derive(Debug, Clone)]
 pub enum BencodedValue {
     Integer(i32),
-    ByteString(Vec<u8>),
+    ByteString(Vec<SHA1_HASH>),
     List(Vec<BencodedValue>),
     Dict(HashMap<String, BencodedValue>),
     String(String),

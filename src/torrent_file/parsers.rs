@@ -10,6 +10,8 @@ pub use nom::{
 use std::collections::HashMap;
 use crate::torrent_file::BencodedValue;
 
+use super::SHA1_HASH;
+
 fn parse_bencoded_integer(input: &[u8]) -> IResult<&[u8], (i32, usize)> {
     let (remaining, number_bytes) = nom::sequence::preceded(tag(b"i"), nom::sequence::terminated(take_while_m_n(1, 10, |c| c >= b'0' && c <= b'9'), tag(b"e")))(input)?;
     
@@ -76,11 +78,25 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
                 *cur_index += word_len;
             }
             else {
-                let mut word: String; 
+                let word: String; 
     
                 if key == "pieces" {
+                    if word_len % 20 != 0 {
+                        panic!("[Error] Invalid number of bytes in pieces");
+                    }
+
                     let byte_string = torrent_file[*cur_index..*cur_index+word_len].to_vec();
-                    dict.insert_into_dict(key.clone(), BencodedValue::ByteString(byte_string));
+
+                    let split_bytes: Vec<SHA1_HASH> = byte_string
+                        .chunks_exact(20) // Split into chunks of size 20
+                        .map(|chunk| {
+                            let mut sha1_chunk: SHA1_HASH = [0; 20];
+                            sha1_chunk.copy_from_slice(chunk);
+                            sha1_chunk
+                        })
+                        .collect();
+
+                    dict.insert_into_dict(key.clone(), BencodedValue::ByteString(split_bytes));
                     *cur_index += word_len;
 
                 }
