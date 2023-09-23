@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Result, Read};
+use hex::encode;
 
 // Import necessary functions from other modules
 pub mod parsers;
@@ -7,7 +8,33 @@ pub mod parsers;
 pub use parsers::parse_torrent_file;
 
 /// Represents a SHA-1 hash as an array of 20 bytes.
-pub type Sha1Hash = [u8; 20];
+#[derive(Debug, Clone)]
+pub struct Sha1Hash([u8; 20]);
+
+impl Sha1Hash {
+    /// Prints the SHA-1 hash as a hexadecimal string to the console.
+    ///
+    /// This method converts the SHA-1 hash into a hexadecimal string and prints it to the console.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use my_project::Sha1Hash;
+    ///
+    /// let hash = Sha1Hash([0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC,
+    ///                      0xDE, 0xF0, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]);
+    ///
+    /// hash.print_as_hex();
+    /// ```
+    ///
+    /// In this example, the `print_as_hex` method is called on a `Sha1Hash` instance to
+    /// print its hexadecimal representation.
+    pub fn print_as_hex(&self) {
+        let hex_string = encode(&self.0);
+        println!("Hexadecimal representation: {}", hex_string);
+    }
+}
+
 
 /// Represents a value in the Bencode format.
 #[derive(Debug, Clone)]
