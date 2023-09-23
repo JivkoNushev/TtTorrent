@@ -76,19 +76,31 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
     while torrent_file[*cur_index] != b'e' {
 
         if torrent_file[*cur_index] == b'd' {
+            if key.is_empty() {
+                panic!("[Error] Trying to parse a dict with an empty key");
+            }
+
             dict.insert_into_dict(key.clone(), create_dict(torrent_file, cur_index));
             key.clear();
         }
         else if torrent_file[*cur_index] == b'l' {
+            if key.is_empty() {
+                panic!("[Error] Trying to parse a list with an empty key");
+            }
+
             dict.insert_into_dict(key.clone(), create_list(torrent_file, cur_index));
             key.clear();
         }
         else if torrent_file[*cur_index] == b'i' {
+            if key.is_empty() {
+                panic!("[Error] Trying to parse an integer with an empty key");
+            }
+
             dict.insert_into_dict(key.clone(), create_int(torrent_file, cur_index));
             key.clear();
         }
         else {
-            let mut word_len: usize; 
+            let word_len: usize; 
             match parse_integer(&torrent_file[*cur_index..]) {
                 Ok((_, (num, num_len))) => {
                     *cur_index += num_len;
@@ -111,15 +123,14 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
                     if word_len % 20 != 0 {
                         panic!("[Error] Invalid number of bytes in pieces");
                     }
-
                     let byte_string = torrent_file[*cur_index..*cur_index+word_len].to_vec();
 
                     let split_bytes: Vec<Sha1Hash> = byte_string
                         .chunks_exact(20)
                         .map(|chunk| {
-                            let mut sha1_chunk: Sha1Hash = [0; 20];
+                            let mut sha1_chunk: [u8; 20] = [0; 20];
                             sha1_chunk.copy_from_slice(chunk);
-                            sha1_chunk
+                            Sha1Hash(sha1_chunk)
                         })
                         .collect();
 
@@ -128,6 +139,10 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
 
                 }
                 else {
+                    if key.is_empty() {
+                        panic!("[Error] Trying to parse a string or a byte string with an empty key");
+                    }
+
                     let str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index+word_len]).expect("Couldn't parse a word value from a UTF-8 encoded byte array while parsing a dictionary");
                     word = String::from(str_slice);
     
@@ -161,8 +176,8 @@ fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
             list.insert_into_list(create_int(torrent_file, cur_index));
         }
         else {
-            let mut word: String; 
-            let mut word_len: usize; 
+            let word: String; 
+            let word_len: usize; 
             
             match parse_integer(&torrent_file[*cur_index..]) {
                 Ok((_, (num, num_len))) => {
