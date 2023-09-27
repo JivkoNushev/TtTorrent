@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::io::{Result, Read};
+use urlencoding::encode as urlencode;
 use hex::encode;
+
+
 
 // Import necessary functions from other modules
 pub mod parsers;
@@ -31,7 +34,23 @@ impl Sha1Hash {
     /// print its hexadecimal representation.
     pub fn print_as_hex(&self) {
         let hex_string = encode(&self.0);
-        println!("Hexadecimal representation: {}", hex_string);
+        println!("Hexadecimal representation: 0x{}", hex_string);
+    }
+
+    pub fn as_string(&self) -> String{
+        let mut s = String::new();
+        for i in 0..20 {
+            s.push(self.0[i] as char);
+        }
+        s
+    }
+
+    pub fn url_encoded(&self) -> String {
+        let mut s = String::new();
+        for i in 0..20 {
+            s.push(self.0[i] as char);
+        }
+        urlencode(&s).to_string()
     }
 }
 
@@ -96,6 +115,16 @@ impl BencodedValue {
             l.push(value);
         }
     }
+
+    pub fn get_from_dict(&mut self, key: &str) -> BencodedValue {
+        if let BencodedValue::Dict(d) = self {
+            d.get(key).unwrap().clone()
+        }
+        else {
+            panic!("Trying to get a value from a non-dictionary");
+        }
+    }
+
 }
 
 /// Reads the contents of a file specified by the given `path` and returns it as a vector of bytes.
