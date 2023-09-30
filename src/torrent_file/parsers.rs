@@ -78,12 +78,12 @@ fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
 
                     bencoded_string.push('e' as u8);
                 }
-                BencodedValue::List(list) => {
+                BencodedValue::List(_list) => {
                     let mut bencoded_l = to_bencoded_list(&value);
 
                     bencoded_string.append(&mut bencoded_l);
                 }
-                BencodedValue::Dict(dict) => {
+                BencodedValue::Dict(_dict) => {
                     let mut bencoded_d = to_bencoded_dict(&value);
 
                     bencoded_string.append(&mut bencoded_d);
@@ -141,12 +141,12 @@ fn to_bencoded_list(bencoded_list: &BencodedValue) -> Vec<u8> {
 
                     bencoded_string.push('e' as u8);
                 }
-                BencodedValue::List(list) => {
+                BencodedValue::List(_list) => {
                     let mut bencoded_l = to_bencoded_list(&value);
 
                     bencoded_string.append(&mut bencoded_l);
                 }
-                BencodedValue::Dict(dict) => {
+                BencodedValue::Dict(_dict) => {
                     let mut bencoded_d = to_bencoded_dict(&value);
 
                     bencoded_string.append(&mut bencoded_d);

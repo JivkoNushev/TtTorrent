@@ -1,7 +1,6 @@
 use crate::torrent_file::{BencodedValue, parse_to_torrent_file, Sha1Hash};
 
 use reqwest;
-use std::convert::Infallible;
 use sha1::{Sha1, Digest};
 
 fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
@@ -22,9 +21,8 @@ fn create_tracker_url(torrent_file: &mut BencodedValue) -> Option<String> {
 
     let tracker_announce: BencodedValue = torrent_file.get_from_dict("announce");
 
-    let mut tracker_url = String::new();
     if let BencodedValue::String(s) = tracker_announce {
-        tracker_url = String::from(s);
+        let mut tracker_url = String::from(s);
         tracker_url.push_str("?info_hash=");
         tracker_url.push_str(&hashed_dict_url_encoded);
         tracker_url.push_str("&peer_id=1&port=6881&uploaded=0&downloaded=0&left=0&compact=1&event=started");

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::io::{Result, Read};
-use nom::AsBytes;
 use urlencoding::encode as urlencode;
 use hex::encode;
 
@@ -129,26 +128,6 @@ impl BencodedValue {
         }
         else {
             panic!("Trying to get a value from a non-dictionary");
-        }
-    }
-
-    pub fn to_bencoded_format(&self) -> Vec<u8> {
-        if let BencodedValue::Dict(d) = self {
-            let mut bencoded_dict = Vec::new();
-            bencoded_dict.push(b'd');
-
-            for (key, value) in d {
-                bencoded_dict.extend_from_slice(&key.len().to_string().as_bytes());
-                bencoded_dict.push(b':');
-                bencoded_dict.extend_from_slice(&key.as_bytes());
-                bencoded_dict.extend_from_slice(&value.to_bencoded_format());
-            }
-
-            bencoded_dict.push(b'e');
-            bencoded_dict
-        }
-        else {
-            panic!("Trying to bencode a non-dictionary");
         }
     }
 
