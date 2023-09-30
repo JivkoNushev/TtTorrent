@@ -13,7 +13,7 @@ use crate::torrent_file::{
 fn main() {
 
     // Read the torrent file into a byte array
-    let torrent_data: Vec<u8> = match read_torrent_file_as_bytes("torrent_files/centOS.torrent") {
+    let torrent_data: Vec<u8> = match read_torrent_file_as_bytes("torrent_files/risk_of_rain.torrent") {
         Ok(data) => data,
         Err(e) => {
             println!("Error reading torrent file: {:?}", e);

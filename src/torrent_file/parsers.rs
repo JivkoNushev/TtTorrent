@@ -30,10 +30,150 @@ use super::{BencodedValue, Sha1Hash};
 ///
 /// In this example, the `parse_torrent_file` function parses a Bencoded torrent file
 /// and returns a `BencodedValue` representing the parsed data.
-pub fn parse_torrent_file(input: &[u8]) -> BencodedValue {
-    create_dict(input, &mut 0)
+pub fn parse_torrent_file(torrent_file: &[u8]) -> BencodedValue {
+    create_dict(torrent_file, &mut 0)
 }
 
+pub fn parse_to_torrent_file(torrent_file: &BencodedValue) -> Vec<u8> {
+    to_bencoded_dict(torrent_file)
+}
+
+fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
+    let mut bencoded_string: Vec<u8> = Vec::new();
+    if let BencodedValue::Dict(d) = bencoded_dict {
+        bencoded_string.push('d' as u8);
+        for (key, value) in d {
+            // append the len of the key
+            let key_len = key.len().to_string();
+            let mut key_len = key_len.as_bytes().to_vec();
+            bencoded_string.append(&mut key_len);
+
+            // append the ':'
+            bencoded_string.push(':' as u8);
+
+            // append key
+            bencoded_string.append(&mut key.clone().as_bytes().to_vec());
+
+            match value {
+                BencodedValue::ByteString(byte_string) => {
+                    // append the len of the word
+                    let word_len = byte_string.len() * 20;
+                    let word_len = word_len.to_string();
+                    let mut word_len = word_len.as_bytes().to_vec();
+                    bencoded_string.append(&mut word_len);
+
+                    // append the ':'
+                    bencoded_string.push(':' as u8);
+
+                    for sha1hash in byte_string {
+                        bencoded_string.append(&mut sha1hash.0.clone().to_vec());
+                    }
+                }
+                BencodedValue::Integer(integer) => {
+                    // append bencoded integer
+                    bencoded_string.push('i' as u8);
+
+                    let mut word = integer.clone().to_string().as_bytes().to_vec();
+                    bencoded_string.append(&mut word);
+
+                    bencoded_string.push('e' as u8);
+                }
+                BencodedValue::List(list) => {
+                    let mut bencoded_l = to_bencoded_list(&value);
+
+                    bencoded_string.append(&mut bencoded_l);
+                }
+                BencodedValue::Dict(dict) => {
+                    let mut bencoded_d = to_bencoded_dict(&value);
+
+                    bencoded_string.append(&mut bencoded_d);
+                }
+                BencodedValue::String(string) => {
+                    // append the len of the word
+                    let word_len = string.len().to_string();
+                    let mut word_len = word_len.as_bytes().to_vec();
+                    bencoded_string.append(&mut word_len);
+
+                    // append the ':'
+                    bencoded_string.push(':' as u8);
+
+                    bencoded_string.append(&mut string.clone().as_bytes().to_vec());
+
+                }
+                _ => panic!("Invalid BencodedValue type")
+            }
+        }
+    }
+    else {
+        panic!("[Error] Trying to benocode a non dictionary");
+    }
+
+    bencoded_string.push('e' as u8);
+    bencoded_string
+}
+
+fn to_bencoded_list(bencoded_list: &BencodedValue) -> Vec<u8> {
+    let mut bencoded_string = Vec::new();
+    if let BencodedValue::List(l) = bencoded_list {
+        bencoded_string.push('l' as u8);
+        for value in l {
+            match value {
+                BencodedValue::ByteString(byte_string) => {
+                    // append the len of the word
+                    let word_len = byte_string.len() * 20;
+                    let word_len = word_len.to_string();
+                    let mut word_len = word_len.as_bytes().to_vec();
+                    bencoded_string.append(&mut word_len);
+
+                    // append the ':'
+                    bencoded_string.push(':' as u8);
+
+                    for sha1hash in byte_string {
+                        bencoded_string.append(&mut sha1hash.0.clone().to_vec());
+                    }
+                }
+                BencodedValue::Integer(integer) => {
+                    // append bencoded integer
+                    bencoded_string.push('i' as u8);
+
+                    let mut word = integer.clone().to_string().as_bytes().to_vec();
+                    bencoded_string.append(&mut word);
+
+                    bencoded_string.push('e' as u8);
+                }
+                BencodedValue::List(list) => {
+                    let mut bencoded_l = to_bencoded_list(&value);
+
+                    bencoded_string.append(&mut bencoded_l);
+                }
+                BencodedValue::Dict(dict) => {
+                    let mut bencoded_d = to_bencoded_dict(&value);
+
+                    bencoded_string.append(&mut bencoded_d);
+                }
+                BencodedValue::String(string) => {
+                    // append the len of the word
+                    let word_len = string.len().to_string();
+                    let mut word_len = word_len.as_bytes().to_vec();
+                    bencoded_string.append(&mut word_len);
+
+                    // append the ':'
+                    bencoded_string.push(':' as u8);
+
+                    bencoded_string.append(&mut string.clone().as_bytes().to_vec());
+
+                }
+                _ => panic!("Invalid BencodedValue type")
+            }
+        }
+    }
+    else {
+        panic!("[Error] Trying to benocode a non list");
+    }
+
+    bencoded_string.push('e' as u8);
+    bencoded_string
+}
 
 fn parse_bencoded_integer(input: &[u8]) -> IResult<&[u8], (i64, usize)> {
     let (remaining, number_bytes) = nom::sequence::preceded(

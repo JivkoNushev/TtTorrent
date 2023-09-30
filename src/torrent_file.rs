@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Result, Read};
+use nom::AsBytes;
 use urlencoding::encode as urlencode;
 use hex::encode;
 
@@ -9,12 +10,18 @@ use hex::encode;
 pub mod parsers;
 
 pub use parsers::parse_torrent_file;
+pub use parsers::parse_to_torrent_file;
 
 /// Represents a SHA-1 hash as an array of 20 bytes.
 #[derive(Debug, Clone)]
 pub struct Sha1Hash([u8; 20]);
 
 impl Sha1Hash {
+
+    pub fn new(hash: [u8; 20]) -> Sha1Hash {
+        Sha1Hash(hash)
+    }
+
     /// Prints the SHA-1 hash as a hexadecimal string to the console.
     ///
     /// This method converts the SHA-1 hash into a hexadecimal string and prints it to the console.
@@ -45,7 +52,7 @@ impl Sha1Hash {
         s
     }
 
-    pub fn url_encoded(&self) -> String {
+    pub fn as_url_encoded(&self) -> String {
         let mut s = String::new();
         for i in 0..20 {
             s.push(self.0[i] as char);
