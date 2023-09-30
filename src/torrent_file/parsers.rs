@@ -35,7 +35,7 @@ pub fn parse_torrent_file(input: &[u8]) -> BencodedValue {
 }
 
 
-fn parse_bencoded_integer(input: &[u8]) -> IResult<&[u8], (i32, usize)> {
+fn parse_bencoded_integer(input: &[u8]) -> IResult<&[u8], (i64, usize)> {
     let (remaining, number_bytes) = nom::sequence::preceded(
         tag(b"i"), // Parse the "i" prefix
         nom::sequence::terminated(
@@ -45,23 +45,23 @@ fn parse_bencoded_integer(input: &[u8]) -> IResult<&[u8], (i32, usize)> {
     )(input)?;
 
     let length = number_bytes.len();
-    let number = std::str::from_utf8(number_bytes)
+    let number: i64 = std::str::from_utf8(number_bytes)
         .unwrap()
-        .parse::<i32>()
+        .parse::<i64>()
         .unwrap();
 
     Ok((remaining, (number, length)))
 }
 
 
-fn parse_integer(input: &[u8]) -> IResult<&[u8], (i32, usize)> {
+fn parse_integer(input: &[u8]) -> IResult<&[u8], (i64, usize)> {
     // Parse a number with length from 1 to 10
     let (remaining, number_bytes) = take_while_m_n(1, 10, |c| c >= b'0' && c <= b'9')(input)?;
     
     let length = number_bytes.len();
     let number = std::str::from_utf8(number_bytes)
         .unwrap()
-        .parse::<i32>()
+        .parse::<i64>()
         .unwrap();
 
     Ok((remaining, (number, length)))

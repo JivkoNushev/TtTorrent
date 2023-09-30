@@ -2,7 +2,23 @@ use crate::torrent_file::{BencodedValue, self};
 
 use reqwest;
 use std::convert::Infallible;
+use sha1::{Sha1, Digest};
 
+
+
+fn sha1_hash(info_dict: &BencodedValue) -> [u8; 20] {
+
+    if let BencodedValue::Dict(d) = info_dict {
+        let bencoded_dict = info_dict.to_bencoded_format();
+
+        let mut hasher = Sha1::new();
+        hasher.update(bencoded_dict);
+        hasher.finalize().into()
+    }
+    else {
+        panic!("Trying to hash a non-dictionary");
+    }
+}   
 
 // TODO: Change to Result type not Option
 fn create_tracker_url(torrent_file: &mut BencodedValue) -> Option<String> {
