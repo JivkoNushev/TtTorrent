@@ -14,7 +14,7 @@ use crate::torrent_file::{
 fn main() {
 
     // Read the torrent file into a byte array
-    let torrent_data: Vec<u8> = match read_file_as_bytes("torrent_files/the_fanimatrix.torrent") {
+    let torrent_data: Vec<u8> = match read_file_as_bytes("torrent_files/risk_of_rain.torrent") {
         Ok(data) => data,
         Err(e) => {
             println!("Error reading torrent file: {:?}", e);
@@ -29,10 +29,10 @@ fn main() {
 
     let mut torrent_file: BencodedValue = parse_torrent_file(&torrent_data);
 
-    println!("{:?}", torrent_file);
+    // println!("{:?}", torrent_file);
 
 
     // Get the tracker info
-    // get_peers(&mut torrent_file);
+    get_peers(&mut torrent_file);
     
 }

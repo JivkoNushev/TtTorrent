@@ -9,7 +9,7 @@ fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     Sha1Hash::new(&hasher.finalize())
 }   
 
-// TODO: Change to Result type not Option
+// TODO: Change to Result type insted of Option
 fn create_tracker_url(torrent_file: &mut BencodedValue) -> Option<String> {
     let info_value = torrent_file.get_from_dict("info");
 

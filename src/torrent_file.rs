@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io::{Result, Read};
 use urlencoding::encode as urlencode;
+use percent_encoding::{utf8_percent_encode, percent_encode};
+
 use hex::encode;
 
 pub mod parsers;
@@ -31,12 +33,12 @@ impl Sha1Hash {
     }
 
     pub fn as_string(&self) -> String{
-        String::from_utf8(self.0.to_vec()).unwrap()
+        String::from_utf8_lossy(self.0.as_slice()).to_string()
     }
 
     pub fn as_url_encoded(&self) -> String {
-        let s = self.as_string();
-        urlencode(&s).to_string()
+        let s = self.0;
+        percent_encode(&s, percent_encoding::NON_ALPHANUMERIC).to_string()
     }
 }
 
