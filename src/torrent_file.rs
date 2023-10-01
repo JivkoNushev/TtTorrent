@@ -3,69 +3,49 @@ use std::io::{Result, Read};
 use urlencoding::encode as urlencode;
 use hex::encode;
 
-
-
-// Import necessary functions from other modules
 pub mod parsers;
 
-pub use parsers::parse_torrent_file;
-pub use parsers::parse_to_torrent_file;
+pub use parsers::{ parse_torrent_file, parse_to_torrent_file };
 
 /// Represents a SHA-1 hash as an array of 20 bytes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sha1Hash([u8; 20]);
 
 impl Sha1Hash {
 
-    pub fn new(hash: [u8; 20]) -> Sha1Hash {
-        Sha1Hash(hash)
+    pub fn new(hash: &[u8]) -> Sha1Hash {
+        if hash.len() != 20 {
+            panic!("Hash must be 20 bytes long");
+        }
+
+        Sha1Hash(hash.try_into().unwrap())
     }
 
-    /// Prints the SHA-1 hash as a hexadecimal string to the console.
-    ///
-    /// This method converts the SHA-1 hash into a hexadecimal string and prints it to the console.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use my_project::Sha1Hash;
-    ///
-    /// let hash = Sha1Hash([0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC,
-    ///                      0xDE, 0xF0, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]);
-    ///
-    /// hash.print_as_hex();
-    /// ```
-    ///
-    /// In this example, the `print_as_hex` method is called on a `Sha1Hash` instance to
-    /// print its hexadecimal representation.
-    pub fn print_as_hex(&self) {
+    pub fn get_hash_ref(&self) -> &[u8; 20] {
+        &self.0
+    }
+
+    pub fn as_hex(&self) -> String{
         let hex_string = encode(&self.0);
-        println!("Hexadecimal representation: 0x{}", hex_string);
+        hex_string
     }
 
     pub fn as_string(&self) -> String{
-        let mut s = String::new();
-        for i in 0..20 {
-            s.push(self.0[i] as char);
-        }
-        s
+        String::from_utf8(self.0.to_vec()).unwrap()
     }
 
     pub fn as_url_encoded(&self) -> String {
-        let mut s = String::new();
-        for i in 0..20 {
-            s.push(self.0[i] as char);
-        }
+        let s = self.as_string();
         urlencode(&s).to_string()
     }
 }
 
 
 /// Represents a value in the Bencode format.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BencodedValue {
     /// Represents a Bencoded integer.
-    Integer(i64),
+    Integer(i128),
 
     /// Represents a Bencoded byte string as a list of SHA-1 hashes.
     ByteString(Vec<Sha1Hash>),
@@ -81,100 +61,97 @@ pub enum BencodedValue {
 }
 
 impl BencodedValue {
-    /// Inserts a key-value pair into a Bencoded dictionary.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - A string representing the key to insert.
-    /// * `value` - The `BencodedValue` to associate with the key.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use my_project::torrent_file::{BencodedValue, Sha1Hash};
-    ///
-    /// let mut dict = BencodedValue::Dict(HashMap::new());
-    /// dict.insert_into_dict("info".to_string(), BencodedValue::Integer(42));
-    /// ```
     pub fn insert_into_dict(&mut self, key: String, value: BencodedValue) {
         if let BencodedValue::Dict(d) = self {
             d.insert(key, value);
         }
     }
 
-    /// Appends a value to a Bencoded list.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - The `BencodedValue` to append to the list.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use my_project::torrent_file::BencodedValue;
-    ///
-    /// let mut list = BencodedValue::List(vec![]);
-    /// list.insert_into_list(BencodedValue::String("item".to_string()));
-    /// ```
     pub fn insert_into_list(&mut self, value: BencodedValue) {
         if let BencodedValue::List(l) = self {
             l.push(value);
         }
     }
 
-    pub fn get_from_dict(&mut self, key: &str) -> BencodedValue {
+    pub fn get_from_dict(&self, key: &str) -> BencodedValue {
         if let BencodedValue::Dict(d) = self {
-            d.get(key).unwrap().clone()
+            if let Some(value) = d.get(key) {
+                value.clone()
+            }
+            else {
+                panic!("Trying to get a value from a bencoded dictionary with a key that does not exist");
+            }
         }
         else {
-            panic!("Trying to get a value from a non-dictionary");
+            panic!("Trying to get a value from a non-bencoded dictionary");
         }
     }
 
+    pub fn get_from_list(&self, index: usize) -> BencodedValue {
+        if let BencodedValue::List(l) = self {
+            if let Some(value) = l.get(index) {
+                value.clone()
+            }
+            else {
+                panic!("Trying to get a value from a bencoded list with an index out of bounds");
+            }
+        }
+        else {
+            panic!("Trying to get a value from a non-benocoded list");
+        }
+    }
+
+    pub fn is_valid_torrent_file(&self) -> bool{
+        if let BencodedValue::Dict(d) = self {
+            if ["announce", "info"].iter().any(|key| !d.contains_key(*key)) {
+                false
+            }
+            else {
+                if let BencodedValue::Dict(info) = d.get("info").unwrap() {
+                    if ["name", "piece length", "pieces"].iter().any(|key| !info.contains_key(*key)) {
+                        false
+                    }
+                    else {
+                        if ["files", "length"].iter().all(|key| !info.contains_key(*key)) {
+                            false
+                        }
+                        else if ["files", "length"].iter().all(|key| info.contains_key(*key)) {
+                            false
+                        }
+                        else {
+                            if info.contains_key("files") {
+                                if let BencodedValue::List(l) = info.get("files").unwrap() {
+                                    l.iter().all(|file| {
+                                        if let BencodedValue::Dict(d) = file {
+                                            ["length", "path"].iter().all(|key| d.contains_key(*key))
+                                        }
+                                        else {
+                                            panic!("Trying to validate a non-bencoded dictionary in \"files\"");
+                                        }
+                                    })
+                                }
+                                else {
+                                    panic!("Trying to validate a non-bencoded list named \"files\"")
+                                }
+                            }
+                            else {
+                                true
+                            }
+                        }
+                    }
+                }
+                else {
+                    panic!("Trying to validate a non-bencoded dictionary named \"info\"")
+                }
+            }
+        }
+        else {
+            panic!("Trying to validate a non-bencoded dictionary");
+        }
+    }
 }
 
-/// Reads the contents of a file specified by the given `path` and returns it as a vector of bytes.
-///
-/// This function opens the file at the specified `path`, reads its contents into a `Vec<u8>`,
-/// and returns the vector containing the file's bytes.
-///
-/// # Arguments
-///
-/// * `path` - A string representing the file path to read.
-///
-/// # Returns
-///
-/// * `Ok(Vec<u8>)` - If the file is successfully read, it returns a `Result` containing
-///   a `Vec<u8>` with the file's bytes.
-/// * `Err(std::io::Error)` - If any I/O error occurs while reading the file, it returns an error.
-///
-/// # Example
-///
-/// ```rust
-/// use std::io::Write;
-/// use tempfile::tempdir;
-/// use my_project::utils::read_torrent_file_as_bytes;
-///
-/// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // Create a temporary directory and file for testing
-///     let temp_dir = tempdir()?;
-///     let file_path = temp_dir.path().join("test_file.txt");
-///     let mut file = std::fs::File::create(&file_path)?;
-///     file.write_all(b"Hello, world!")?;
-///
-///     // Read the file as bytes
-///     let bytes = read_torrent_file_as_bytes(&file_path.to_string_lossy())?;
-///
-///     assert_eq!(bytes, b"Hello, world!");
-///
-///     Ok(())
-/// }
-/// ```
-///
-/// In this example, the `read_torrent_file_as_bytes` function reads the contents of a file
-/// and returns them as a `Vec<u8>`. The function is used to read a temporary file created
-/// for testing purposes.
-pub fn read_torrent_file_as_bytes(path: &str) -> Result<Vec<u8>> {
+pub fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     let mut file = std::fs::File::open(path)?;
 

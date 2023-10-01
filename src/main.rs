@@ -7,13 +7,14 @@ use tracker::get_peers;
 use crate::torrent_file::{
     BencodedValue,
     parse_torrent_file, 
-    read_torrent_file_as_bytes
+    read_file_as_bytes,
+    parse_to_torrent_file
 };
 
 fn main() {
 
     // Read the torrent file into a byte array
-    let torrent_data: Vec<u8> = match read_torrent_file_as_bytes("torrent_files/centOS.torrent") {
+    let torrent_data: Vec<u8> = match read_file_as_bytes("torrent_files/the_fanimatrix.torrent") {
         Ok(data) => data,
         Err(e) => {
             println!("Error reading torrent file: {:?}", e);
@@ -32,5 +33,6 @@ fn main() {
 
 
     // Get the tracker info
-    get_peers(&mut torrent_file);
+    // get_peers(&mut torrent_file);
+    
 }

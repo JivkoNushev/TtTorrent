@@ -1,37 +1,15 @@
-use nom::{
-    IResult,
-    bytes::complete::{tag, take_while_m_n},
-
-};
-
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Error};
 
 use super::{BencodedValue, Sha1Hash};
 
-/// Parses a Bencoded torrent file from a byte slice and returns a BencodedValue.
-///
-/// This function takes a byte slice `input` containing a Bencoded torrent file and
-/// returns a BencodedValue representing the parsed data structure.
-///
-/// # Arguments
-///
-/// * `input` - A reference to a byte slice containing the Bencoded torrent file to be parsed.
-///
-/// # Returns
-///
-/// A `BencodedValue` representing the parsed data structure.
-///
-/// # Example
-///
-/// ```rust
-/// let torrent_bytes = b"d6:lengthi123e4:name5:fileaee";
-/// let result = parse_torrent_file(torrent_bytes);
-/// ```
-///
-/// In this example, the `parse_torrent_file` function parses a Bencoded torrent file
-/// and returns a `BencodedValue` representing the parsed data.
 pub fn parse_torrent_file(torrent_file: &[u8]) -> BencodedValue {
-    create_dict(torrent_file, &mut 0)
+    let dict = create_dict(torrent_file, &mut 0);
+    if dict.is_valid_torrent_file() {
+        dict
+    }
+    else {
+        panic!("[Error] Invalid dictionary: doesn't have all the required keys");
+    }
 }
 
 pub fn parse_to_torrent_file(torrent_file: &BencodedValue) -> Vec<u8> {
@@ -175,47 +153,88 @@ fn to_bencoded_list(bencoded_list: &BencodedValue) -> Vec<u8> {
     bencoded_string
 }
 
-fn parse_bencoded_integer(input: &[u8]) -> IResult<&[u8], (i64, usize)> {
-    let (remaining, number_bytes) = nom::sequence::preceded(
-        tag(b"i"), // Parse the "i" prefix
-        nom::sequence::terminated(
-            take_while_m_n(1, 10, |c| c >= b'0' && c <= b'9'), // Parse a numeric string
-            tag(b"e"), // Parse the "e" suffix
-        ),
-    )(input)?;
+fn parse_bencoded_integer(input: &[u8]) -> i128 {
+    let mut index = 0;
 
-    let length = number_bytes.len();
-    let number: i64 = std::str::from_utf8(number_bytes)
-        .unwrap()
-        .parse::<i64>()
-        .unwrap();
+    if input.is_empty() {
+        panic!("Invalid bencoded integer: empty input");
+    }
+    
+    if input[index] == b'i' {
+        index += 1;
+    }
+    else{
+        panic!("Invalid bencoded integer: missing 'i' prefix");
+    }
 
-    Ok((remaining, (number, length)))
+    let mut number = String::new();
+    while input[index].is_ascii_digit() {
+        number.push(input[index] as char);
+        index += 1;
+    }
+
+    if number.starts_with('0') && number.len() > 1 {
+        panic!("Invalid bencoded integer: leading zeros");
+    }
+
+    if input[index] == b'e' {
+        if number.is_empty() {
+            panic!("Invalid bencoded integer: parsing an empty number");
+        }
+        number.parse::<i128>().unwrap()
+    }
+    else if input[index] == b'-' {
+        panic!("Invalid bencoded integer: negative integer")
+    }
+    else {
+        panic!("Invalid bencoded integer: missing 'e' suffix")
+    }
 }
 
-
-fn parse_integer(input: &[u8]) -> IResult<&[u8], (i64, usize)> {
-    // Parse a number with length from 1 to 10
-    let (remaining, number_bytes) = take_while_m_n(1, 10, |c| c >= b'0' && c <= b'9')(input)?;
+fn parse_integer(input: &[u8]) -> i128 {
+    if input.is_empty() {
+        panic!("Invalid integer: empty input");
+    }
     
-    let length = number_bytes.len();
-    let number = std::str::from_utf8(number_bytes)
-        .unwrap()
-        .parse::<i64>()
-        .unwrap();
+    if input[0] == b'-' {
+        panic!("Invalid integer: negative integer")
+    }
 
-    Ok((remaining, (number, length)))
+    let mut number = String::new();
+    for i in input {
+        if !i.is_ascii_digit() {
+            break;
+        }
+        number.push(*i as char);
+    }
+
+    if number.is_empty() {
+        panic!("Invalid integer: parsing an non-number");
+    }
+
+    if number.starts_with('0') && number.len() > 1 {
+        panic!("Invalid integer: leading zeros");
+    }
+
+    number.parse::<i128>().unwrap()
 }
 
 fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
-    
+    let torrent_file_len = torrent_file.len();    
+
     *cur_index += 1; // byte 'd'
     let mut dict = BencodedValue::Dict(HashMap::new());
 
     let mut key = String::new();
-    while torrent_file[*cur_index] != b'e' {
+    loop {
+        if torrent_file_len <= *cur_index {
+            panic!("Invalid torrent file: too short")
+        }
 
-        if torrent_file[*cur_index] == b'd' {
+        if torrent_file[*cur_index] == b'e' {
+            break;
+        }
+        else if torrent_file[*cur_index] == b'd' {
             if key.is_empty() {
                 panic!("[Error] Trying to parse a dict with an empty key");
             }
@@ -240,31 +259,23 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
             key.clear();
         }
         else {
-            let word_len: usize; 
-            match parse_integer(&torrent_file[*cur_index..]) {
-                Ok((_, (num, num_len))) => {
-                    *cur_index += num_len;
-                    word_len = num as usize;
-                },
-                Err(e) => panic!("[Error] Can't parse integer at index {cur_index} with error message: {e}\nTrying to parse a word for dictionary")
-            }
-    
-            *cur_index += 1; // byte ':'
+            let word_len = parse_integer(&torrent_file[*cur_index..]) as usize;
+            let word_len_chars_len: usize = (word_len.checked_ilog10().unwrap_or(0) + 1) as usize;
+
+            *cur_index += word_len_chars_len + 1; // + 1 for the ':' byte
     
             if key.is_empty() {
                 let str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index+word_len]).expect("Couldn't parse a key value from a UTF-8 encoded byte array while parsing a dictionary");
                 key = String::from(str_slice);
+
                 *cur_index += word_len;
             }
             else {
-                let word: String; 
-    
                 if key == "pieces" {
                     if word_len % 20 != 0 {
                         panic!("[Error] Invalid number of bytes in pieces");
                     }
-                    let byte_string = torrent_file[*cur_index..*cur_index+word_len].to_vec();
-
+                    let byte_string = torrent_file[*cur_index..*cur_index + word_len].to_vec();
                     let split_bytes: Vec<Sha1Hash> = byte_string
                         .chunks_exact(20)
                         .map(|chunk| {
@@ -274,9 +285,9 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
                         })
                         .collect();
 
-                    dict.insert_into_dict(key.clone(), BencodedValue::ByteString(split_bytes));
                     *cur_index += word_len;
 
+                    dict.insert_into_dict(key.clone(), BencodedValue::ByteString(split_bytes));
                 }
                 else {
                     if key.is_empty() {
@@ -284,11 +295,11 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
                     }
 
                     let str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index+word_len]).expect("Couldn't parse a word value from a UTF-8 encoded byte array while parsing a dictionary");
-                    word = String::from(str_slice);
+                    let word = String::from(str_slice);
     
-                    dict.insert_into_dict(key.clone(), BencodedValue::String(word));
-                    
                     *cur_index += word_len;
+
+                    dict.insert_into_dict(key.clone(), BencodedValue::String(word));
                 }
                 key.clear();
             }
@@ -300,13 +311,21 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
 }
 
 fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
-    
+    let torrent_file_len = torrent_file.len();
+
+
     *cur_index += 1; // byte 'l'
     let mut list = BencodedValue::List(Vec::new());
 
-    while torrent_file[*cur_index] != b'e' {
+    loop {
+        if torrent_file_len <= *cur_index {
+            panic!("Invalid torrent file: too short")
+        }
 
-        if torrent_file[*cur_index] == b'd' {
+        if torrent_file[*cur_index] == b'e' {
+            break;
+        }
+        else if torrent_file[*cur_index] == b'd' {
             list.insert_into_list(create_dict(torrent_file, cur_index));
         }
         else if torrent_file[*cur_index] == b'l' {
@@ -316,42 +335,275 @@ fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
             list.insert_into_list(create_int(torrent_file, cur_index));
         }
         else {
-            let word: String; 
-            let word_len: usize; 
+            let word_len = parse_integer(&torrent_file[*cur_index..]) as usize;
+            let word_len_chars_len: usize = (word_len.checked_ilog10().unwrap_or(0) + 1) as usize;
+
+            *cur_index += word_len_chars_len + 1; // + 1 for the ':' byte
             
-            match parse_integer(&torrent_file[*cur_index..]) {
-                Ok((_, (num, num_len))) => {
-                    *cur_index += num_len;
-                    word_len = num as usize;
-                },
-                Err(e) => panic!("[Error] Can't parse integer at index {cur_index} with error message: {e}\nTrying to parse a word for list")
-            }
-    
-            *cur_index += 1; // byte ':'
-            
-    
-            let str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index+word_len]).expect("Couldn't parse a word value from a UTF-8 encoded byte array while parsing a list");
-            word = String::from(str_slice);
-    
-            list.insert_into_list(BencodedValue::String(word));
+            let word_str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index + word_len]).expect("Couldn't parse a word value from a UTF-8 encoded byte array while parsing a list");
+            let word = String::from(word_str_slice);
             
             *cur_index += word_len;
+
+            list.insert_into_list(BencodedValue::String(word));
         }
     }
     *cur_index += 1; // byte 'e'
+
+
 
     list
 }
 
 fn create_int(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
+    let num = parse_bencoded_integer(&torrent_file[*cur_index..]);
+    
+    let len_of_the_num: usize = (num.checked_ilog10().unwrap_or(0) + 1) as usize;
+    *cur_index += len_of_the_num + 2; // + 2 for the 'i' and 'e' bytes
 
-    match parse_bencoded_integer(&torrent_file[*cur_index..]) {
-        Ok((_, (num, num_len))) => {
-            *cur_index += num_len + 2; // including the 'i' and 'e' bytes
-            return BencodedValue::Integer(num);
-        },
-        Err(e) => eprintln!("Error parsing bencoded value: {e}\nUsed 0 for integer")
+    BencodedValue::Integer(num)
+}
+
+mod tests {
+    use crate::torrent_file;
+
+    use super::*;
+    
+    #[test]
+    fn test_parse_integer() {
+        let input = b"123";
+        let result = parse_integer(input);
+        assert_eq!(result, 123);
+
+        let input = b"123456789123456789123456789123456789123";
+        let result = parse_integer(input);
+        assert_eq!(result, 123456789123456789123456789123456789123);
+
+        let input = b"0";
+        let result = parse_integer(input);
+        assert_eq!(result, 0);
     }
 
-    BencodedValue::Integer(0)
+    #[test]
+    #[should_panic(expected = "Invalid integer: negative integer")]
+    fn test_parse_integer_negative_int() {
+        let input = b"-123";
+        let _result = parse_integer(input);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid integer: empty input")]
+    fn test_parse_integer_empty_input() {
+        let input = b"";
+        let _result = parse_integer(input);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid integer: leading zeros")]
+    fn test_parse_integer_leading_zeros() {
+        let input = b"0123";
+        let _result = parse_integer(input);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid integer: parsing an non-number")]
+    fn test_parse_integer_non_number() {
+        let input = b"abc";
+        let _result = parse_integer(input);
+    }
+
+    #[test]
+    fn test_parse_bencoded_integer() {
+        let input = b"i123e";
+        let result = parse_bencoded_integer(input);
+        assert_eq!(result, 123);
+
+        let input = b"i123456789123456789123456789123456789123e";
+        let result = parse_bencoded_integer(input);
+        assert_eq!(result, 123456789123456789123456789123456789123);
+
+        let input = b"i0e";
+        let result = parse_bencoded_integer(input);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: negative integer")]
+    fn test_parse_bencoded_integer_negative_int() {
+        let input = b"i-123e";
+        let _result = parse_bencoded_integer(input);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: missing 'i' prefix")]
+    fn test_parse_bencoded_integer_missing_i() {
+        let input = b"123e";
+        let _result = parse_bencoded_integer(input);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: missing 'e' suffix")]
+    fn test_parse_bencoded_integer_missing_e() {
+        let input = b"i123d";
+        let _result = parse_bencoded_integer(input);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: parsing an empty number")]
+    fn test_parse_bencoded_integer_empty_number() {
+        let input = b"ie";
+        let _result = parse_bencoded_integer(input);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: leading zeros")]
+    fn test_parse_bencoded_integer_leading_zeros() {
+        let input = b"i0123e";
+        let _result = parse_bencoded_integer(input);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: empty input")]
+    fn test_parse_bencoded_integer_empty_input() {
+        let input = b"";
+        let _result = parse_bencoded_integer(input);
+    }
+
+    #[test]
+    fn test_create_int() {
+        let input = b"i123e";
+        let mut cur_index = 0;
+        let result = create_int(input, &mut cur_index);
+        assert_eq!(result, BencodedValue::Integer(123));
+        assert_eq!(cur_index, 5);
+
+        let input = b"i123456789123456789123456789123456789123e";
+        let mut cur_index = 0;
+        let result = create_int(input, &mut cur_index);
+        assert_eq!(result, BencodedValue::Integer(123456789123456789123456789123456789123));
+        assert_eq!(cur_index, 41);
+
+        let input = b"i0e";
+        let mut cur_index = 0;
+        let result = create_int(input, &mut cur_index);
+        assert_eq!(result, BencodedValue::Integer(0));
+        assert_eq!(cur_index, 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: negative integer")]
+    fn test_create_int_negative_int() {
+        let input = b"i-123e";
+        let _result = create_int(input, &mut 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: missing 'i' prefix")]
+    fn test_create_int_missing_i() {
+        let input = b"123e";
+        let _result = create_int(input, &mut 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: missing 'e' suffix")]
+    fn test_create_int_missing_e() {
+        let input = b"i123d";
+        let _result = create_int(input, &mut 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: parsing an empty number")]
+    fn test_create_int_empty_number() {
+        let input = b"ie";
+        let _result = create_int(input, &mut 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: leading zeros")]
+    fn test_create_int_leading_zeros() {
+        let input = b"i0123e";
+        let _result = create_int(input, &mut 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid bencoded integer: empty input")]
+    fn test_create_int_empty_input() {
+        let input = b"";
+        let _result = create_int(input, &mut 0);
+    }
+
+    #[test]
+    fn test_create_dict() {
+        let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
+
+        let _dict = create_dict(&torrent_file, &mut 0);
+
+        assert!(true);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid torrent file: too short")]
+    fn test_create_dict_torrent_file_too_short() {
+        let torrent_file = "d8:announce5:url:)3:inti89e".as_bytes();
+
+        let _dict = create_dict(&torrent_file, &mut 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "[Error] Trying to parse a dict with an empty key")]
+    fn test_create_dict_empty_key_dict() {
+        let torrent_file = "dd8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
+
+        let _dict = create_dict(&torrent_file, &mut 0);
+    }
+
+
+    #[test]
+    fn test_create_list() {
+        let torrent_file = "l4:spami90elee".as_bytes();
+
+        let list = create_list(&torrent_file, &mut 0);
+        let list_valid = BencodedValue::List(vec![BencodedValue::String(String::from("spam")), BencodedValue::Integer(90), BencodedValue::List(Vec::new())]);
+
+        assert_eq!(list_valid, list);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid torrent file: too short")]
+    fn test_create_list_torrent_file_too_short() {
+        let torrent_file = "l4:spami90ele".as_bytes();
+
+        let list = create_list(&torrent_file, &mut 0);
+        let list_valid = BencodedValue::List(vec![BencodedValue::String(String::from("spam")), BencodedValue::Integer(90), BencodedValue::List(Vec::new())]);
+
+        assert_eq!(list_valid, list);
+    }
+
+    #[test]
+    fn test_to_bencoded_dict() {
+        let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
+        let dict: BencodedValue = parse_torrent_file(torrent_file);
+
+        let torrent_file = parse_to_torrent_file(&dict);
+
+        let new_torrent_file = String::from_utf8(torrent_file).unwrap();
+
+        let _new_dict: BencodedValue = parse_torrent_file(new_torrent_file.as_bytes());
+
+        assert!(true);
+    }
+
+    #[test]
+    fn test_to_bencoded_list() {
+        let torrent_file = "l4:spami90elee".as_bytes();
+
+        let list = create_list(&torrent_file, &mut 0);
+
+        let bencoded_list = to_bencoded_list(&list);
+
+        assert_eq!(bencoded_list, torrent_file);
+    }
+
 }
+
+

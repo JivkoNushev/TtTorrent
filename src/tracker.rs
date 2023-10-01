@@ -6,7 +6,7 @@ use sha1::{Sha1, Digest};
 fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     let mut hasher = Sha1::new();
     hasher.update(value);
-    Sha1Hash::new(hasher.finalize().into())
+    Sha1Hash::new(&hasher.finalize())
 }   
 
 // TODO: Change to Result type not Option
