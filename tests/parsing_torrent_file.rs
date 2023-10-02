@@ -229,12 +229,13 @@ fn test_is_valid_torrent_file_invalid() {
 
 #[test]
 fn test_parse_torrent_file() {
-    let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
+    let torrent_file = "d8:announce5:url:)4:infod6:lengthi89e4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
 
     let _torrent_file = parse_torrent_file(&torrent_file);
 
     assert!(true);
 }
+
 
 #[test]
 #[should_panic(expected = "[Error] Invalid dictionary: doesn't have all the required keys")]
@@ -246,11 +247,11 @@ fn test_parse_torrent_file_invalid() {
 
 #[test]
 fn test_parse_to_torrent_file() {
-    let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
+    let torrent_file = "d8:announce5:url:)4:infod6:lengthi89e4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
 
-    let torrent_file = parse_torrent_file(&torrent_file);
+    let torrent_file_struct = parse_torrent_file(&torrent_file);
 
-    let _torrent_file = parse_to_torrent_file(&torrent_file);
+    let new_torrent_file = parse_to_torrent_file(&torrent_file_struct);
 
-    assert!(true);
+    assert_eq!(torrent_file, new_torrent_file);
 }

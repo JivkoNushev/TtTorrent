@@ -26,7 +26,6 @@ fn create_tracker_url(torrent_file: &mut BencodedValue) -> Option<String> {
         tracker_url.push_str("?info_hash=");
         tracker_url.push_str(&hashed_dict_url_encoded);
         tracker_url.push_str("&peer_id=1&port=6881&uploaded=0&downloaded=0&left=0&compact=1&event=started");
-        println!("URL: {}", tracker_url);
         Some(tracker_url)
     }
     else {
@@ -34,14 +33,17 @@ fn create_tracker_url(torrent_file: &mut BencodedValue) -> Option<String> {
     }
 }
 
+use std::io::Read;
+
 pub fn get_peers(torrent_file: &mut BencodedValue) {
     let url = create_tracker_url(torrent_file).unwrap();
 
-    let res = reqwest::blocking::get(&url).unwrap();
-    println!("Status: {}", res.status());
-    println!("Headers:\n{:#?}", res.headers());
+    println!("URL: {}", url);
 
-    let body = res.text().unwrap();
-    println!("Body:\n{}", body);
+    let mut res = reqwest::blocking::get(url).unwrap();
+    let mut body = String::new();
+    res.read_to_string(&mut body).unwrap();
+
+    println!("Body:\n{:?}", res);
 
 }

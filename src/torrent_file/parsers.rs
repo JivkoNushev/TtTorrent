@@ -20,18 +20,24 @@ fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
     let mut bencoded_string: Vec<u8> = Vec::new();
     if let BencodedValue::Dict(d) = bencoded_dict {
         bencoded_string.push('d' as u8);
-        for (key, value) in d {
+
+        let mut keys = d.keys().collect::<Vec<&String>>();
+        keys.sort();
+
+        for key in keys {
+            let value = d.get(key).expect("Couldn't get a value from a dictionary with key");
+
             // append the len of the key
             let key_len = key.len().to_string();
             let mut key_len = key_len.as_bytes().to_vec();
             bencoded_string.append(&mut key_len);
-
+    
             // append the ':'
             bencoded_string.push(':' as u8);
-
+    
             // append key
             bencoded_string.append(&mut key.clone().as_bytes().to_vec());
-
+    
             match value {
                 BencodedValue::ByteString(byte_string) => {
                     // append the len of the word
@@ -39,10 +45,10 @@ fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
                     let word_len = word_len.to_string();
                     let mut word_len = word_len.as_bytes().to_vec();
                     bencoded_string.append(&mut word_len);
-
+    
                     // append the ':'
                     bencoded_string.push(':' as u8);
-
+    
                     for sha1hash in byte_string {
                         bencoded_string.append(&mut sha1hash.0.clone().to_vec());
                     }
@@ -50,20 +56,20 @@ fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
                 BencodedValue::Integer(integer) => {
                     // append bencoded integer
                     bencoded_string.push('i' as u8);
-
+    
                     let mut word = integer.clone().to_string().as_bytes().to_vec();
                     bencoded_string.append(&mut word);
-
+    
                     bencoded_string.push('e' as u8);
                 }
                 BencodedValue::List(_list) => {
                     let mut bencoded_l = to_bencoded_list(&value);
-
+    
                     bencoded_string.append(&mut bencoded_l);
                 }
                 BencodedValue::Dict(_dict) => {
                     let mut bencoded_d = to_bencoded_dict(&value);
-
+    
                     bencoded_string.append(&mut bencoded_d);
                 }
                 BencodedValue::String(string) => {
@@ -71,12 +77,12 @@ fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
                     let word_len = string.len().to_string();
                     let mut word_len = word_len.as_bytes().to_vec();
                     bencoded_string.append(&mut word_len);
-
+    
                     // append the ':'
                     bencoded_string.push(':' as u8);
-
+    
                     bencoded_string.append(&mut string.clone().as_bytes().to_vec());
-
+    
                 }
                 _ => panic!("Invalid BencodedValue type")
             }
