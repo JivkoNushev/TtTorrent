@@ -33,10 +33,26 @@ fn create_tracker_url(torrent_file: &mut BencodedValue) -> Option<String> {
     }
 }
 
+#[derive(Default)]
 struct Peer {
     id: String,
     address: String,
-    port: String
+    port: String,
+    am_choking: bool,
+    am_interested: bool,
+    peer_choking: bool,
+    peer_interested: bool,
+}
+
+impl Peer {
+    pub fn new() -> Peer {
+        Peer::default()
+    }
+
+    // needs to be async
+    pub fn download(&self) {
+
+    }
 }
 
 pub fn get_peers(torrent_file: &mut BencodedValue) {
