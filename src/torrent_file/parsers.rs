@@ -1,6 +1,10 @@
-use std::{collections::HashMap, fmt::Error};
+use std::{collections::BTreeMap, fmt::Error};
 
-use super::{BencodedValue, Sha1Hash};
+use super::{BencodedValue, Sha1Hash, PeerAddress};
+
+pub fn parse_tracker_response(torrent_file: &[u8]) -> BencodedValue {
+    create_dict(torrent_file, &mut 0)
+}
 
 pub fn parse_torrent_file(torrent_file: &[u8]) -> BencodedValue {
     let dict = create_dict(torrent_file, &mut 0);
@@ -20,13 +24,8 @@ fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
     let mut bencoded_string: Vec<u8> = Vec::new();
     if let BencodedValue::Dict(d) = bencoded_dict {
         bencoded_string.push('d' as u8);
-
-        let mut keys = d.keys().collect::<Vec<&String>>();
-        keys.sort();
-
-        for key in keys {
-            let value = d.get(key).expect("Couldn't get a value from a dictionary with key");
-
+        
+        for (key, value) in d {
             // append the len of the key
             let key_len = key.len().to_string();
             let mut key_len = key_len.as_bytes().to_vec();
@@ -39,7 +38,7 @@ fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
             bencoded_string.append(&mut key.clone().as_bytes().to_vec());
     
             match value {
-                BencodedValue::ByteString(byte_string) => {
+                BencodedValue::ByteSha1Hashes(byte_string) => {
                     // append the len of the word
                     let word_len = byte_string.len() * 20;
                     let word_len = word_len.to_string();
@@ -102,7 +101,7 @@ fn to_bencoded_list(bencoded_list: &BencodedValue) -> Vec<u8> {
         bencoded_string.push('l' as u8);
         for value in l {
             match value {
-                BencodedValue::ByteString(byte_string) => {
+                BencodedValue::ByteSha1Hashes(byte_string) => {
                     // append the len of the word
                     let word_len = byte_string.len() * 20;
                     let word_len = word_len.to_string();
@@ -229,7 +228,7 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
     let torrent_file_len = torrent_file.len();    
 
     *cur_index += 1; // byte 'd'
-    let mut dict = BencodedValue::Dict(HashMap::new());
+    let mut dict = BencodedValue::Dict(BTreeMap::new());
 
     let mut key = String::new();
     loop {
@@ -293,7 +292,26 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
 
                     *cur_index += word_len;
 
-                    dict.insert_into_dict(key.clone(), BencodedValue::ByteString(split_bytes));
+                    dict.insert_into_dict(key.clone(), BencodedValue::ByteSha1Hashes(split_bytes));
+                }
+                else if key == "peers" {
+                    if word_len % 6 != 0 {
+                        panic!("[Error] Invalid number of bytes in peers");
+                    }
+
+                    let byte_string = torrent_file[*cur_index..*cur_index + word_len].to_vec();
+                    let split_bytes: Vec<PeerAddress> = byte_string
+                        .chunks_exact(6)
+                        .map(|chunk| {
+                            let mut ip_port_chunk: [u8; 6] = [0; 6];
+                            ip_port_chunk.copy_from_slice(chunk);
+                            PeerAddress::new(ip_port_chunk)
+                        })
+                        .collect();
+
+                    *cur_index += word_len;
+
+                    dict.insert_into_dict(key.clone(), BencodedValue::ByteAddresses(split_bytes));
                 }
                 else {
                     if key.is_empty() {

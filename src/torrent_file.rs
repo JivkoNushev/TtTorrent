@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::{Result, Read};
 use urlencoding::encode as urlencode;
 use percent_encoding::{utf8_percent_encode, percent_encode};
@@ -7,7 +7,7 @@ use hex::encode;
 
 pub mod parsers;
 
-pub use parsers::{ parse_torrent_file, parse_to_torrent_file };
+pub use parsers::{ parse_torrent_file, parse_to_torrent_file, parse_tracker_response };
 
 /// Represents a SHA-1 hash as an array of 20 bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +42,24 @@ impl Sha1Hash {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerAddress(String, String);
+
+use byteorder::{ByteOrder, BigEndian};
+
+impl PeerAddress {
+    pub fn new(peerAddress: [u8;6]) -> PeerAddress {
+        let mut ip = String::new();
+        for i in &peerAddress[..4] {
+            ip.push_str(&i.to_string());
+            ip.push('.');
+        }
+        ip.pop();
+        let port = BigEndian::read_u16(&peerAddress[4..]).to_string();        
+
+        PeerAddress(ip, port)
+    }
+}
 
 /// Represents a value in the Bencode format.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,13 +68,16 @@ pub enum BencodedValue {
     Integer(i128),
 
     /// Represents a Bencoded byte string as a list of SHA-1 hashes.
-    ByteString(Vec<Sha1Hash>),
+    ByteSha1Hashes(Vec<Sha1Hash>),
+
+    /// Represents a Bencoded byte string as a list of SHA-1 hashes.
+    ByteAddresses(Vec<PeerAddress>),
 
     /// Represents a Bencoded list of values.
     List(Vec<BencodedValue>),
 
     /// Represents a Bencoded dictionary (key-value pairs).
-    Dict(HashMap<String, BencodedValue>),
+    Dict(BTreeMap<String, BencodedValue>),
 
     /// Represents a Bencoded string.
     String(String),

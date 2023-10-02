@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use TtTorrent::torrent_file::{read_file_as_bytes, Sha1Hash, BencodedValue, parse_torrent_file, parse_to_torrent_file};
 
@@ -66,7 +66,7 @@ fn test_sha1hash_as_url_encoded() {
 
 #[test]
 fn test_bencodedvalue_get_from_dict() {
-    let mut hashmap = HashMap::new();
+    let mut hashmap = BTreeMap::new();
     hashmap.insert(String::from("key"), BencodedValue::Integer(1));
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
@@ -77,7 +77,7 @@ fn test_bencodedvalue_get_from_dict() {
 #[test]
 #[should_panic]
 fn test_bencodedvalue_get_from_dict_invalid_key() {
-    let mut hashmap = HashMap::new();
+    let mut hashmap = BTreeMap::new();
     hashmap.insert(String::from("key"), BencodedValue::Integer(1));
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
@@ -96,7 +96,7 @@ fn test_bencodedvalue_get_from_dict_non_dict() {
 #[test]
 fn test_bencodedvalue_into_dict() {
 
-    let mut bencoded_value = BencodedValue::Dict(HashMap::new());
+    let mut bencoded_value = BencodedValue::Dict(BTreeMap::new());
 
     bencoded_value.insert_into_dict("key".to_string(), BencodedValue::Integer(1));
 
@@ -145,9 +145,9 @@ fn test_bencodedvalue_into_list() {
 #[test]
 fn test_is_valid_torrent_file() {
 // one file
-    let mut hashmap = HashMap::new();
+    let mut hashmap = BTreeMap::new();
     hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
-    let mut info: HashMap<String, BencodedValue> = HashMap::new();
+    let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
     info.insert(String::from("name"), BencodedValue::String("name".to_string()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
     info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
@@ -160,20 +160,20 @@ fn test_is_valid_torrent_file() {
     assert!(bencoded_dict.is_valid_torrent_file() == true);
 
 // multiple files
-    let mut hashmap = HashMap::new();
+    let mut hashmap = BTreeMap::new();
     hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
-    let mut info: HashMap<String, BencodedValue> = HashMap::new();
+    let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
     info.insert(String::from("name"), BencodedValue::String("name".to_string()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
     info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
     
     let mut files = Vec::new();
 
-    let mut file1 = HashMap::new();
+    let mut file1 = BTreeMap::new();
     file1.insert(String::from("length"), BencodedValue::Integer(89));
     file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
 
-    let mut file2 = HashMap::new();
+    let mut file2 = BTreeMap::new();
     file2.insert(String::from("length"), BencodedValue::Integer(89));
     file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
 
@@ -191,15 +191,15 @@ fn test_is_valid_torrent_file() {
 
 #[test]
 fn test_is_valid_torrent_file_invalid() {
-    let mut hashmap = HashMap::new();
+    let mut hashmap = BTreeMap::new();
     hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
     assert!(bencoded_dict.is_valid_torrent_file() == false);
 
-    let mut hashmap = HashMap::new();
+    let mut hashmap = BTreeMap::new();
     hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
-    let mut info: HashMap<String, BencodedValue> = HashMap::new();
+    let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
     info.insert(String::from("name"), BencodedValue::String("name".to_string()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
     info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
@@ -207,11 +207,11 @@ fn test_is_valid_torrent_file_invalid() {
     
     let mut files = Vec::new();
 
-    let mut file1 = HashMap::new();
+    let mut file1 = BTreeMap::new();
     file1.insert(String::from("length"), BencodedValue::Integer(89));
     file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
 
-    let mut file2 = HashMap::new();
+    let mut file2 = BTreeMap::new();
     file2.insert(String::from("length"), BencodedValue::Integer(89));
     file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
 
