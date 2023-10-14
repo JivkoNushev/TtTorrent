@@ -8,7 +8,7 @@ pub fn parse_tracker_response(torrent_file: &[u8]) -> BencodedValue {
 
 pub fn parse_torrent_file(torrent_file: &[u8]) -> BencodedValue {
     let dict = create_dict(torrent_file, &mut 0);
-    if dict.is_valid_torrent_file() {
+    if dict.torrent_file_is_valid() {
         dict
     }
     else {

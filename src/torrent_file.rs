@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{Result, Read};
+use byteorder::{ByteOrder, BigEndian};
+
 use urlencoding::encode as urlencode;
 use percent_encoding::{utf8_percent_encode, percent_encode};
 
@@ -45,7 +47,6 @@ impl Sha1Hash {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerAddress(String, String);
 
-use byteorder::{ByteOrder, BigEndian};
 
 impl PeerAddress {
     pub fn new(peerAddress: [u8;6]) -> PeerAddress {
@@ -58,6 +59,14 @@ impl PeerAddress {
         let port = BigEndian::read_u16(&peerAddress[4..]).to_string();        
 
         PeerAddress(ip, port)
+    }
+
+    pub fn get_ip(&self) -> &String {
+        &self.0
+    }
+
+    pub fn get_port(&self) -> &String {
+        &self.1
     }
 }
 
@@ -124,7 +133,7 @@ impl BencodedValue {
         }
     }
 
-    pub fn is_valid_torrent_file(&self) -> bool{
+    pub fn torrent_file_is_valid(&self) -> bool{
         if let BencodedValue::Dict(d) = self {
             if ["announce", "info"].iter().any(|key| !d.contains_key(*key)) {
                 false

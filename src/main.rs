@@ -33,6 +33,8 @@ fn main() {
 
 
     // Get the tracker info
-    get_peers(&mut torrent_file);
+    let peers = get_peers(&mut torrent_file);
+
+    println!("{:?}", peers);
     
 }

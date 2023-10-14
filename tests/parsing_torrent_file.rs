@@ -157,7 +157,7 @@ fn test_is_valid_torrent_file() {
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
 
-    assert!(bencoded_dict.is_valid_torrent_file() == true);
+    assert!(bencoded_dict.torrent_file_is_valid() == true);
 
 // multiple files
     let mut hashmap = BTreeMap::new();
@@ -186,7 +186,7 @@ fn test_is_valid_torrent_file() {
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
 
-    assert!(bencoded_dict.is_valid_torrent_file() == true);
+    assert!(bencoded_dict.torrent_file_is_valid() == true);
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn test_is_valid_torrent_file_invalid() {
     hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
-    assert!(bencoded_dict.is_valid_torrent_file() == false);
+    assert!(bencoded_dict.torrent_file_is_valid() == false);
 
     let mut hashmap = BTreeMap::new();
     hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
@@ -224,7 +224,7 @@ fn test_is_valid_torrent_file_invalid() {
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
 
-    assert!(bencoded_dict.is_valid_torrent_file() == false);
+    assert!(bencoded_dict.torrent_file_is_valid() == false);
 }
 
 #[test]
