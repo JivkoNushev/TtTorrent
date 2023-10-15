@@ -1,33 +1,19 @@
-mod torrent_file;
-mod utils;
-mod tracker;
-
-use byteorder::BE;
+use TtTorrent::peers::peer_connection::get_peers;
+use TtTorrent::tracker::Tracker;
 use tokio::sync::mpsc;
 
-use tracker::{get_peers};
+use TtTorrent::torrent_file::{BencodedValue, TorrentFile, Sha1Hash};
+use TtTorrent::peers::Peer;
+use TtTorrent::file_download::FileSaver;
 
-use crate::{
-    torrent_file:: {
-        BencodedValue,
-        parse_torrent_file, 
-        read_file_as_bytes,
-        parse_to_torrent_file,
-    }, 
-    tracker:: {
-        Peer, 
-        FileSaver,
-    },
-};
-
-pub async fn download(torrent_file: BencodedValue, peers: Vec<Peer>, mut file_saver: FileSaver) {
+pub async fn download(hashed_info_dict: Sha1Hash, peers: Vec<Peer>, mut file_saver: FileSaver) {
     match tokio::join!(
         file_saver.start(),
         tokio::spawn(async move {
             for peer in peers {
-                let torrent_file_clone = torrent_file.clone();
+                let hashed_info_dict = hashed_info_dict.clone();
                 tokio::spawn(async move {
-                    peer.download(torrent_file_clone).await;
+                    peer.download(hashed_info_dict).await;
                 });
             }
         }),
@@ -40,17 +26,10 @@ pub async fn download(torrent_file: BencodedValue, peers: Vec<Peer>, mut file_sa
 #[tokio::main]
 async fn main() {
 
-    // Read the torrent file into a byte array
-    let torrent_file: Vec<u8> = match read_file_as_bytes("torrent_files/centOS.torrent") {
-        Ok(data) => data,
-        Err(e) => {
-            println!("Error reading torrent file: {:?}", e);
-            return;
-        }
-    };
+    // read the torrent file
+    let mut torrent_file = TorrentFile::new("./torrent_files/centOS.torrent");
 
-    // Parse the torrent file
-    let mut torrent_file: BencodedValue = parse_torrent_file(&torrent_file);
+    let tracker = Tracker::new(&torrent_file);
 
     // Create a channel fot the file saver
     let (tx, rx) = mpsc::channel::<Vec<u8>>(100);
@@ -59,8 +38,8 @@ async fn main() {
     let file_saver = FileSaver::new("newfile".to_string(), rx);
 
     // get the initial peers
-    let peers = get_peers(&mut torrent_file, tx).await;
+    let peers = get_peers(&tracker, tx).await;
     // println!("{:?}", peers);
     
-    download(torrent_file, peers, file_saver).await;
+    download(tracker.get_hashed_info_dict().clone(), peers, file_saver).await;
 }

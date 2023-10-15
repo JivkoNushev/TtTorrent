@@ -1,6 +1,8 @@
-use std::{collections::BTreeMap, fmt::Error};
+use std::collections::BTreeMap;
 
-use super::{BencodedValue, Sha1Hash, PeerAddress};
+use super::{BencodedValue, Sha1Hash};
+
+use crate::peers::PeerAddress;
 
 pub fn parse_tracker_response(torrent_file: &[u8]) -> BencodedValue {
     create_dict(torrent_file, &mut 0)
@@ -389,8 +391,6 @@ fn create_int(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
 }
 
 mod tests {
-    use crate::torrent_file;
-
     use super::*;
     
     #[test]

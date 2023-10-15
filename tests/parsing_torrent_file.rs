@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use TtTorrent::torrent_file::{read_file_as_bytes, Sha1Hash, BencodedValue, parse_torrent_file, parse_to_torrent_file};
+use TtTorrent::{
+    torrent_file::{Sha1Hash, BencodedValue, parse_torrent_file, parse_to_torrent_file}, 
+    utils::read_file_as_bytes
+};
 
 #[test]
 fn test_read_file_as_bytes() {

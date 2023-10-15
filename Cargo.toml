@@ -14,3 +14,4 @@ percent-encoding = "2.3.0"
 http = "0.2.9"
 byteorder = "1.4.3"
 tokio = {versio = "1.33.0", features = ["full"]} 
+anyhow = "1.0.75"

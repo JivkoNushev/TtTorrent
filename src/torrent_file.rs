@@ -1,20 +1,33 @@
 use std::collections::BTreeMap;
-use std::io::{Result, Read};
-use byteorder::{ByteOrder, BigEndian};
-
-use urlencoding::encode as urlencode;
-use percent_encoding::{utf8_percent_encode, percent_encode};
-
+use percent_encoding::percent_encode;
 use hex::encode;
 
 pub mod parsers;
-
 pub use parsers::{ parse_torrent_file, parse_to_torrent_file, parse_tracker_response };
+
+use crate::peers::PeerAddress;
+use crate::utils::read_file_as_bytes;
+
+pub struct TorrentFile {
+    bencoded_dict: BencodedValue
+} 
+impl TorrentFile {
+    pub fn new(torrent_file_name: &str) -> TorrentFile {
+        let torrent_file: Vec<u8> = match read_file_as_bytes(&torrent_file_name) {
+            Ok(data) => data,
+            Err(e) => panic!("Error reading torrent file: {:?}", e)
+        };
+        TorrentFile { bencoded_dict: parse_torrent_file(&torrent_file) }
+    }
+
+    pub fn get_bencoded_dict(&self) -> &BencodedValue {
+        &self.bencoded_dict
+    }
+}
 
 /// Represents a SHA-1 hash as an array of 20 bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sha1Hash([u8; 20]);
-
 impl Sha1Hash {
 
     pub fn new(hash: &[u8]) -> Sha1Hash {
@@ -44,32 +57,6 @@ impl Sha1Hash {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PeerAddress(String, String);
-
-
-impl PeerAddress {
-    pub fn new(peerAddress: [u8;6]) -> PeerAddress {
-        let mut ip = String::new();
-        for i in &peerAddress[..4] {
-            ip.push_str(&i.to_string());
-            ip.push('.');
-        }
-        ip.pop();
-        let port = BigEndian::read_u16(&peerAddress[4..]).to_string();        
-
-        PeerAddress(ip, port)
-    }
-
-    pub fn get_ip(&self) -> &String {
-        &self.0
-    }
-
-    pub fn get_port(&self) -> &String {
-        &self.1
-    }
-}
-
 /// Represents a value in the Bencode format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BencodedValue {
@@ -91,7 +78,6 @@ pub enum BencodedValue {
     /// Represents a Bencoded string.
     String(String),
 }
-
 impl BencodedValue {
     pub fn insert_into_dict(&mut self, key: String, value: BencodedValue) {
         if let BencodedValue::Dict(d) = self {
@@ -105,6 +91,7 @@ impl BencodedValue {
         }
     }
 
+    // TODO: maybe return Result types for the getters
     pub fn get_from_dict(&self, key: &str) -> BencodedValue {
         if let BencodedValue::Dict(d) = self {
             if let Some(value) = d.get(key) {
@@ -183,11 +170,3 @@ impl BencodedValue {
     }
 }
 
-pub fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    let mut file = std::fs::File::open(path)?;
-
-    file.read_to_end(&mut buf)?;
-
-    Ok(buf)
-}
