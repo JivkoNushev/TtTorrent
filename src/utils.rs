@@ -18,3 +18,7 @@ pub fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
 
     Ok(buf)
 }
+
+pub fn print_as_string(char_vec: &Vec<u8>) {
+    println!("{}", char_vec.iter().map(|&c| c as char).collect::<String>());
+}

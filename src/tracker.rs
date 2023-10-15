@@ -5,7 +5,9 @@ use tracker_connection::{tracker_url_get, tracker_params_default};
 
 use self::tracker_connection::tracker_hashed_info_dict_get;
 
+#[derive(Debug, Clone)]
 pub struct Tracker {
+    id: String,
     url: String,
     params: String,
     info_hash: Sha1Hash
@@ -25,6 +27,7 @@ impl Tracker {
         let params = tracker_params_default(&info_hash);
 
         Tracker {
+            id: String::from("M-1-0-0CCCCCCCCCCCCC"),
             url,
             params,
             info_hash
@@ -41,6 +44,10 @@ impl Tracker {
 
     pub fn get_hashed_info_dict(&self) -> &Sha1Hash {
         &self.info_hash
+    }
+
+    pub fn get_id(&self) -> &String {
+        &self.id
     }
 
 

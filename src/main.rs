@@ -1,19 +1,18 @@
-use TtTorrent::peers::peer_connection::get_peers;
-use TtTorrent::tracker::Tracker;
 use tokio::sync::mpsc;
 
-use TtTorrent::torrent_file::{BencodedValue, TorrentFile, Sha1Hash};
-use TtTorrent::peers::Peer;
+use TtTorrent::torrent_file::{TorrentFile, Sha1Hash};
+use TtTorrent::peers::{Peer, get_peers};
 use TtTorrent::file_download::FileSaver;
+use TtTorrent::tracker::Tracker;
 
-pub async fn download(hashed_info_dict: Sha1Hash, peers: Vec<Peer>, mut file_saver: FileSaver) {
+pub async fn download(tracker: Tracker, peers: Vec<Peer>, mut file_saver: FileSaver) {
     match tokio::join!(
         file_saver.start(),
         tokio::spawn(async move {
-            for peer in peers {
-                let hashed_info_dict = hashed_info_dict.clone();
+            for mut peer in peers {
+                let cloned_tracker = tracker.clone();
                 tokio::spawn(async move {
-                    peer.download(hashed_info_dict).await;
+                    peer.download(cloned_tracker).await;
                 });
             }
         }),
@@ -25,7 +24,6 @@ pub async fn download(hashed_info_dict: Sha1Hash, peers: Vec<Peer>, mut file_sav
 
 #[tokio::main]
 async fn main() {
-
     // read the torrent file
     let mut torrent_file = TorrentFile::new("./torrent_files/centOS.torrent");
 
@@ -41,5 +39,5 @@ async fn main() {
     let peers = get_peers(&tracker, tx).await;
     // println!("{:?}", peers);
     
-    download(tracker.get_hashed_info_dict().clone(), peers, file_saver).await;
+    download(tracker.clone() , peers, file_saver).await;
 }

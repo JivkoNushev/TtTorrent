@@ -1,13 +1,13 @@
 use byteorder::{BigEndian, ByteOrder};
 use tokio::{sync::mpsc, io::{AsyncWriteExt, AsyncReadExt}};
 
-use crate::torrent_file::Sha1Hash;
+use crate::{torrent_file::Sha1Hash, utils::print_as_string, tracker::Tracker};
 
 
 pub mod peer_connection;
 pub mod peer_messages;
 
-pub use peer_connection::peer_create_id;
+pub use peer_connection::{peer_create_id, get_peers};
 
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +53,10 @@ impl Peer {
             file_queue: file_queue_tx,
         }
     }
+
+    pub fn set_id(&mut self, id: String) {
+        self.id = id;
+    }
     
     // pub fn choke(&mut self) {
     //     self.am_choking = true;
@@ -86,14 +90,18 @@ impl Peer {
         self.peer_choking = false;
     }
 
-    async fn handshake(&self, stream: &mut tokio::net::TcpStream, hashed_info_dict: Sha1Hash) {
+ 
+
+    async fn handshake(&mut self, stream: &mut tokio::net::TcpStream, tracker: Tracker) {
         // create handshake
         let mut handshake: Vec<u8> = Vec::new();
         handshake.push(19); // len of the protocol
         handshake.append(&mut "BitTorrent protocol".as_bytes().to_vec());
         handshake.append(&mut vec![0 as u8; 8]);
-        handshake.append(&mut hashed_info_dict.get_hash_ref().to_vec());
-        handshake.append(&mut self.id.as_bytes().to_vec());
+        handshake.append(&mut tracker.get_hashed_info_dict().get_hash_ref().to_vec());
+        handshake.append(&mut tracker.get_id().as_bytes().to_vec());
+        println!("size:{} Handshake request: {:?}", handshake.len(), handshake);
+        print_as_string(&handshake);
 
         // send handshake
         stream.write_all(&handshake).await.unwrap();
@@ -107,9 +115,9 @@ impl Peer {
                 return;
             }
         }
-
         println!("Handshake response: {:?}", handshake_response);
-
+        self.set_id(String::from_utf8(handshake_response[48..].to_vec()).unwrap());
+         // start exchanging messages
         loop {
             let message = vec![0 as u8; 4];
             // send keep alive message
@@ -126,18 +134,17 @@ impl Peer {
             tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
         }
 
-
     }
 
-    pub async fn download(&self, hashed_info_dict: Sha1Hash) {
+    pub async fn download(&mut self, tracker: Tracker) {
         // create a tcp connection to the peer
-        loop {
-            let mut stream = tokio::net::TcpStream::connect(format!("{}:{}", self.address, self.port)).await;
+        let mut stream = tokio::net::TcpStream::connect(format!("{}:{}", self.address, self.port)).await;
 
+        loop {
             match stream {
                 Ok(mut stream) => {
                     println!("Connected to peer: {}", self.address);
-                    self.handshake(&mut stream, hashed_info_dict.clone()).await;
+                    self.handshake(&mut stream, tracker.clone()).await;
                     break;
                 },
                 Err(_) => {
@@ -146,7 +153,8 @@ impl Peer {
                 }
             }
         }
+       
+        println!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 
-        // start exchanging messages
     }
 }

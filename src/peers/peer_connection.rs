@@ -22,7 +22,7 @@ pub async fn get_peers(tracker: &Tracker, file_queue_tx: mpsc::Sender<Vec<u8>>) 
             // TODO: try removing the clone for the address
             // TODO: get a specific number of addresses
             for (i, addr) in byte_addresses.into_iter().enumerate() {
-                let peer = Peer::new(addr.clone(), i.to_string(), file_queue_tx.clone());
+                let peer = Peer::new(addr.clone(), peer_create_id(i.to_string()), file_queue_tx.clone());
                 peer_array.push(peer);
             }
         }
