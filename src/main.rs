@@ -6,6 +6,7 @@ use TtTorrent::file_download::FileSaver;
 use TtTorrent::tracker::Tracker;
 
 pub async fn download(tracker: Tracker, peers: Vec<Peer>, mut file_saver: FileSaver) {
+    println!("Starting to download!");
     match tokio::join!(
         file_saver.start(),
         tokio::spawn(async move {

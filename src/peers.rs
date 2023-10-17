@@ -115,26 +115,27 @@ impl Peer {
         }
         println!("Handshake response: {:?}", handshake_response);
         self.set_id(String::from_utf8(handshake_response[48..].to_vec()).unwrap());
-         
-         
+        println!("Peer ID: {}", self.id);
+    }
+
+    pub async fn message(&mut self, stream: &mut tokio::net::TcpStream, tracker: Tracker) {
         // start exchanging messages
         loop {
             let message = vec![0 as u8; 4];
             // send keep alive message
             stream.write_all(&message).await.unwrap();
             println!("Keep alive: {:?}", message);
-    
+
             // receive keep alive message
             let mut keep_alive_response = vec![0; 4];
             stream.read_exact(&mut keep_alive_response).await.unwrap();
-    
+
             println!("Keep alive response: {:?}", keep_alive_response);
-    
+
             // wait 100 seconds
             tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
             println!("after sleep");
         }
-        println!("after loop");
     }
 
     pub async fn download(&mut self, tracker: Tracker) {
@@ -145,13 +146,11 @@ impl Peer {
             Ok(mut stream) => {
                 println!("Connected to peer: {}", self.address);
                 self.handshake(&mut stream, tracker.clone()).await;
+                self.message(&mut stream, tracker.clone()).await
             },
             Err(e) => {
                 println!("Error connecting to peer:{}: {}", self.id, e);
             }
         }
-       
-        println!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-
     }
 }
