@@ -90,8 +90,6 @@ impl Peer {
         self.peer_choking = false;
     }
 
- 
-
     async fn handshake(&mut self, stream: &mut tokio::net::TcpStream, tracker: Tracker) {
         // create handshake
         let mut handshake: Vec<u8> = Vec::new();
@@ -100,11 +98,11 @@ impl Peer {
         handshake.append(&mut vec![0 as u8; 8]);
         handshake.append(&mut tracker.get_hashed_info_dict().get_hash_ref().to_vec());
         handshake.append(&mut tracker.get_id().as_bytes().to_vec());
-        println!("size:{} Handshake request: {:?}", handshake.len(), handshake);
-        print_as_string(&handshake);
 
         // send handshake
         stream.write_all(&handshake).await.unwrap();
+        println!("size:{} Handshake request: {:?}", handshake.len(), handshake);
+        print_as_string(&handshake);
 
         // receive handshake
         let mut handshake_response = vec![0; 68];
@@ -117,7 +115,9 @@ impl Peer {
         }
         println!("Handshake response: {:?}", handshake_response);
         self.set_id(String::from_utf8(handshake_response[48..].to_vec()).unwrap());
-         // start exchanging messages
+         
+         
+        // start exchanging messages
         loop {
             let message = vec![0 as u8; 4];
             // send keep alive message
@@ -132,25 +132,22 @@ impl Peer {
     
             // wait 100 seconds
             tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
+            println!("after sleep");
         }
-
+        println!("after loop");
     }
 
     pub async fn download(&mut self, tracker: Tracker) {
         // create a tcp connection to the peer
         let mut stream = tokio::net::TcpStream::connect(format!("{}:{}", self.address, self.port)).await;
 
-        loop {
-            match stream {
-                Ok(mut stream) => {
-                    println!("Connected to peer: {}", self.address);
-                    self.handshake(&mut stream, tracker.clone()).await;
-                    break;
-                },
-                Err(_) => {
-                    // println!("Error connecting to peer:{}: {}", self.id, e);
-                    continue;
-                }
+        match stream {
+            Ok(mut stream) => {
+                println!("Connected to peer: {}", self.address);
+                self.handshake(&mut stream, tracker.clone()).await;
+            },
+            Err(e) => {
+                println!("Error connecting to peer:{}: {}", self.id, e);
             }
         }
        

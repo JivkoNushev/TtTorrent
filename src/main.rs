@@ -22,10 +22,10 @@ pub async fn download(tracker: Tracker, peers: Vec<Peer>, mut file_saver: FileSa
     };
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     // read the torrent file
-    let mut torrent_file = TorrentFile::new("./torrent_files/centOS.torrent");
+    let mut torrent_file = TorrentFile::new("./torrent_files/the_fanimatrix.torrent");
 
     let tracker = Tracker::new(&torrent_file);
 
