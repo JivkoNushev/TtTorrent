@@ -28,7 +28,7 @@ pub async fn get_peers(tracker: &Tracker, file_queue_tx: mpsc::Sender<Vec<u8>>) 
                 if i > 1 {
                     break;
                 }
-                let peer = Peer::new(addr.clone(), peer_create_id(i.to_string()), file_queue_tx.clone());
+                let peer = Peer::new(addr.clone(), peer_create_id(i.to_string()).as_bytes().try_into().unwrap(), file_queue_tx.clone());
                 peer_array.push(peer);
             }
         }

@@ -31,7 +31,7 @@ impl PeerAddress {
     
 #[derive(Debug)]
 pub struct Peer {
-    id: String,
+    id: [u8;20],
     address: String,
     port: String,
     am_choking: bool,
@@ -41,7 +41,7 @@ pub struct Peer {
     file_queue: mpsc::Sender<Vec<u8>>,
 }
 impl Peer {
-    pub fn new(peer_address: PeerAddress, id: String, file_queue_tx: mpsc::Sender<Vec<u8>>) -> Peer {
+    pub fn new(peer_address: PeerAddress, id: [u8;20], file_queue_tx: mpsc::Sender<Vec<u8>>) -> Peer {
         Peer { 
             id: id, 
             address: peer_address.address,
@@ -54,7 +54,7 @@ impl Peer {
         }
     }
 
-    pub fn set_id(&mut self, id: String) {
+    pub fn set_id(&mut self, id: [u8;20]) {
         self.id = id;
     }
     
@@ -114,28 +114,26 @@ impl Peer {
             }
         }
         println!("Handshake response: {:?}", handshake_response);
-        self.set_id(String::from_utf8(handshake_response[48..].to_vec()).unwrap());
-        println!("Peer ID: {}", self.id);
+        self.set_id(handshake_response[48..].try_into().unwrap());
+        println!("Peer ID: {:?}", self.id);
     }
 
     pub async fn message(&mut self, stream: &mut tokio::net::TcpStream, tracker: Tracker) {
         // start exchanging messages
-        loop {
-            let message = vec![0 as u8; 4];
-            // send keep alive message
-            stream.write_all(&message).await.unwrap();
-            println!("Keep alive: {:?}", message);
+        let message = vec![0 as u8; 4];
+        // send keep alive message
+        stream.write_all(&message).await.unwrap();
+        println!("Keep alive: {:?}", message);
 
-            // receive keep alive message
-            let mut keep_alive_response = vec![0; 4];
-            stream.read_exact(&mut keep_alive_response).await.unwrap();
+        // receive keep alive message
+        let mut keep_alive_response = vec![0; 4];
+        stream.read_exact(&mut keep_alive_response).await.unwrap();
 
-            println!("Keep alive response: {:?}", keep_alive_response);
+        println!("Keep alive response: {:?}", keep_alive_response);
 
-            // wait 100 seconds
-            tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
-            println!("after sleep");
-        }
+        // wait 100 seconds
+        tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
+        println!("after sleep");
     }
 
     pub async fn download(&mut self, tracker: Tracker) {
@@ -149,7 +147,7 @@ impl Peer {
                 self.message(&mut stream, tracker.clone()).await
             },
             Err(e) => {
-                println!("Error connecting to peer:{}: {}", self.id, e);
+                println!("Error connecting to peer:{:?}: {}", self.id, e);
             }
         }
     }
