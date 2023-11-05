@@ -2,7 +2,7 @@ use std::io::Read;
 use sha1::{Sha1, Digest};
 use anyhow::Result;
 
-use crate::torrent_file::Sha1Hash;
+use crate::torrent::torrent_file::Sha1Hash;
 
 pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     let mut hasher = Sha1::new();

@@ -5,9 +5,10 @@ use hex::encode;
 pub mod parsers;
 pub use parsers::{ parse_torrent_file, parse_to_torrent_file, parse_tracker_response };
 
-use crate::peers::PeerAddress;
+use crate::torrent::peer::PeerAddress;
 use crate::utils::read_file_as_bytes;
 
+#[derive(Debug)]
 pub struct TorrentFile {
     bencoded_dict: BencodedValue
 } 

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::{BencodedValue, Sha1Hash};
 
-use crate::peers::PeerAddress;
+use crate::torrent::peer::PeerAddress;
 
 pub fn parse_tracker_response(torrent_file: &[u8]) -> BencodedValue {
     create_dict(torrent_file, &mut 0)

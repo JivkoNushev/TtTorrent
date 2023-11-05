@@ -1,8 +1,8 @@
 use tokio::sync::mpsc;
 
-use crate::{
+use crate::torrent::{
     torrent_file::{BencodedValue, parse_tracker_response}, 
-    tracker::Tracker, utils::print_as_string
+    tracker::Tracker, 
 };
 
 use super::Peer;
@@ -28,7 +28,7 @@ pub async fn get_peers(tracker: &Tracker, file_queue_tx: mpsc::Sender<Vec<u8>>) 
                 if i > 1 {
                     break;
                 }
-                let peer = Peer::new(addr.clone(), i.to_string(), file_queue_tx.clone());
+                let peer = Peer::new(addr.clone(), i, file_queue_tx.clone());
                 peer_array.push(peer);
             }
         }
@@ -43,9 +43,9 @@ pub async fn get_peers(tracker: &Tracker, file_queue_tx: mpsc::Sender<Vec<u8>>) 
     peer_array
 }
 
-pub fn peer_create_id(id: String) -> [u8;20] {
+pub fn peer_create_id(id: usize) -> [u8;20] {
     let mut peer_id = [0u8;20];
-    let mut id_bytes = id.into_bytes();
+    let mut id_bytes = id.to_string().into_bytes();
     id_bytes.resize(20, 0);
     peer_id.copy_from_slice(&id_bytes[..]);
     peer_id

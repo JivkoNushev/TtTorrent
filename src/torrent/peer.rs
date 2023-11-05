@@ -1,14 +1,11 @@
 use byteorder::{BigEndian, ByteOrder};
 use tokio::{sync::mpsc, io::{AsyncWriteExt, AsyncReadExt}};
 
-use crate::{torrent_file::Sha1Hash, utils::print_as_string, tracker::Tracker};
-
-
+use crate::torrent::tracker::Tracker;
+use crate::utils::print_as_string;
+    
 pub mod peer_connection;
-pub mod peer_messages;
-
 pub use peer_connection::{peer_create_id, get_peers};
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerAddress {
@@ -29,7 +26,7 @@ impl PeerAddress {
     }
 }
     
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Peer {
     id: [u8;20],
     address: String,
@@ -41,9 +38,9 @@ pub struct Peer {
     file_queue: mpsc::Sender<Vec<u8>>,
 }
 impl Peer {
-    pub fn new(peer_address: PeerAddress, id: [u8;20], file_queue_tx: mpsc::Sender<Vec<u8>>) -> Peer {
+    pub fn new(peer_address: PeerAddress, id_num: usize, file_queue_tx: mpsc::Sender<Vec<u8>>) -> Peer {
         Peer { 
-            id: peer_create_id(id), 
+            id: peer_create_id(id_num), 
             address: peer_address.address,
             port: peer_address.port,
             am_choking: false, 

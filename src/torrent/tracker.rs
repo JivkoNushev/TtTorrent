@@ -1,4 +1,4 @@
-use crate::torrent_file::{BencodedValue, Sha1Hash, TorrentFile};
+use crate::torrent::torrent_file::{Sha1Hash, TorrentFile};
 
 pub mod tracker_connection;
 use tracker_connection::{tracker_url_get, tracker_params_default};

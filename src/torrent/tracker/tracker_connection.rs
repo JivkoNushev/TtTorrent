@@ -1,9 +1,7 @@
 use anyhow::{Result, bail};
 
-use crate::{
-    torrent_file::{BencodedValue, parse_to_torrent_file, Sha1Hash}, 
-    utils::sha1_hash, peers::peer_create_id
-};
+use crate::torrent::torrent_file::{BencodedValue, parse_to_torrent_file, Sha1Hash};
+use crate::utils::sha1_hash;
 
 pub(super) fn tracker_url_get(bencoded_dict: &BencodedValue) -> Result<String> {
     if let BencodedValue::String(tracker_announce) = bencoded_dict.get_from_dict("announce") {
@@ -20,7 +18,8 @@ pub(super) fn tracker_params_default(hashed_info_dict: &Sha1Hash) -> String {
     params.push_str(&hashed_info_dict.as_url_encoded());
 
     params.push_str("&peer_id=");
-    params.push_str(&String::from_utf8(peer_create_id("M-1-0-0".to_string()).to_vec()).unwrap());
+    
+    params.push_str("M-1-0-0CCCCCCCCCCCCC");
 
     params.push_str("\
                 &port=6881\

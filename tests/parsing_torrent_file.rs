@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use TtTorrent::{
-    torrent_file::{Sha1Hash, BencodedValue, parse_torrent_file, parse_to_torrent_file}, 
+    torrent::torrent_file::{Sha1Hash, BencodedValue, parse_torrent_file, parse_to_torrent_file}, 
     utils::read_file_as_bytes
 };
 
