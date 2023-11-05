@@ -41,7 +41,7 @@ pub struct Peer {
     file_queue: mpsc::Sender<Vec<u8>>,
 }
 impl Peer {
-    pub fn new(peer_address: PeerAddress, id: String, file_queue_tx: mpsc::Sender<Vec<u8>>) -> Peer {
+    pub fn new(peer_address: PeerAddress, id: [u8;20], file_queue_tx: mpsc::Sender<Vec<u8>>) -> Peer {
         Peer { 
             id: peer_create_id(id), 
             address: peer_address.address,
