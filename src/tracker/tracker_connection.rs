@@ -20,7 +20,7 @@ pub(super) fn tracker_params_default(hashed_info_dict: &Sha1Hash) -> String {
     params.push_str(&hashed_info_dict.as_url_encoded());
 
     params.push_str("&peer_id=");
-    params.push_str(&peer_create_id("M-1-0-0".to_string()).as_str());
+    params.push_str(&String::from_utf8(peer_create_id("M-1-0-0".to_string()).to_vec()).unwrap());
 
     params.push_str("\
                 &port=6881\

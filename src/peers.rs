@@ -31,7 +31,7 @@ impl PeerAddress {
     
 #[derive(Debug)]
 pub struct Peer {
-    id: String,
+    id: [u8;20],
     address: String,
     port: String,
     am_choking: bool,
@@ -43,7 +43,7 @@ pub struct Peer {
 impl Peer {
     pub fn new(peer_address: PeerAddress, id: String, file_queue_tx: mpsc::Sender<Vec<u8>>) -> Peer {
         Peer { 
-            id: id, 
+            id: peer_create_id(id), 
             address: peer_address.address,
             port: peer_address.port,
             am_choking: false, 
@@ -54,7 +54,7 @@ impl Peer {
         }
     }
 
-    pub fn set_id(&mut self, id: String) {
+    pub fn set_id(&mut self, id: [u8;20]) {
         self.id = id;
     }
     
@@ -101,7 +101,7 @@ impl Peer {
 
         // send handshake
         stream.write_all(&handshake).await.unwrap();
-        println!("size:{} Handshake request: {:?}", handshake.len(), handshake);
+        println!("size:{} Handshake request for peer {}: {:?}", handshake.len(), self.address, handshake);
         print_as_string(&handshake);
 
         // receive handshake
@@ -113,29 +113,43 @@ impl Peer {
                 return;
             }
         }
-        println!("Handshake response: {:?}", handshake_response);
-        self.set_id(String::from_utf8(handshake_response[48..].to_vec()).unwrap());
-        println!("Peer ID: {}", self.id);
+        println!("Handshake response for peer {}: {:?}", self.address, handshake_response);
+        self.set_id(handshake_response[48..].try_into().unwrap());
+        println!("Peer {} ID added: {:?}", self.address, self.id);
+    }
+
+    async fn request_hash(index: u32, stream: &mut tokio::net::TcpStream, tracker: Tracker) {
+        let size: u32 = 13;
+        let id: u8 = 6;
+        // get the the piece size
+        // let piece_size = tracker.get_torrent_file().get_piece_size();
+        
+        let mut message: Vec<u8> = Vec::new();
+        message.append(&mut size.to_be_bytes().to_vec());
+        message.push(id);
+        message.append(&mut index.to_be_bytes().to_vec());
+        message.append(&mut vec![0 as u8; 4]);
     }
 
     pub async fn message(&mut self, stream: &mut tokio::net::TcpStream, tracker: Tracker) {
         // start exchanging messages
-        loop {
-            let message = vec![0 as u8; 4];
-            // send keep alive message
-            stream.write_all(&message).await.unwrap();
-            println!("Keep alive: {:?}", message);
+        // send interested message
+        let size: u32 = 1;
+        let mut message = Vec::new();
+        message.append(&mut size.to_be_bytes().to_vec());
+        message.push(2);
 
-            // receive keep alive message
-            let mut keep_alive_response = vec![0; 4];
-            stream.read_exact(&mut keep_alive_response).await.unwrap();
+        stream.write_all(&message).await.unwrap();
+        println!("Interested in peer {} : {:?}", self.address, message);
 
-            println!("Keep alive response: {:?}", keep_alive_response);
+        // receive interested message
+        let mut interested_response_length = vec![0; 4];
+        stream.read_exact(&mut interested_response_length).await.unwrap();
 
-            // wait 100 seconds
-            tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
-            println!("after sleep");
-        }
+        let size = BigEndian::read_u32(&interested_response_length);
+        let mut interested_response = vec![0; size as usize];
+        stream.read_exact(&mut interested_response).await.unwrap();
+        println!("Interested response from peer {}: {:?}", self.address, interested_response);
     }
 
     pub async fn download(&mut self, tracker: Tracker) {
@@ -149,8 +163,10 @@ impl Peer {
                 self.message(&mut stream, tracker.clone()).await
             },
             Err(e) => {
-                println!("Error connecting to peer:{}: {}", self.id, e);
+                println!("Error connecting to peer:{:?}: {}", self.id, e);
             }
         }
+
+        println!("Peer {} finished downloading", self.address)
     }
 }

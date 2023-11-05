@@ -28,7 +28,7 @@ pub async fn get_peers(tracker: &Tracker, file_queue_tx: mpsc::Sender<Vec<u8>>) 
                 if i > 1 {
                     break;
                 }
-                let peer = Peer::new(addr.clone(), peer_create_id(i.to_string()), file_queue_tx.clone());
+                let peer = Peer::new(addr.clone(), i.to_string(), file_queue_tx.clone());
                 peer_array.push(peer);
             }
         }
@@ -43,11 +43,10 @@ pub async fn get_peers(tracker: &Tracker, file_queue_tx: mpsc::Sender<Vec<u8>>) 
     peer_array
 }
 
-pub fn peer_create_id(id: String) -> String {
-    let padding_len = 20 - id.len();
-    let mut peer_id = id.clone();
-    let padding: String = vec!['C';padding_len].into_iter().collect();
-    peer_id.push_str(&padding);
-
+pub fn peer_create_id(id: String) -> [u8;20] {
+    let mut peer_id = [0u8;20];
+    let mut id_bytes = id.into_bytes();
+    id_bytes.resize(20, 0);
+    peer_id.copy_from_slice(&id_bytes[..]);
     peer_id
 }

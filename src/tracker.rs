@@ -10,7 +10,7 @@ pub struct Tracker {
     id: String,
     url: String,
     params: String,
-    info_hash: Sha1Hash
+    info_hash: Sha1Hash,
 }
 impl Tracker {
     pub fn new(torrent_file: &TorrentFile) -> Tracker {

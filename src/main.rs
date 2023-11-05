@@ -38,7 +38,7 @@ async fn main() {
 
     // get the initial peers
     let peers = get_peers(&tracker, tx).await;
-    // println!("{:?}", peers);
+    println!("{:?}", peers);
     
     download(tracker.clone() , peers, file_saver).await;
 }
