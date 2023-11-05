@@ -86,14 +86,16 @@ impl Peer {
     pub fn peer_unchoke(&mut self) {
         self.peer_choking = false;
     }
-
     async fn handshake(&mut self, stream: &mut tokio::net::TcpStream, tracker: Tracker) {
+        
+    
         // create handshake
         let mut handshake: Vec<u8> = Vec::new();
         handshake.push(19); // len of the protocol
         handshake.append(&mut "BitTorrent protocol".as_bytes().to_vec());
         handshake.append(&mut vec![0 as u8; 8]);
         handshake.append(&mut tracker.get_hashed_info_dict().get_hash_ref().to_vec());
+        
         handshake.append(&mut tracker.get_id().as_bytes().to_vec());
 
         // send handshake
