@@ -1,17 +1,27 @@
-use TtTorrent::client::Client;
+use TtTorrent::client::{client_get_id, client_add_torrent, client_get_all_torrents};
 use TtTorrent::torrent::Torrent;
 
-pub async fn download(mut torrent: Torrent) {
-    println!("Starting to download!");
-    match tokio::join!(
-        torrent.file_saver.start(),
+use tokio::sync::Mutex;
+use std::sync::Arc;
 
+pub async fn download(torrent: Arc<Mutex<Torrent>>) {
+    println!("Starting to download!");
+
+    let torrent_file_saver = torrent.clone();
+    let mut torrent_file_saver = torrent_file_saver.lock().await;
+
+    let peers = torrent.clone();
+    let peers = peers.lock().await.peers.clone();
+
+    match tokio::join!(
+        torrent_file_saver.file_saver.start(),
         tokio::spawn(async move {
-            for mut peer in torrent.peers {
-                let cloned_tracker = torrent.trackers[0].clone();
+            for peer in peers {
+                let mut cloned_peer = peer.clone();
+                let cloned_torrent = torrent.clone();
+
                 tokio::spawn(async move {
-                    // TODO: pass the torrent file be a man and try harder
-                    peer.download(cloned_tracker).await;
+                    cloned_peer.download(cloned_torrent).await;
                 });
             }
         }),
@@ -26,6 +36,12 @@ pub async fn download(mut torrent: Torrent) {
 async fn main() {
     let torrent = Torrent::new("torrent_files/the_fanimatrix.torrent", "newfile").await;
     println!("{:?}", torrent.peers);
-    
-    download(torrent).await;
+
+    println!("ID: {:?}", client_get_id().await);
+
+    client_add_torrent(torrent);
+
+    for torrent in client_get_all_torrents().await {
+        download(torrent).await;
+    }
 }

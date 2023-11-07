@@ -15,4 +15,5 @@ http = "0.2.9"
 byteorder = "1.4.3"
 tokio = {versio = "1.33.0", features = ["full"]} 
 anyhow = "1.0.75"
-rand = 0.8.5
+rand = "0.8.5"
+lazy_static = "1.4.0"

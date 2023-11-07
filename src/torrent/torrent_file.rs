@@ -1,16 +1,19 @@
 use std::collections::BTreeMap;
 use percent_encoding::percent_encode;
 use hex::encode;
+use anyhow::{Result, bail};
+
 
 pub mod parsers;
 pub use parsers::{ parse_torrent_file, parse_to_torrent_file, parse_tracker_response };
 
 use crate::torrent::peer::PeerAddress;
-use crate::utils::read_file_as_bytes;
+use crate::utils::{read_file_as_bytes, sha1_hash};
 
 #[derive(Debug)]
 pub struct TorrentFile {
-    bencoded_dict: BencodedValue
+    bencoded_dict: BencodedValue,
+    info_hash: Sha1Hash,
 } 
 impl TorrentFile {
     pub fn new(torrent_file_name: &str) -> TorrentFile {
@@ -18,11 +21,32 @@ impl TorrentFile {
             Ok(data) => data,
             Err(e) => panic!("Error reading torrent file: {:?}", e)
         };
-        TorrentFile { bencoded_dict: parse_torrent_file(&torrent_file) }
+
+        let bencoded_dict = parse_torrent_file(&torrent_file);
+        let info_hash = match get_info_hash(&bencoded_dict) {
+            Ok(info_hash) => info_hash,
+            Err(e) => panic!("Error: {e}")
+        };
+
+        TorrentFile { bencoded_dict, info_hash }
     }
 
     pub fn get_bencoded_dict(&self) -> &BencodedValue {
         &self.bencoded_dict
+    }
+
+    pub async fn get_info_hash(&self) -> Sha1Hash {
+        self.info_hash.clone()
+    } 
+}
+
+pub(super) fn get_info_hash(bencoded_dict: &BencodedValue) -> Result<Sha1Hash> {
+    if let BencodedValue::Dict(_) = bencoded_dict.get_from_dict("info") {
+        let bencoded_info_dict = parse_to_torrent_file(&bencoded_dict.get_from_dict("info"));
+        Ok(sha1_hash(bencoded_info_dict))
+    }
+    else {
+        bail!("Invalid dictionary in info key when getting the tracker params")
     }
 }
 

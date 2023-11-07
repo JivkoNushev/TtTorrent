@@ -8,7 +8,7 @@ use crate::torrent::{
 use super::Peer;
 
 pub async fn get_peers(tracker: &Tracker, file_queue_tx: mpsc::Sender<Vec<u8>>) -> Vec<Peer> {
-    let url = tracker.get_url();
+    let url = tracker.get_url().await;
 
     let resp = reqwest::get(url).await.unwrap();
     

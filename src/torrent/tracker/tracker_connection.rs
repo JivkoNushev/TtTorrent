@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 
 use crate::torrent::torrent_file::{BencodedValue, parse_to_torrent_file, Sha1Hash};
-use crate::utils::sha1_hash;
+
 
 pub(super) fn tracker_url_get(bencoded_dict: &BencodedValue) -> Result<String> {
     if let BencodedValue::String(tracker_announce) = bencoded_dict.get_from_dict("announce") {
@@ -33,12 +33,3 @@ pub(super) fn tracker_params_default(hashed_info_dict: &Sha1Hash) -> String {
     params
 }
 
-pub(super) fn tracker_hashed_info_dict_get(bencoded_dict: &BencodedValue) -> Result<Sha1Hash> {
-    if let BencodedValue::Dict(_) = bencoded_dict.get_from_dict("info") {
-        let bencoded_info_dict = parse_to_torrent_file(&bencoded_dict.get_from_dict("info"));
-        Ok(sha1_hash(bencoded_info_dict))
-    }
-    else {
-        bail!("Invalid dictionary in info key when getting the tracker params")
-    }
-}
