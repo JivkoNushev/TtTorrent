@@ -18,4 +18,15 @@ impl Handshake {
             peer_id: peer_id,
         }
     }
+
+    pub fn to_bytes(&self) -> [u8; 68] {
+        let mut handshake: Vec<u8> = Vec::new();
+        handshake.push(self.protocol_len);
+        handshake.append(&mut self.protocol.to_vec());
+        handshake.append(&mut self.reserved.to_vec());
+        handshake.append(&mut self.info_hash.to_vec());
+        handshake.append(&mut self.peer_id.to_vec());
+
+        handshake.try_into().unwrap()
+    }
 }

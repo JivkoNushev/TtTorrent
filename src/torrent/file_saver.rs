@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use tokio::{sync::mpsc, io::AsyncWriteExt};
 
 #[derive(Debug)]

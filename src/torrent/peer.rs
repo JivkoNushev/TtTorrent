@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, ByteOrder};
 use tokio::{sync::mpsc, io::{AsyncWriteExt, AsyncReadExt}, sync::Mutex};
-use std::sync::Arc;
+use std::{sync::Arc, fmt::{Formatter, Display}};
 
 use crate::torrent::Torrent;
 use crate::client::client_get_id;
@@ -157,16 +157,25 @@ impl Peer {
     // }
 
     async fn communicate(&mut self, stream: &mut tokio::net::TcpStream, torrent: Arc<Mutex<Torrent>>) {
+        // send handshake
         let info_hash = torrent.lock().await.torrent_file.get_info_hash().await;
         let peer_id = client_get_id().await;
+        let handshake = Handshake::new(info_hash, peer_id);
+        let mut handshake_response = vec![0; 68];
 
-        Handshake::new(info_hash, peer_id);
+        stream.write_all(&handshake.to_bytes()).await.unwrap();
+        stream.read_exact(&mut handshake_response).await.unwrap();
+
+        println!("Handshake response for peer {}: {:?}", self.address, handshake_response);
+
+
     }
 
     pub async fn download(&mut self, torrent: Arc<Mutex<Torrent>>) {
         // create a tcp connection to the peer
-        let mut stream = tokio::net::TcpStream::connect(format!("{}:{}", self.address, self.port)).await;
-
+        println!("Peer {} connecting...", self.address);
+        let stream = tokio::net::TcpStream::connect(format!("{}:{}", self.address, self.port)).await;
+        
         match stream {
             Ok(mut stream) => {
                 println!("Connected to peer: {}", self.address);
@@ -178,5 +187,11 @@ impl Peer {
         }
 
         println!("Peer {} finished downloading", self.address)
+    }
+}
+
+impl Display for Peer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Peer: {}:{}\nID: {:?}\n", self.address, self.port, self.id)
     }
 }

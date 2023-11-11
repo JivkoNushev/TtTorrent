@@ -8,20 +8,25 @@ pub async fn download(torrent: Arc<Mutex<Torrent>>) {
     println!("Starting to download!");
 
     let torrent_file_saver = torrent.clone();
-    let mut torrent_file_saver = torrent_file_saver.lock().await;
+    let mut guard =  torrent_file_saver.lock().await;
+    let torrent_file_saver = &mut guard.file_saver;
+    println!("first here");
 
     let peers = torrent.clone();
-    let peers = peers.lock().await.peers.clone();
 
+    let peers = &mut peers.lock().await.peers;
+
+    println!("got here");
     match tokio::join!(
-        torrent_file_saver.file_saver.start(),
+        torrent_file_saver.start(),
         tokio::spawn(async move {
-            for peer in peers {
-                let mut cloned_peer = peer.clone();
-                let cloned_torrent = torrent.clone();
+            println!("now here");
 
+            for mut peer in peers {
+                let cloned_torrent = torrent.clone();
                 tokio::spawn(async move {
-                    cloned_peer.download(cloned_torrent).await;
+                    println!("wow here");
+                    peer.download(cloned_torrent).await;
                 });
             }
         }),
@@ -35,11 +40,14 @@ pub async fn download(torrent: Arc<Mutex<Torrent>>) {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let torrent = Torrent::new("torrent_files/the_fanimatrix.torrent", "newfile").await;
-    println!("{:?}", torrent.peers);
+
+    for peer in &torrent.peers {
+        println!("Peer: {}", peer);
+    }
 
     println!("ID: {:?}", client_get_id().await);
 
-    client_add_torrent(torrent);
+    client_add_torrent(torrent).await;
 
     for torrent in client_get_all_torrents().await {
         download(torrent).await;
