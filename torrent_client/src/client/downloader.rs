@@ -39,9 +39,11 @@ impl Downloader {
         let file_writer_handle = self.file_writer;
         let torrents_reader_handle = self.torrents_reader;
 
+        let (rw_tx, rw_rx) = mpsc::channel::<String>(100);
+
         let _ = tokio::join!(
-            torrents_reader_handle.run(),
-            file_writer_handle.run(),
+            torrents_reader_handle.run(rw_tx),
+            file_writer_handle.run(rw_rx),
             tokio::spawn(async move {
                 // println!("Waiting for a command...");
                 while let Some(command) = self.client_rx.recv().await {
