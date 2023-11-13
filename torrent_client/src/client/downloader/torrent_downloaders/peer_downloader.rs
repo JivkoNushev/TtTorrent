@@ -67,7 +67,7 @@ impl PeerDownloaderHandler {
     }
 
     pub async fn run(self) {
-        let msg = format!("Hello from PeerDownloaderHandler: {:?}", self.peer);
+        let msg = format!("Hello from PeerDownloaderHandler: {:?}", self.peer.id);
 
         let _ = self.downloader_tx.send(msg).await.map_err(|e| {
             println!("Error sending from PeerDownloader: {}", e);

@@ -87,14 +87,14 @@ impl TorrentDownloaderHandler {
     }
 
 
-    async fn peer_downloader_recv_msg() -> Option<String> {
+    async fn peer_downloader_recv_msg() -> Option<(String, String)> {
         let mut guard = PEER_DOWNLOADERS.lock().await;
 
         // TODO: async for loop ?
         for (torrent_name, peer_downloaders) in guard.iter_mut() {
             for peer_downloader in peer_downloaders.iter_mut() {
                 if let Some(msg) = &peer_downloader.handler_rx.recv().await {
-                    return Some(msg.clone());
+                    return Some((torrent_name.clone(), msg.clone()));
                 }
             }
         }
@@ -104,12 +104,14 @@ impl TorrentDownloaderHandler {
 
     pub async fn run(mut self) {
         let _ = tokio::join!(
-            (&mut self).download_torrent(),
+            // downloading the torrent file
+            self.download_torrent(),
+            // Receiving messages from the peer downloaders
             tokio::spawn(async move {
-                println!("Waiting for a torrent file data...");
+                println!("Waiting for peer downloader messages...");
                 loop {
-                    if let Some(msg) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
-                        println!("Received peer data: {}", msg);
+                    if let Some((torrent_name, msg)) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
+                        println!("For torrent file '{torrent_name}' Received peer message: {msg}");
                     }
                 }
             }),

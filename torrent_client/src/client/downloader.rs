@@ -16,7 +16,6 @@ pub struct Downloader {
 
 impl Downloader {
     pub async fn new(tx: mpsc::Sender<String>, rx: mpsc::Receiver<String>) -> Downloader {
-        
         Downloader {
             client_tx: tx,
             client_rx: rx,
@@ -26,19 +25,7 @@ impl Downloader {
     async fn torrent_downloaders_push(torrent_downloader: TorrentDownloader) {
         TORRENT_DOWNLOADERS.lock().await.push(torrent_downloader);
     }
-
-    async fn torrent_downloader_recv_msg() -> Option<String> {
-        let mut guard = TORRENT_DOWNLOADERS.lock().await;
-
-        for torrent_downloader in guard.iter_mut() {
-            if let Some(msg) = &torrent_downloader.handler_rx.recv().await {
-                return Some(msg.clone());
-            }
-        }
-
-        None
-    }
-
+    
     async fn download_torrent(torrent_name: String) {
         let (tx, rx) = mpsc::channel::<String>(100);
 
@@ -54,14 +41,27 @@ impl Downloader {
         });
     }
 
+    async fn torrent_downloader_recv_msg() -> Option<String> {
+        let mut guard = TORRENT_DOWNLOADERS.lock().await;
+
+        for torrent_downloader in guard.iter_mut() {
+            if let Some(msg) = &torrent_downloader.handler_rx.recv().await {
+                return Some(msg.clone());
+            }
+        }
+
+        None
+    }
+
     pub async fn run(mut self) {
         println!("Hello from downloader");
 
         let _ = tokio::join!(
+            // Downloading given torrent files
             tokio::spawn(async move {
                 println!("Waiting for a torrent file...");
                 loop {
-                    if let Some(torrent_file) = (&mut self).client_rx.recv().await {
+                    if let Some(torrent_file) = self.client_rx.recv().await {
                         tokio::spawn(async move {
                             println!("Received a torrent file: {}", torrent_file);
                             Downloader::download_torrent(torrent_file).await;
@@ -69,11 +69,14 @@ impl Downloader {
                     }
                 }
             }),
+            // receiving stuff from the torrent downloder 
             tokio::spawn(async move {
-                println!("Waiting for a torrent file data...");
+                println!("Waiting for torrent downloader messages...");
                 loop {
                     if let Some(msg) = Downloader::torrent_downloader_recv_msg().await {
-                        println!("Received torrent file data: {}", msg);
+                        println!("Received torrent downloader message: {}", msg);
+
+                        // self.client_tx.send(msg).await.unwrap();
                     }
                 }
             }),

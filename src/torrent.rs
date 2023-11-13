@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
 pub mod torrent_file;
 pub mod peer;
