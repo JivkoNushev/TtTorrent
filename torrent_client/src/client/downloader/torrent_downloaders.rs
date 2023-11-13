@@ -91,7 +91,6 @@ impl TorrentDownloaderHandler {
         let mut guard = PEER_DOWNLOADERS.lock().await;
 
         // TODO: async for loop ?
-        
         for (torrent_name, peer_downloaders) in guard.iter_mut() {
             for peer_downloader in peer_downloaders.iter_mut() {
                 if let Some(msg) = &peer_downloader.handler_rx.recv().await {

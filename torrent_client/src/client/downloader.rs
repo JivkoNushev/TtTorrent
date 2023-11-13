@@ -27,6 +27,18 @@ impl Downloader {
         TORRENT_DOWNLOADERS.lock().await.push(torrent_downloader);
     }
 
+    async fn torrent_downloader_recv_msg() -> Option<String> {
+        let mut guard = TORRENT_DOWNLOADERS.lock().await;
+
+        for torrent_downloader in guard.iter_mut() {
+            if let Some(msg) = &torrent_downloader.handler_rx.recv().await {
+                return Some(msg.clone());
+            }
+        }
+
+        None
+    }
+
     async fn download_torrent(torrent_name: String) {
         let (tx, rx) = mpsc::channel::<String>(100);
 
@@ -40,18 +52,6 @@ impl Downloader {
 
             torrent_downloader_handler.run().await;
         });
-    }
-
-    async fn torrent_downloader_recv_msg() -> Option<String> {
-        let mut guard = TORRENT_DOWNLOADERS.lock().await;
-
-        for torrent_downloader in guard.iter_mut() {
-            if let Some(msg) = &torrent_downloader.handler_rx.recv().await {
-                return Some(msg.clone());
-            }
-        }
-
-        None
     }
 
     pub async fn run(mut self) {
