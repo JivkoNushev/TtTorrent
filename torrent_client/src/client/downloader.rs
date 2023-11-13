@@ -1,56 +1,85 @@
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
+use lazy_static::lazy_static;
 
-pub mod file_writer;
-pub mod torrents_reader;
+pub mod torrent_downloaders;
 
-use file_writer::FileWriter;
-use torrents_reader::TorrentsReader;
+use torrent_downloaders::{ TorrentDownloader, TorrentDownloaderHandler };
+
+lazy_static! {
+    static ref TORRENT_DOWNLOADERS: Mutex<Vec<TorrentDownloader>> = Mutex::new(Vec::new());
+}
 
 pub struct Downloader {
-    file_writer: FileWriter,
-    torrents_reader: TorrentsReader,
+    client_tx: mpsc::Sender<String>,
     client_rx: mpsc::Receiver<String>,
-    file_writer_tx: mpsc::Sender<String>,
-    torrents_reader_tx: mpsc::Sender<String>,
 }
 
 impl Downloader {
-    pub async fn new(rx: mpsc::Receiver<String>) -> Downloader {
-        let (file_writer_tx, file_writer_rx) = mpsc::channel::<String>(100);
-        let (torrents_reader_tx, torrents_reader_rx) = mpsc::channel::<String>(100);
+    pub async fn new(tx: mpsc::Sender<String>, rx: mpsc::Receiver<String>) -> Downloader {
         
         Downloader {
-            file_writer: FileWriter::new(file_writer_rx).await,
-            torrents_reader: TorrentsReader::new(torrents_reader_rx).await,
+            client_tx: tx,
             client_rx: rx,
-            file_writer_tx: file_writer_tx,
-            torrents_reader_tx: torrents_reader_tx
         }
     }
 
-    pub async fn command_send_all(tx1: mpsc::Sender<String>, tx2: mpsc::Sender<String>, command: String) {
-        let _ = tx1.send(command.clone()).await;
-        let _ = tx2.send(command.clone()).await;
+    async fn torrent_downloaders_push(torrent_downloader: TorrentDownloader) {
+        TORRENT_DOWNLOADERS.lock().await.push(torrent_downloader);
+    }
+
+    async fn download_torrent(torrent_name: String) {
+        let (tx, rx) = mpsc::channel::<String>(100);
+
+        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), rx).await;
+    
+        Downloader::torrent_downloaders_push(torrent_downloader).await;
+
+        println!("Downloading torrent file: {}", torrent_name);
+        tokio::spawn(async move {
+            let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent_name, tx).await;
+
+            torrent_downloader_handler.run().await;
+        });
+    }
+
+    async fn torrent_downloader_recv_msg() -> Option<String> {
+        let mut guard = TORRENT_DOWNLOADERS.lock().await;
+
+        for torrent_downloader in guard.iter_mut() {
+            if let Some(msg) = &torrent_downloader.handler_rx.recv().await {
+                return Some(msg.clone());
+            }
+        }
+
+        None
     }
 
     pub async fn run(mut self) {
         println!("Hello from downloader");
 
-        let file_writer_handle = self.file_writer;
-        let torrents_reader_handle = self.torrents_reader;
-
-        let (rw_tx, rw_rx) = mpsc::channel::<String>(100);
-
         let _ = tokio::join!(
-            torrents_reader_handle.run(rw_tx),
-            file_writer_handle.run(rw_rx),
             tokio::spawn(async move {
-                // println!("Waiting for a command...");
-                while let Some(command) = self.client_rx.recv().await {
-                    // println!("Sending the command to all");
-                    Downloader::command_send_all(self.file_writer_tx.clone(), self.torrents_reader_tx.clone(), command).await;
+                println!("Waiting for a torrent file...");
+                loop {
+                    if let Some(torrent_file) = (&mut self).client_rx.recv().await {
+                        tokio::spawn(async move {
+                            println!("Received a torrent file: {}", torrent_file);
+                            Downloader::download_torrent(torrent_file).await;
+                        }); 
+                    }
+                }
+            }),
+            tokio::spawn(async move {
+                println!("Waiting for a torrent file data...");
+                loop {
+                    if let Some(msg) = Downloader::torrent_downloader_recv_msg().await {
+                        println!("Received torrent file data: {}", msg);
+                    }
                 }
             }),
         );
+        
     }
+
+
 }
