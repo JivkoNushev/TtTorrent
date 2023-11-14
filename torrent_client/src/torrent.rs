@@ -1,37 +1,29 @@
-use tokio::sync::mpsc;
-
 pub mod torrent_file;
+pub mod torrent_parser;
 
-pub use torrent_file::TorrentFile;
+pub use torrent_file::{TorrentFile, Sha1Hash};
 
-#[derive(Debug)]
+pub use torrent_parser::TorrentParser;
+
+#[derive(Debug, Clone)]
 pub struct Torrent {
     pub torrent_name: String,
     pub torrent_file: TorrentFile,
-
-    // pub peers: Vec<Peer>,
-    // pub trackers: Vec<Tracker>,
+    pub info_hash: Sha1Hash,
 }
 
-// impl Torrent {
-//     pub async fn new(torrent_file_name: &str, dest_dir: &str) -> Torrent {
-//         // TODO: Watch what this buffer does
-//         let (tx, rx) = mpsc::channel::<Vec<u8>>(100);
+impl Torrent {
+    pub async fn new(torrent_name: String) -> Torrent {
+        let torrent_file = TorrentFile::new(torrent_name.clone()).await;
 
-//         let torrent_name = torrent_file_name.to_string();
-//         let torrent_file = TorrentFile::new(torrent_file_name);
-//         let trackers = vec![Tracker::new(&torrent_file).await];
-//         let file_saver = FileSaver::new(dest_dir, rx);
-//         let peers = get_peers(&trackers[0], tx).await;
+        let info_hash = TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref())
+            .await
+            .unwrap();
 
-//         Torrent { 
-//             torrent_name,
-//             torrent_file,
-//             trackers, 
-//             file_saver, 
-//             peers,
-//         }
-//     }
-
-    
-// }
+        Torrent {
+            torrent_name,
+            torrent_file,
+            info_hash
+        }
+    }
+}

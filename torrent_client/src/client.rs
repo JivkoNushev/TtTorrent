@@ -20,7 +20,7 @@ pub struct Client {
 impl Client {
     pub async fn new() -> (Client, mpsc::Sender<String>, mpsc::Sender<String>) {
         let (downloader_tx, downloader_rx) = mpsc::channel::<String>(100);
-        let (client_tx, client_rx) = mpsc::channel::<String>(100);
+        let (client_tx, _client_rx) = mpsc::channel::<String>(100);
         
         let (seeder_tx, _seeder_rx) = mpsc::channel::<String>(100);
         

@@ -5,7 +5,10 @@ use std::{sync::Arc, collections::HashMap};
 
 pub mod peer_downloader;
 
-use peer_downloader::{ PeerDownloader, PeerDownloaderHandler, Torrent, Peer };
+use peer_downloader::{ PeerDownloader, PeerDownloaderHandler};
+
+use crate::peer::Peer;
+use crate::torrent::Torrent;
 
 lazy_static! {
     static ref PEER_DOWNLOADERS: Mutex<HashMap<String, Vec<PeerDownloader>>> = Mutex::new(HashMap::new());
@@ -55,7 +58,8 @@ impl TorrentDownloaderHandler {
     async fn download_torrent(&mut self) {
         // parse torrent file
         println!("Parsing torrent file: {}", self.torrent_name);
-        let torrent = Torrent::parse_from_file(self.torrent_name.clone()).await;
+        let torrent = Torrent::new(self.torrent_name.clone()).await;
+
         // get peers
         println!("Getting peers for torrent file: {}", self.torrent_name.clone());
         let peers = Peer::get_from_torrent(&torrent).await;
@@ -63,6 +67,8 @@ impl TorrentDownloaderHandler {
         // create a file
         println!("Creating a file for: {}", self.torrent_name.clone());
 
+
+        // TODO: Create a File type that has destination
         let file = tokio::fs::File::create("test.txt").await.unwrap();
         let file = Arc::new(Mutex::new(file));
 

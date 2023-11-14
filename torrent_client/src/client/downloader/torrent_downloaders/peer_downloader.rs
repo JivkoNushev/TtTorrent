@@ -2,37 +2,8 @@ use std::sync::Arc;
 
 use tokio::{sync::{mpsc, Mutex}, fs::File};
 
-#[derive(Debug)]
-pub struct Peer {
-    pub id: [u8;20]
-}
-
-impl Peer {
-    pub async fn new() -> Peer {
-        Peer {
-            id: [0;20]
-        }
-    }
-
-    pub async fn get_from_torrent(torrent: &Torrent) -> Vec<Peer> {
-        vec![Peer::new().await, Peer::new().await]
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Torrent {
-    torrent_name: String
-}
-
-impl Torrent {
-    // pub async fn new() -> Torrent {}
-
-    pub async fn parse_from_file(torrent_name: String) -> Torrent {
-        Torrent {
-            torrent_name
-        }
-    }
-}
+use crate::torrent::Torrent;
+use crate::peer::Peer;
 
 pub struct PeerDownloader {
     pub peer_id: [u8;20],
@@ -72,6 +43,16 @@ impl PeerDownloaderHandler {
         let _ = self.downloader_tx.send(msg).await.map_err(|e| {
             println!("Error sending from PeerDownloader: {}", e);
         });
+
+        // send handshake
+
+        // receive handshake
+
+        // wait for bitmap
+
+        // send interested
+
+        // receive unchoke
     }
     
 }
