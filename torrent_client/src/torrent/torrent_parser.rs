@@ -13,9 +13,13 @@ impl TorrentParser {
     pub async fn parse_to_torrent_file(torrent_file: &BencodedValue) -> Vec<u8> {
         parse_to_torrent_file_(torrent_file)
     }
+
+    pub async fn parse_tracker_response(torrent_file: &[u8]) -> BencodedValue {
+        parse_tracker_response_(torrent_file)
+    }
 }
 
-pub fn parse_tracker_response(torrent_file: &[u8]) -> BencodedValue {
+fn parse_tracker_response_(torrent_file: &[u8]) -> BencodedValue {
     create_dict(torrent_file, &mut 0)
 }
 
@@ -29,7 +33,7 @@ fn parse_torrent_file_(torrent_file: &[u8]) -> BencodedValue {
     }
 }
 
-pub fn parse_to_torrent_file_(torrent_file: &BencodedValue) -> Vec<u8> {
+fn parse_to_torrent_file_(torrent_file: &BencodedValue) -> Vec<u8> {
     to_bencoded_dict(torrent_file)
 }
 

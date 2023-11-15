@@ -26,4 +26,8 @@ impl Torrent {
             info_hash
         }
     }
+
+    pub async fn get_info_hash_ref(&self) -> &Sha1Hash {
+        &self.info_hash
+    }
 }

@@ -1,6 +1,4 @@
 
-use anyhow::{Result, bail};
-
 // pub mod parsers;
 // pub use parsers::{ parse_torrent_file, parse_to_torrent_file, parse_tracker_response };
 

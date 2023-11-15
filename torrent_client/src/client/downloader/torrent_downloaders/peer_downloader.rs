@@ -44,6 +44,10 @@ impl PeerDownloaderHandler {
             println!("Error sending from PeerDownloader: {}", e);
         });
 
+        println!("Torrent info hash: {:?}", self.torrent.info_hash);
+
+        println!("Peer id: {:?}", self.peer.id);
+
         // send handshake
 
         // receive handshake
