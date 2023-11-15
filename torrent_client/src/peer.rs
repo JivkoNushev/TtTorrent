@@ -1,6 +1,8 @@
 pub mod peer_address;
+pub mod peer_messages;
 
 pub use peer_address::PeerAddress;
+pub use peer_messages::Handshake;
 
 use crate::torrent::{ Torrent, TorrentParser };
 use crate::torrent::torrent_file::BencodedValue;
@@ -9,8 +11,8 @@ use crate::tracker::Tracker;
 #[derive(Debug)]
 pub struct Peer {
     pub id: [u8;20],
-    address: String,
-    port: String,
+    pub address: String,
+    pub port: String,
     am_interested: bool,
     peer_choking: bool,
 }
@@ -53,7 +55,7 @@ impl Peer {
             if let Some(BencodedValue::ByteAddresses(byte_addresses)) = value {
                 for (i, addr) in byte_addresses.into_iter().enumerate() {
                     // TODO: get a specific number of addresses
-                    if i > 5 {
+                    if i >= 20 {
                         break;
                     }
 

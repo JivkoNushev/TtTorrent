@@ -38,17 +38,31 @@ impl PeerDownloaderHandler {
     }
 
     pub async fn run(self) {
-        let msg = format!("Hello from PeerDownloaderHandler: {:?}", self.peer.id);
+        // let msg = format!("Hello from PeerDownloaderHandler: {:?}", self.peer.id);
 
-        let _ = self.downloader_tx.send(msg).await.map_err(|e| {
-            println!("Error sending from PeerDownloader: {}", e);
-        });
+        // let _ = self.downloader_tx.send(msg).await.map_err(|e| {
+        //     println!("Error sending from PeerDownloader: {}", e);
+        // });
 
-        println!("Torrent info hash: {:?}", self.torrent.info_hash);
+        // println!("Torrent info hash: {:?}", self.torrent.info_hash);
 
-        println!("Peer id: {:?}", self.peer.id);
+        // println!("Peer id: {:?}", self.peer.id);
+
+        // establish connection
+        let mut stream = tokio::net::TcpStream::connect(format!("{}:{}", self.peer.address, self.peer.port)).await;
+
+        match stream {
+            Ok(stream) => {
+                println!("Connected to peer: {:?}", stream);
+            },
+            Err(e) => {
+                eprintln!("Couldn't connect to peer: {}", e);
+                return;
+            }
+        }
 
         // send handshake
+
 
         // receive handshake
 
