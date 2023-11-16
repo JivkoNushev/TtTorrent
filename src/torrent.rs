@@ -1,43 +1,40 @@
-use tokio::sync::mpsc;
-
 pub mod torrent_file;
-pub mod peer;
-pub mod tracker;
-pub mod file_saver;
+pub mod torrent_parser;
 
-use peer::{Peer, get_peers};
-use tracker::Tracker;
-use file_saver::FileSaver;
-use torrent_file::TorrentFile;
+pub use torrent_file::{TorrentFile, Sha1Hash};
+pub use torrent_parser::TorrentParser;
+pub use self::torrent_file::BencodedValue;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Torrent {
     pub torrent_name: String,
-    pub peers: Vec<Peer>,
-    pub trackers: Vec<Tracker>,
-    pub file_saver: FileSaver,
-    pub torrent_file: TorrentFile
+    pub torrent_file: TorrentFile,
+    pub info_hash: Sha1Hash,
 }
 
 impl Torrent {
-    pub async fn new(torrent_file_name: &str, dest_dir: &str) -> Torrent {
-        // TODO: Watch what this buffer does
-        let (tx, rx) = mpsc::channel::<Vec<u8>>(100);
+    pub async fn new(torrent_name: String) -> Torrent {
+        let torrent_file = TorrentFile::new(torrent_name.clone()).await;
 
-        let torrent_name = torrent_file_name.to_string();
-        let torrent_file = TorrentFile::new(torrent_file_name);
-        let trackers = vec![Tracker::new(&torrent_file).await];
-        let file_saver = FileSaver::new(dest_dir, rx);
-        let peers = get_peers(&trackers[0], tx).await;
+        let info_hash = TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref())
+            .await
+            .unwrap();
 
-        Torrent { 
+        Torrent {
             torrent_name,
             torrent_file,
-            trackers, 
-            file_saver, 
-            peers,
+            info_hash
         }
     }
 
-    
+    pub async fn get_info_hash_ref(&self) -> &Sha1Hash {
+        &self.info_hash
+    }
+
+    pub async fn get_piece_length(&self) -> i128 {
+        let torrent_dict = self.torrent_file.get_bencoded_dict_ref().try_into_dict().unwrap();
+        let info_dict = torrent_dict.get("info").unwrap();
+
+        info_dict.get_from_dict("piece length").unwrap().try_into_integer().unwrap().clone()
+    }
 }

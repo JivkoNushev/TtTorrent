@@ -1,5 +1,5 @@
 [package]
-name = "TtTorrent"
+name = "torrent_client"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,13 +7,8 @@ edition = "2021"
 
 [dependencies]
 hex = "0.4.3"
-urlencoding = "2.1.3"
-sha1 = "0.10.6"
-reqwest = { version = "0.11.20", features = ["blocking"]}
-percent-encoding = "2.3.0"
-http = "0.2.9"
-byteorder = "1.4.3"
-tokio = {versio = "1.33.0", features = ["full"]} 
-anyhow = "1.0.75"
-rand = "0.8.5"
 lazy_static = "1.4.0"
+percent-encoding = "2.3.0"
+reqwest = "0.11.22"
+sha1 = "0.10.6"
+tokio = { version = "1.34.0", features = ["full"] }
