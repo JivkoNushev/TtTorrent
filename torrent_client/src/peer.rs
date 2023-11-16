@@ -13,8 +13,8 @@ pub struct Peer {
     pub id: [u8;20],
     pub address: String,
     pub port: String,
-    am_interested: bool,
-    peer_choking: bool,
+    pub am_interested: bool,
+    pub choking: bool,
 }
 
 impl Peer {
@@ -27,7 +27,7 @@ impl Peer {
             address: peer_address.address,
             port: peer_address.port,
             am_interested: false,
-            peer_choking: true,
+            choking: true,
         }
     }
 

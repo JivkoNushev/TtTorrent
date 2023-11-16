@@ -26,8 +26,25 @@ pub enum BencodedValue {
     String(String),
 }
 
-
 impl BencodedValue {
+    pub fn try_into_dict(&self) -> Option<&BTreeMap<String, BencodedValue>> {
+        if let BencodedValue::Dict(d) = self {
+            Some(d)
+        }
+        else {
+            None
+        }
+    }
+
+    pub fn try_into_integer(&self) -> Option<&i128> {
+        if let BencodedValue::Integer(i) = self {
+            Some(i)
+        }
+        else {
+            None
+        }
+    }
+
     pub fn insert_into_dict(&mut self, key: String, value: BencodedValue) {
         if let BencodedValue::Dict(d) = self {
             d.insert(key, value);

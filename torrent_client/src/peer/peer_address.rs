@@ -1,5 +1,3 @@
-use byteorder::{BigEndian, ByteOrder};
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerAddress {
     pub address: String,
@@ -14,7 +12,7 @@ impl PeerAddress {
             address.push('.');
         }
         address.pop();
-        let port = BigEndian::read_u16(&peer_address[4..]).to_string();        
+        let port = u16::from_be_bytes(peer_address[4..].try_into().unwrap()).to_string();
 
         PeerAddress{address, port}
     }

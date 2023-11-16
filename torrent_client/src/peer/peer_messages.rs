@@ -1,6 +1,4 @@
 use tokio::{net::TcpStream, io::{AsyncWriteExt, AsyncReadExt}};
-use byteorder::{BigEndian, ByteOrder};
-
 
 use crate::torrent::Sha1Hash;
 use crate::utils::AsBytes;
@@ -77,7 +75,7 @@ impl PeerMessage {
         let mut recv_size: [u8; 4] = [0; 4];
         stream.read_exact(&mut recv_size).await.unwrap();
 
-        let recv_size: u32 = BigEndian::read_u32(&recv_size);
+        let recv_size = u32::from_be_bytes(recv_size);
 
         let mut buf: Vec<u8> = vec![0; recv_size as usize];
 
@@ -96,7 +94,43 @@ impl PeerMessage {
         let mut recv_size: [u8; 4] = [0; 4];
         stream.read_exact(&mut recv_size).await.unwrap();
 
-        let recv_size: u32 = BigEndian::read_u32(&recv_size);
+        let recv_size = u32::from_be_bytes(recv_size);
+
+        let mut buf: Vec<u8> = vec![0; recv_size as usize];
+
+        stream.read_exact(&mut buf).await.unwrap();
+
+        buf
+    }
+
+    pub async fn recv_bitfield(stream: &mut TcpStream) -> Vec<u8> {
+        let mut recv_size: [u8; 4] = [0; 4];
+        stream.read_exact(&mut recv_size).await.unwrap();
+
+        let recv_size = u32::from_be_bytes(recv_size);
+
+        let mut buf: Vec<u8> = vec![0; recv_size as usize];
+
+        stream.read_exact(&mut buf).await.unwrap();
+
+        buf
+    }
+
+    pub async fn send_request(stream: &mut TcpStream, piece_index: u32, offset: u32, block_size: u32) {
+        let mut interested = vec![0, 0, 0, 13, 6];
+
+        interested.append(&mut piece_index.to_be_bytes().to_vec());
+        interested.append(&mut offset.to_be_bytes().to_vec());
+        interested.append(&mut block_size.to_be_bytes().to_vec());
+
+        stream.write_all(&interested).await.unwrap();
+    }
+
+    pub async fn recv_piece(stream: &mut TcpStream) -> Vec<u8> {
+        let mut recv_size: [u8; 4] = [0; 4];
+        stream.read_exact(&mut recv_size).await.unwrap();
+
+        let recv_size = u32::from_be_bytes(recv_size);
 
         let mut buf: Vec<u8> = vec![0; recv_size as usize];
 
