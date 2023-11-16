@@ -82,7 +82,6 @@ impl TorrentDownloaderHandler {
             let tx_clone = tx.clone();
             let torrent_clone = torrent.clone();
             let file_copy = Arc::clone(&file);
-            println!("Creating a PeerDownloader for torrent file: {}", self.torrent_name.clone());
 
             tokio::spawn(async move {
                 let peer_downloader_handle = PeerDownloaderHandler::new(peer, torrent_clone, file_copy, tx_clone).await;

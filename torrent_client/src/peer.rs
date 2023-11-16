@@ -2,7 +2,7 @@ pub mod peer_address;
 pub mod peer_messages;
 
 pub use peer_address::PeerAddress;
-pub use peer_messages::Handshake;
+pub use peer_messages::PeerMessage;
 
 use crate::torrent::{ Torrent, TorrentParser };
 use crate::torrent::torrent_file::BencodedValue;

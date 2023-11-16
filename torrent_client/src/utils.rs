@@ -15,6 +15,10 @@ impl UrlEncodable for [u8;20] {
 
 }
 
+pub trait AsBytes {
+    fn as_bytes(&self) -> Vec<u8>;
+}
+
 pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     let mut hasher = Sha1::new();
     hasher.update(value);
