@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 
-use TtTorrent::{
-    torrent::torrent_file::{Sha1Hash, BencodedValue, parse_torrent_file, parse_to_torrent_file}, 
-    utils::read_file_as_bytes
-};
+use torrent_client::utils::{ UrlEncodable, read_file_as_bytes };
+use torrent_client::torrent::{ Sha1Hash, BencodedValue, TorrentParser };
 
 #[test]
 fn test_read_file_as_bytes() {
@@ -74,7 +72,7 @@ fn test_bencodedvalue_get_from_dict() {
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
 
-    assert_eq!(BencodedValue::Integer(1), bencoded_dict.get_from_dict(&String::from("key")));
+    assert_eq!(BencodedValue::Integer(1), bencoded_dict.get_from_dict(&String::from("key")).unwrap());
 }
 
 #[test]
@@ -85,7 +83,7 @@ fn test_bencodedvalue_get_from_dict_invalid_key() {
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
 
-    assert_eq!(BencodedValue::Integer(1), bencoded_dict.get_from_dict(&String::from("da")));
+    assert_eq!(BencodedValue::Integer(1), bencoded_dict.get_from_dict(&String::from("da")).unwrap());
 }
 
 #[test]
@@ -93,7 +91,7 @@ fn test_bencodedvalue_get_from_dict_invalid_key() {
 fn test_bencodedvalue_get_from_dict_non_dict() {
     let bencoded_dict = BencodedValue::Integer(1);
 
-    assert_eq!(BencodedValue::Integer(1), bencoded_dict.get_from_dict(&String::from("da")));
+    assert_eq!(BencodedValue::Integer(1), bencoded_dict.get_from_dict(&String::from("da")).unwrap());
 }
 
 #[test]
@@ -103,7 +101,7 @@ fn test_bencodedvalue_into_dict() {
 
     bencoded_value.insert_into_dict("key".to_string(), BencodedValue::Integer(1));
 
-    assert_eq!(BencodedValue::Integer(1), bencoded_value.get_from_dict(&String::from("key")));
+    assert_eq!(BencodedValue::Integer(1), bencoded_value.get_from_dict(&String::from("key")).unwrap());
 }
 
 #[test]
@@ -113,7 +111,7 @@ fn test_bencodedvalue_get_from_list() {
 
     let bencoded_list = BencodedValue::List(list);
 
-    assert_eq!(BencodedValue::Integer(1), bencoded_list.get_from_list(0));
+    assert_eq!(BencodedValue::Integer(1), bencoded_list.get_from_list(0).unwrap());
 }
 
 #[test]
@@ -124,7 +122,7 @@ fn test_bencodedvalue_get_from_list_invalid_index() {
 
     let bencoded_list = BencodedValue::List(list);
 
-    assert_eq!(BencodedValue::Integer(1), bencoded_list.get_from_list(1));
+    assert_eq!(BencodedValue::Integer(1), bencoded_list.get_from_list(1).unwrap());
 }
 
 #[test]
@@ -132,7 +130,7 @@ fn test_bencodedvalue_get_from_list_invalid_index() {
 fn test_bencodedvalue_get_from_list_non_list() {
     let bencoded_list = BencodedValue::Integer(1);
 
-    assert_eq!(BencodedValue::Integer(1), bencoded_list.get_from_list(1));
+    assert_eq!(BencodedValue::Integer(1), bencoded_list.get_from_list(1).unwrap());
 }
 
 #[test]
@@ -142,7 +140,7 @@ fn test_bencodedvalue_into_list() {
 
     bencoded_value.insert_into_list(BencodedValue::Integer(1));
 
-    assert_eq!(BencodedValue::Integer(1), bencoded_value.get_from_list(0));
+    assert_eq!(BencodedValue::Integer(1), bencoded_value.get_from_list(0).unwrap());
 }
 
 #[test]
@@ -230,12 +228,16 @@ fn test_is_valid_torrent_file_invalid() {
     assert!(bencoded_dict.torrent_file_is_valid() == false);
 }
 
+
+// TEST RUN without async code
+
 #[test]
 fn test_parse_torrent_file() {
     let torrent_file = "d8:announce5:url:)4:infod6:lengthi89e4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
 
-    let _torrent_file = parse_torrent_file(&torrent_file);
-
+    async {
+        let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file).await;
+    };
     assert!(true);
 }
 
@@ -245,16 +247,19 @@ fn test_parse_torrent_file() {
 fn test_parse_torrent_file_invalid() {
     let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
 
-    let _torrent_file = parse_torrent_file(&torrent_file);
+    async {
+        let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file).await;
+    };
 }
 
 #[test]
 fn test_parse_to_torrent_file() {
     let torrent_file = "d8:announce5:url:)4:infod6:lengthi89e4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
+    async {
+        let torrent_file_struct = TorrentParser::parse_torrent_file(&torrent_file).await;
 
-    let torrent_file_struct = parse_torrent_file(&torrent_file);
+        let new_torrent_file = TorrentParser::parse_to_torrent_file(&torrent_file_struct).await;
 
-    let new_torrent_file = parse_to_torrent_file(&torrent_file_struct);
-
-    assert_eq!(torrent_file, new_torrent_file);
+        assert_eq!(torrent_file, new_torrent_file);
+    };
 }
