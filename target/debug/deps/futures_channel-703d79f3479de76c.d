@@ -1,0 +1,11 @@
+/home/stefan/School/TtTorrent/target/debug/deps/futures_channel-703d79f3479de76c.rmeta: /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/lib.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/lock.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/mpsc/mod.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/mpsc/queue.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/oneshot.rs
+
+/home/stefan/School/TtTorrent/target/debug/deps/libfutures_channel-703d79f3479de76c.rlib: /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/lib.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/lock.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/mpsc/mod.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/mpsc/queue.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/oneshot.rs
+
+/home/stefan/School/TtTorrent/target/debug/deps/futures_channel-703d79f3479de76c.d: /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/lib.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/lock.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/mpsc/mod.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/mpsc/queue.rs /home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/oneshot.rs
+
+/home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/lib.rs:
+/home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/lock.rs:
+/home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/mpsc/mod.rs:
+/home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/mpsc/queue.rs:
+/home/stefan/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.28/src/oneshot.rs:

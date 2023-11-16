@@ -2,10 +2,8 @@ pub mod torrent_file;
 pub mod torrent_parser;
 
 pub use torrent_file::{TorrentFile, Sha1Hash};
-
 pub use torrent_parser::TorrentParser;
-
-use self::torrent_file::BencodedValue;
+pub use self::torrent_file::BencodedValue;
 
 #[derive(Debug, Clone)]
 pub struct Torrent {
