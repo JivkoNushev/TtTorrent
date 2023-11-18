@@ -3,6 +3,58 @@ use tokio::{net::TcpStream, io::{AsyncWriteExt, AsyncReadExt}};
 use crate::torrent::Sha1Hash;
 use crate::utils::AsBytes;
 
+
+pub struct Message {
+    pub id: MessageID,
+    pub payload: Vec<u8>,
+}
+
+impl AsBytes for Message {
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+
+        bytes.push(self.id as u8);
+        bytes.extend_from_slice(&self.payload);
+
+        bytes
+    }
+
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MessageID {
+    Choke = 0,
+    Unchoke = 1,
+    Interested = 2,
+    NotInterested = 3,
+    Have = 4,
+    Bitfield = 5,
+    Request = 6,
+    Piece = 7,
+    Cancel = 8,
+    Port = 9,
+}
+
+impl MessageID {
+
+    pub fn from(id: u8) -> MessageID {
+        match id {
+            0 => MessageID::Choke,
+            1 => MessageID::Unchoke,
+            2 => MessageID::Interested,
+            3 => MessageID::NotInterested,
+            4 => MessageID::Have,
+            5 => MessageID::Bitfield,
+            6 => MessageID::Request,
+            7 => MessageID::Piece,
+            8 => MessageID::Cancel,
+            9 => MessageID::Port,
+            _ => panic!("Invalid message id"),
+        }
+    }   
+}
+
+
 #[derive(Debug)]
 pub struct Handshake {
     pub protocol_len: u8,

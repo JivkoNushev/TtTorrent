@@ -55,7 +55,7 @@ impl Peer {
             if let Some(BencodedValue::ByteAddresses(byte_addresses)) = value {
                 for (i, addr) in byte_addresses.into_iter().enumerate() {
                     // TODO: get a specific number of addresses
-                    if i >= 20 {
+                    if i >= 200 {
                         break;
                     }
 

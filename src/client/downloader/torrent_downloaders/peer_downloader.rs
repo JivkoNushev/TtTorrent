@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream};
+use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt}};
 
-use crate::torrent::{Torrent, Sha1Hash};
+use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID}, utils::AsBytes};
 use crate::peer::Peer;
 use crate::peer::peer_messages::PeerMessage;
 
@@ -135,6 +135,24 @@ impl PeerDownloaderHandler {
         piece
     }
 
+    async fn send(&mut self, stream: &mut TcpStream, message: Message) {
+        stream.write_all(&message.as_bytes()).await.unwrap();
+    }
+
+    async fn recv(&mut self, stream: &mut TcpStream, message: &mut Message) {
+        let mut recv_size: [u8; 4] = [0; 4];
+        stream.read_exact(&mut recv_size).await.unwrap();
+
+        let recv_size = u32::from_be_bytes(recv_size);
+
+        let mut buf: Vec<u8> = vec![0; recv_size as usize];
+
+        stream.read_exact(&mut buf).await.unwrap();
+
+        message.id = MessageID::from(buf[0]);
+        message.payload = buf[1..].to_vec();
+    }
+
     pub async fn run(mut self) {
         // let msg = format!("Hello from PeerDownloaderHandler: {:?}", self.peer.id);
 
@@ -174,16 +192,34 @@ impl PeerDownloaderHandler {
             }
         };
 
+        // send handshake
         self.handshake(&mut stream).await;
-
+        
         // wait for bitfield
-        self.bitfield(&mut stream).await;
+        // recv bitfield
+        // self.bitfield(&mut stream).await;
+
+        let mut message = Message {
+            id: MessageID::Unchoke,
+            payload: Vec::new()
+        };
+        self.recv(&mut stream, &mut message).await;
 
         // send interested
-        self.interested(&mut stream).await;
+        // self.interested(&mut stream).await;
+        self.send(&mut stream, Message {
+            id: MessageID::Interested,
+            payload: Vec::new()
+        }).await;
 
         // receive unchoke
-        self.unchoke(&mut stream).await;
+        // self.unchoke(&mut stream).await
+        let mut message = Message {
+            id: MessageID::Unchoke,
+            payload: Vec::new()
+        };
+        self.recv(&mut stream, &mut message).await;
+
 
         if self.peer.choking || !self.peer.am_interested {
             // TODO: maybe rerun function ?
