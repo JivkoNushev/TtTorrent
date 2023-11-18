@@ -1,6 +1,6 @@
 use percent_encoding::percent_encode;
 
-use crate::utils::UrlEncodable;
+use crate::utils::{UrlEncodable, AsBytes};
 
 /// Represents a SHA-1 hash as an array of 20 bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,7 +15,7 @@ impl Sha1Hash {
         Sha1Hash(hash.try_into().unwrap())
     }
 
-    pub fn get_hash_ref(&self) -> &[u8; 20] {
+    pub fn as_bytes(&self) -> &[u8; 20] {
         &self.0
     }
 

@@ -22,3 +22,7 @@ loop {
 - fix eof when messaging
 
 - better torrent_file_is_valid function
+
+- use repr(C)
+
+- fix peer tcp connections

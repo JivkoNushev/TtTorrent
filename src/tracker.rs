@@ -16,7 +16,7 @@ impl Tracker {
             None => panic!("Error: Invalid tracker url")
         };
 
-        let info_hash = torrent.get_info_hash_ref().await;
+        let info_hash = torrent.get_info_hash_ref();
         let params = connection::tracker_params_default(info_hash).await;
 
         Tracker {

@@ -4,22 +4,8 @@ use crate::torrent::Sha1Hash;
 use crate::utils::AsBytes;
 
 
-pub struct Message {
-    pub id: MessageID,
-    pub payload: Vec<u8>,
-}
-
-impl AsBytes for Message {
-    fn as_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-
-        bytes.push(self.id as u8);
-        bytes.extend_from_slice(&self.payload);
-
-        bytes
-    }
-
-}
+pub mod handshake;
+pub use handshake::Handshake;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MessageID {
@@ -36,7 +22,6 @@ pub enum MessageID {
 }
 
 impl MessageID {
-
     pub fn from(id: u8) -> MessageID {
         match id {
             0 => MessageID::Choke,
@@ -54,49 +39,36 @@ impl MessageID {
     }   
 }
 
-
-#[derive(Debug)]
-pub struct Handshake {
-    pub protocol_len: u8,
-    pub protocol: [u8; 19],
-    pub reserved: [u8; 8],
-    pub info_hash: [u8; 20],
-    pub peer_id: [u8; 20],
+pub struct Message {
+    pub size: u32,
+    pub id: MessageID,
+    pub payload: Vec<u8>,
 }
 
-impl Handshake {
-    pub fn new(hadnshake_bytes: Vec<u8>) -> Handshake {
-        if hadnshake_bytes.len() != 68 {
-            panic!("Error: invalid handshake length");
-        }
-
-        Handshake {
-            protocol_len: hadnshake_bytes[0],
-            protocol: hadnshake_bytes[1..20].try_into().unwrap(),
-            reserved: hadnshake_bytes[20..28].try_into().unwrap(),
-            info_hash: hadnshake_bytes[28..48].try_into().unwrap(),
-            peer_id: hadnshake_bytes[48..68].try_into().unwrap(),
-        }
-    }
-}
-
-impl AsBytes for Handshake {
+impl AsBytes for Message {
     fn as_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
-        bytes.push(self.protocol_len);
-        bytes.extend_from_slice(&self.protocol);
-        bytes.extend_from_slice(&self.reserved);
-        bytes.extend_from_slice(&self.info_hash);
-        bytes.extend_from_slice(&self.peer_id);
+        bytes.extend_from_slice(&self.size.to_be_bytes());
+        bytes.push(self.id as u8);
+        bytes.extend_from_slice(&self.payload);
 
         bytes
     }
 }
 
-pub struct Interested {
+impl Message {
+    pub fn new(id: MessageID, payload: Vec<u8>) -> Message {
+        let size = payload.len() as u32 + 1;
 
+        Message {
+            size,
+            id,
+            payload,
+        }
+    }
 }
+
 
 // TODO: maybe use enum ?
 pub struct PeerMessage {}
@@ -107,7 +79,7 @@ impl PeerMessage {
             protocol_len: 19,
             protocol: *b"BitTorrent protocol",
             reserved: [0; 8],
-            info_hash: info_hash.get_hash_ref().clone(),
+            info_hash: info_hash.as_bytes().clone(),
             peer_id: peer_id.clone(),
         };
 
@@ -121,10 +93,10 @@ impl PeerMessage {
         let mut buf = [0; 68];
         match stream.read_exact(&mut buf).await {
             Ok(_) => {},
-            Err(e) => panic!("Error: couldn't receive handshake {}", e)
+            Err(e) => panic!("Error: couldn't receive handshake response {}", e)
         }
 
-        Handshake::new(buf.to_vec())
+        Handshake::from_bytes(buf.to_vec())
     }
 
     pub async fn send_unchoke(stream: &mut TcpStream) {
@@ -140,7 +112,7 @@ impl PeerMessage {
         let mut recv_size: [u8; 4] = [0; 4];
         match stream.read_exact(&mut recv_size).await {
             Ok(_) => {},
-            Err(e) => panic!("Error: couldn't receive unchoke {}", e)
+            Err(e) => panic!("Error: couldn't receive unchoke size {}", e)
         }
 
         let recv_size = u32::from_be_bytes(recv_size);
@@ -168,7 +140,7 @@ impl PeerMessage {
         let mut recv_size: [u8; 4] = [0; 4];
         match stream.read_exact(&mut recv_size).await {
             Ok(_) => {},
-            Err(e) => panic!("Error: couldn't receive interested {}", e)
+            Err(e) => panic!("Error: couldn't receive interested size {}", e)
         }
 
         let recv_size = u32::from_be_bytes(recv_size);
@@ -187,7 +159,7 @@ impl PeerMessage {
         let mut recv_size: [u8; 4] = [0; 4];
         match stream.read_exact(&mut recv_size).await {
             Ok(_) => {},
-            Err(e) => panic!("Error: couldn't receive bitfield {}", e)
+            Err(e) => panic!("Error: couldn't receive bitfield size {}", e)
         }
 
         let recv_size = u32::from_be_bytes(recv_size);
@@ -219,7 +191,7 @@ impl PeerMessage {
         let mut recv_size: [u8; 4] = [0; 4];
         match stream.read_exact(&mut recv_size).await {
             Ok(_) => {},
-            Err(e) => panic!("Error: couldn't receive piece {}", e)
+            Err(e) => panic!("Error: couldn't receive piece size {}", e)
         }
 
         let recv_size = u32::from_be_bytes(recv_size);

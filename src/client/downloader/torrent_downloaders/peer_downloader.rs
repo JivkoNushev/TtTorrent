@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{sync::Arc, fmt::Result};
 
 use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt}};
 
-use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID}, utils::AsBytes};
+use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes};
 use crate::peer::Peer;
 use crate::peer::peer_messages::PeerMessage;
 
@@ -45,23 +45,6 @@ impl PeerDownloaderHandler {
     async fn response_is_ok(response: &Vec<u8>) -> bool {
         response == &[1]
     }
-
-    async fn handshake(&mut self, stream: &mut TcpStream) {
-        // send handshake
-        PeerMessage::send_handshake(stream, &self.torrent.info_hash, &self.peer.id).await;
-        
-        // receive handshake response
-        let handshake_response = PeerMessage::recv_handshake(stream).await;
-        println!("Handshake received: {:?}", handshake_response);
-
-        // check info hash
-        if !PeerDownloaderHandler::check_hash(self.torrent.get_info_hash_ref().await.get_hash_ref(), handshake_response.info_hash).await {
-            panic!("Info hash doesn't match handshake info hash");
-        }
-
-        // save peer id
-        self.peer.id = handshake_response.peer_id;
-    } 
 
     async fn interested(&mut self, stream: &mut TcpStream) {
         // send interested
@@ -162,26 +145,50 @@ impl PeerDownloaderHandler {
         message.payload = buf[1..].to_vec();
     }
 
+    async fn send_handshake(&mut self, stream: &mut TcpStream) {
+        let handshake = Handshake::new( self.torrent.info_hash.as_bytes().clone(), self.peer.id.clone());
+
+        match stream.write_all(&handshake.as_bytes()).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't send handshake {}", e)
+        }
+
+        println!("Handshake sent to peer: {:?}", self.peer.address);
+    }
+
+    async fn recv_handshake(&mut self, stream: &mut TcpStream) -> tokio::io::Result<[u8;20]> {
+        let mut buf = vec![0; 68];
+
+        stream.read_exact(&mut buf).await.map_err(|e| {
+            tokio::io::Error::new(tokio::io::ErrorKind::Other, format!("Error: couldn't receive handshake response {}", e))
+        })?;
+
+        if buf.len() != 68 {
+            return Err(tokio::io::Error::new(tokio::io::ErrorKind::Other, "Invalid handshake length"));
+        }
+
+        let handshake = Handshake::from_bytes(buf);
+
+        // check info hash
+        if !PeerDownloaderHandler::check_hash(&self.torrent.get_info_hash_ref().as_bytes(), handshake.info_hash).await {
+            return Err(tokio::io::Error::new(tokio::io::ErrorKind::Other, "Info hash doesn't match handshake info hash"));
+        }
+
+        // save peer id
+        self.peer.id = handshake.peer_id;
+
+        println!("Handshake received from peer: {:?}", self.peer.address);
+
+        Ok(handshake.peer_id)
+    }
+
     pub async fn run(mut self) {
-        // let msg = format!("Hello from PeerDownloaderHandler: {:?}", self.peer.id);
-
-        // let _ = self.downloader_tx.send(msg).await.map_err(|e| {
-        //     println!("Error sending from PeerDownloader: {}", e);
-        // });
-
-        // println!("Torrent info hash: {:?}", self.torrent.info_hash);
-
-        // println!("Peer id: {:?}", self.peer.id);
-
         // establish connection
-        // TODO: make a loop for the connection { still can't connect to peers }
         let mut stream = TcpStream::connect(format!("{}:{}", self.peer.address, self.peer.port)).await;
 
         let mut counter = 0;
         while let Err(_) = stream {
             stream = TcpStream::connect(format!("{}:{}", self.peer.address, self.peer.port)).await;
-
-            // println!("Trying {} for {} time", self.peer.address, counter);
 
             if counter >= 100 {
                 break;
@@ -201,47 +208,38 @@ impl PeerDownloaderHandler {
             }
         };
 
-        // send handshake
-        self.handshake(&mut stream).await;
-        
-        // wait for bitfield
-        // recv bitfield
-        self.bitfield(&mut stream).await;
+        // self.handshake(&mut stream).await;
+        // self.bitfield(&mut stream).await;
+        // self.interested(&mut stream).await;
+        // self.unchoke(&mut stream).await;
 
-        // let mut message = Message {
-        //     id: MessageID::Unchoke,
-        //     payload: Vec::new()
-        // };
-        // self.recv(&mut stream, &mut message).await;
+        // send a handshake
+        self.send_handshake(&mut stream).await;
 
-        // send interested
-        self.interested(&mut stream).await;
-        // self.send(&mut stream, Message {
-        //     id: MessageID::Interested,
-        //     payload: Vec::new()
-        // }).await;
-
-        // receive unchoke
-        self.unchoke(&mut stream).await;
-        // let mut message = Message {
-        //     id: MessageID::Unchoke,
-        //     payload: Vec::new()
-        // };
-        // self.recv(&mut stream, &mut message).await;
-
-
-        if self.peer.choking || !self.peer.am_interested {
-            // TODO: maybe rerun function ?
-
-            println!("Peer {{ choking: {}, am_interested: {} }}", self.peer.choking, self.peer.am_interested);
-            return;
+        match self.recv_handshake(&mut stream).await {
+            Ok(_) => {},
+            Err(e) => {
+                eprintln!("Error: couldn't receive handshake from peer: {}", e);
+                return;
+            }
         }
 
+
+        // if self.peer.choking || !self.peer.am_interested {
+        //     // TODO: maybe rerun function ?
+
+        //     println!("Peer {{ choking: {}, am_interested: {} }}", self.peer.choking, self.peer.am_interested);
+        //     return;
+        // }
+        // else {
+        //     println!("Peer ready for requests");
+        // }
+
         // test by downloading the first piece
-        let piece = self.request_piece(&mut stream, 0).await;
+        // let piece = self.request_piece(&mut stream, 0).await;
 
         // save the piece
-        println!("Saving piece 0: {piece:?}");
+        // println!("Saving piece 0: {piece:?}");
 
     }
     
