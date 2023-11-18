@@ -1,5 +1,6 @@
 use tokio::sync::{mpsc, Mutex};
 use lazy_static::lazy_static;
+use tokio_stream::StreamExt;
 
 use std::{sync::Arc, collections::HashMap};
 
@@ -67,13 +68,14 @@ impl TorrentDownloaderHandler {
         // create a file
         println!("Creating a file for: {}", self.torrent_name.clone());
 
-
         // TODO: Create a File type that has destination
         let file = tokio::fs::File::create("test.txt").await.unwrap();
         let file = Arc::new(Mutex::new(file));
 
         // download from peers
-        for peer in peers {
+        let mut stream = tokio_stream::iter(peers);
+
+        while let Some(peer) = stream.next().await {
             let (tx, rx) = mpsc::channel::<String>(100);
             let peer_downloader = PeerDownloader::new(peer.id.clone(), rx).await;
             
@@ -89,17 +91,19 @@ impl TorrentDownloaderHandler {
                 peer_downloader_handle.run().await;
             });
         }
+
     }
 
 
     async fn peer_downloader_recv_msg() -> Option<(String, String)> {
         let mut guard = PEER_DOWNLOADERS.lock().await;
 
-        // TODO: async for loop ?
-        for (torrent_name, peer_downloaders) in guard.iter_mut() {
-            for peer_downloader in peer_downloaders.iter_mut() {
+        let mut stream = tokio_stream::iter(guard.iter_mut());
+
+        while let Some(v) = stream.next().await {
+            for peer_downloader in v.1.iter_mut() {
                 if let Some(msg) = &peer_downloader.handler_rx.recv().await {
-                    return Some((torrent_name.clone(), msg.clone()));
+                    return Some((v.0.clone(), msg.clone()));
                 }
             }
         }

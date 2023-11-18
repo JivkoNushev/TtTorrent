@@ -41,7 +41,10 @@ impl Peer {
     async fn get_peers(tracker: &Tracker) -> Vec<Peer> {
         let url = tracker.get_url().await;
 
-        let resp = reqwest::get(url).await.unwrap();
+        let resp = match reqwest::get(url).await {
+            Ok(resp) => resp,
+            Err(e) => panic!("Error: tracker couldn't return a response {}", e)
+        };
         
         let bencoded_response = resp.bytes().await.unwrap();
         

@@ -20,3 +20,5 @@ loop {
 - use tracing crate for logging
 
 - fix eof when messaging
+
+- better torrent_file_is_valid function

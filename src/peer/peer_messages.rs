@@ -65,7 +65,11 @@ pub struct Handshake {
 }
 
 impl Handshake {
-    pub fn new(hadnshake_bytes: Vec<u8>) -> Handshake{
+    pub fn new(hadnshake_bytes: Vec<u8>) -> Handshake {
+        if hadnshake_bytes.len() != 68 {
+            panic!("Error: invalid handshake length");
+        }
+
         Handshake {
             protocol_len: hadnshake_bytes[0],
             protocol: hadnshake_bytes[1..20].try_into().unwrap(),
@@ -107,12 +111,18 @@ impl PeerMessage {
             peer_id: peer_id.clone(),
         };
 
-        stream.write_all(&handshake.as_bytes()).await.unwrap();
+        match stream.write_all(&handshake.as_bytes()).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't send handshake {}", e)
+        }
     }
 
     pub async fn recv_handshake(stream: &mut TcpStream) -> Handshake {
         let mut buf = [0; 68];
-        stream.read_exact(&mut buf).await.unwrap();
+        match stream.read_exact(&mut buf).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive handshake {}", e)
+        }
 
         Handshake::new(buf.to_vec())
     }
@@ -120,18 +130,27 @@ impl PeerMessage {
     pub async fn send_unchoke(stream: &mut TcpStream) {
         let unchoke = [0, 0, 0, 1, 1];
 
-        stream.write_all(&unchoke).await.unwrap();
+        match stream.write_all(&unchoke).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't send unchoke {}", e)
+        }
     }
 
     pub async fn recv_unchoke(stream: &mut TcpStream) -> Vec<u8> {
         let mut recv_size: [u8; 4] = [0; 4];
-        stream.read_exact(&mut recv_size).await.unwrap();
+        match stream.read_exact(&mut recv_size).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive unchoke {}", e)
+        }
 
         let recv_size = u32::from_be_bytes(recv_size);
 
         let mut buf: Vec<u8> = vec![0; recv_size as usize];
 
-        stream.read_exact(&mut buf).await.unwrap();
+        match stream.read_exact(&mut buf).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive unchoke {}", e)
+        }
 
         buf
     }
@@ -139,31 +158,46 @@ impl PeerMessage {
     pub async fn send_interested(stream: &mut TcpStream) {
         let interested = [0, 0, 0, 1, 2];
 
-        stream.write_all(&interested).await.unwrap();
+        match stream.write_all(&interested).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't send interested {}", e)
+        }
     }
 
     pub async fn recv_interested(stream: &mut TcpStream) -> Vec<u8> {
         let mut recv_size: [u8; 4] = [0; 4];
-        stream.read_exact(&mut recv_size).await.unwrap();
+        match stream.read_exact(&mut recv_size).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive interested {}", e)
+        }
 
         let recv_size = u32::from_be_bytes(recv_size);
 
         let mut buf: Vec<u8> = vec![0; recv_size as usize];
 
-        stream.read_exact(&mut buf).await.unwrap();
+        match stream.read_exact(&mut buf).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive interested {}", e)
+        }
 
         buf
     }
 
     pub async fn recv_bitfield(stream: &mut TcpStream) -> Vec<u8> {
         let mut recv_size: [u8; 4] = [0; 4];
-        stream.read_exact(&mut recv_size).await.unwrap();
+        match stream.read_exact(&mut recv_size).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive bitfield {}", e)
+        }
 
         let recv_size = u32::from_be_bytes(recv_size);
 
         let mut buf: Vec<u8> = vec![0; recv_size as usize];
 
-        stream.read_exact(&mut buf).await.unwrap();
+        match stream.read_exact(&mut buf).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive bitfield {}", e)
+        }
 
         buf
     }
@@ -175,18 +209,27 @@ impl PeerMessage {
         interested.append(&mut offset.to_be_bytes().to_vec());
         interested.append(&mut block_size.to_be_bytes().to_vec());
 
-        stream.write_all(&interested).await.unwrap();
+        match stream.write_all(&interested).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't send request {}", e)
+        }
     }
 
     pub async fn recv_piece(stream: &mut TcpStream) -> Vec<u8> {
         let mut recv_size: [u8; 4] = [0; 4];
-        stream.read_exact(&mut recv_size).await.unwrap();
+        match stream.read_exact(&mut recv_size).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive piece {}", e)
+        }
 
         let recv_size = u32::from_be_bytes(recv_size);
 
         let mut buf: Vec<u8> = vec![0; recv_size as usize];
 
-        stream.read_exact(&mut buf).await.unwrap();
+        match stream.read_exact(&mut buf).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive piece {}", e)
+        }
 
         buf
     }

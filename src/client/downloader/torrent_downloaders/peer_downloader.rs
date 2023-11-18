@@ -136,18 +136,27 @@ impl PeerDownloaderHandler {
     }
 
     async fn send(&mut self, stream: &mut TcpStream, message: Message) {
-        stream.write_all(&message.as_bytes()).await.unwrap();
+        match stream.write_all(&message.as_bytes()).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't send message {}", e)
+        }
     }
 
     async fn recv(&mut self, stream: &mut TcpStream, message: &mut Message) {
         let mut recv_size: [u8; 4] = [0; 4];
-        stream.read_exact(&mut recv_size).await.unwrap();
+        match stream.read_exact(&mut recv_size).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive message {}", e)
+        }
 
         let recv_size = u32::from_be_bytes(recv_size);
 
         let mut buf: Vec<u8> = vec![0; recv_size as usize];
 
-        stream.read_exact(&mut buf).await.unwrap();
+        match stream.read_exact(&mut buf).await {
+            Ok(_) => {},
+            Err(e) => panic!("Error: couldn't receive message {}", e)
+        }
 
         message.id = MessageID::from(buf[0]);
         message.payload = buf[1..].to_vec();
@@ -197,28 +206,28 @@ impl PeerDownloaderHandler {
         
         // wait for bitfield
         // recv bitfield
-        // self.bitfield(&mut stream).await;
+        self.bitfield(&mut stream).await;
 
-        let mut message = Message {
-            id: MessageID::Unchoke,
-            payload: Vec::new()
-        };
-        self.recv(&mut stream, &mut message).await;
+        // let mut message = Message {
+        //     id: MessageID::Unchoke,
+        //     payload: Vec::new()
+        // };
+        // self.recv(&mut stream, &mut message).await;
 
         // send interested
-        // self.interested(&mut stream).await;
-        self.send(&mut stream, Message {
-            id: MessageID::Interested,
-            payload: Vec::new()
-        }).await;
+        self.interested(&mut stream).await;
+        // self.send(&mut stream, Message {
+        //     id: MessageID::Interested,
+        //     payload: Vec::new()
+        // }).await;
 
         // receive unchoke
-        // self.unchoke(&mut stream).await
-        let mut message = Message {
-            id: MessageID::Unchoke,
-            payload: Vec::new()
-        };
-        self.recv(&mut stream, &mut message).await;
+        self.unchoke(&mut stream).await;
+        // let mut message = Message {
+        //     id: MessageID::Unchoke,
+        //     payload: Vec::new()
+        // };
+        // self.recv(&mut stream, &mut message).await;
 
 
         if self.peer.choking || !self.peer.am_interested {

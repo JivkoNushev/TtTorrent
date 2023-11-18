@@ -1,0 +1,98 @@
+   Compiling torrent_client v0.1.0 (/home/jivko/Programing/TtTorrent)
+warning: unused import: `Sha1Hash`
+ --> src/client/downloader/torrent_downloaders/peer_downloader.rs:5:32
+  |
+5 | use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID}, utils::AsBytes};
+  |                                ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `super::*`
+   --> src/torrent/torrent_parser.rs:409:9
+    |
+409 |     use super::*;
+    |         ^^^^^^^^
+
+warning: field `client_tx` is never read
+  --> src/client/downloader.rs:13:5
+   |
+12 | pub struct Downloader {
+   |            ---------- field in this struct
+13 |     client_tx: mpsc::Sender<String>,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `downloader_tx` is never read
+  --> src/client/downloader/torrent_downloaders.rs:35:5
+   |
+33 | pub struct TorrentDownloaderHandler {
+   |            ------------------------ field in this struct
+34 |     torrent_name: String,
+35 |     downloader_tx: mpsc::Sender<String>,
+   |     ^^^^^^^^^^^^^
+
+warning: fields `file` and `downloader_tx` are never read
+  --> src/client/downloader/torrent_downloaders/peer_downloader.rs:26:5
+   |
+23 | pub struct PeerDownloaderHandler {
+   |            --------------------- fields in this struct
+...
+26 |     file: Arc<Mutex<File>>,
+   |     ^^^^
+27 |     downloader_tx: mpsc::Sender<String>,
+   |     ^^^^^^^^^^^^^
+
+warning: methods `send` and `recv` are never used
+   --> src/client/downloader/torrent_downloaders/peer_downloader.rs:138:14
+    |
+30  | impl PeerDownloaderHandler {
+    | -------------------------- methods in this implementation
+...
+138 |     async fn send(&mut self, stream: &mut TcpStream, message: Message) {
+    |              ^^^^
+...
+142 |     async fn recv(&mut self, stream: &mut TcpStream, message: &mut Message) {
+    |              ^^^^
+
+warning: associated function `new` is never used
+ --> src/client/seeder.rs:7:14
+  |
+6 | impl Seeder {
+  | ----------- associated function in this implementation
+7 |     async fn new() -> Seeder {
+  |              ^^^
+
+warning: `torrent_client` (lib) generated 7 warnings (run `cargo fix --lib -p torrent_client` to apply 2 suggestions)
+    Finished dev [unoptimized + debuginfo] target(s) in 2.12s
+     Running `target/debug/torrent_client`
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Os { code: 104, kind: ConnectionReset, message: "Connection reset by peer" }', /home/jivko/Programing/TtTorrent/src/peer/peer_messages.rs:115:43
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Custom { kind: UnexpectedEof, error: "early eof" }', /home/jivko/Programing/TtTorrent/src/peer/peer_messages.rs:115:43
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Custom { kind: UnexpectedEof, error: "early eof" }', /home/jivko/Programing/TtTorrent/src/peer/peer_messages.rs:115:43
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Custom { kind: UnexpectedEof, error: "early eof" }', /home/jivko/Programing/TtTorrent/src/peer/peer_messages.rs:115:43
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Os { code: 104, kind: ConnectionReset, message: "Connection reset by peer" }', /home/jivko/Programing/TtTorrent/src/peer/peer_messages.rs:115:43
+thread 'main' panicked at 'range start index 9 out of range for slice of length 1', /home/jivko/Programing/TtTorrent/src/client/downloader/torrent_downloaders/peer_downloader.rs:130:37
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+Couldn't connect to peer: Connection refused (os error 111)
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Custom { kind: UnexpectedEof, error: "early eof" }', /home/jivko/Programing/TtTorrent/src/peer/peer_messages.rs:147:49
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Custom { kind: UnexpectedEof, error: "early eof" }', /home/jivko/Programing/TtTorrent/src/peer/peer_messages.rs:128:49

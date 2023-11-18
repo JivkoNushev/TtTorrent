@@ -3,6 +3,7 @@ use lazy_static::lazy_static;
 
 pub mod torrent_downloaders;
 
+use tokio_stream::StreamExt;
 use torrent_downloaders::{ TorrentDownloader, TorrentDownloaderHandler };
 
 lazy_static! {
@@ -36,7 +37,6 @@ impl Downloader {
         println!("Downloading torrent file: {}", torrent_name);
         tokio::spawn(async move {
             let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent_name, tx).await;
-
             torrent_downloader_handler.run().await;
         });
     }
@@ -44,8 +44,10 @@ impl Downloader {
     async fn torrent_downloader_recv_msg() -> Option<String> {
         let mut guard = TORRENT_DOWNLOADERS.lock().await;
 
-        for torrent_downloader in guard.iter_mut() {
-            if let Some(msg) = &torrent_downloader.handler_rx.recv().await {
+        let mut stream = tokio_stream::iter(guard.iter_mut());
+
+        while let Some(v) = stream.next().await {
+            if let Some(msg) = &v.handler_rx.recv().await {
                 return Some(msg.clone());
             }
         }
@@ -54,12 +56,9 @@ impl Downloader {
     }
 
     pub async fn run(mut self) {
-        println!("Hello from downloader");
-
         let _ = tokio::join!(
             // Downloading given torrent files
             tokio::spawn(async move {
-                println!("Waiting for a torrent file...");
                 loop {
                     if let Some(torrent_file) = self.client_rx.recv().await {
                         tokio::spawn(async move {
@@ -69,13 +68,11 @@ impl Downloader {
                     }
                 }
             }),
-            // receiving stuff from the torrent downloder 
+            // receiving messages from the torrent downloder 
             tokio::spawn(async move {
-                println!("Waiting for torrent downloader messages...");
                 loop {
                     if let Some(msg) = Downloader::torrent_downloader_recv_msg().await {
                         println!("Received torrent downloader message: {}", msg);
-
                         // self.client_tx.send(msg).await.unwrap();
                     }
                 }
@@ -83,6 +80,4 @@ impl Downloader {
         );
         
     }
-
-
 }

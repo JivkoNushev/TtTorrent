@@ -16,9 +16,10 @@ impl Torrent {
     pub async fn new(torrent_name: String) -> Torrent {
         let torrent_file = TorrentFile::new(torrent_name.clone()).await;
 
-        let info_hash = TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref())
-            .await
-            .unwrap();
+        let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()).await {
+            Some(info_hash) => info_hash,
+            None => panic!("Could not get info hash from torrent file: {}", torrent_name)
+        };
 
         Torrent {
             torrent_name,
@@ -32,9 +33,18 @@ impl Torrent {
     }
 
     pub async fn get_piece_length(&self) -> i128 {
-        let torrent_dict = self.torrent_file.get_bencoded_dict_ref().try_into_dict().unwrap();
-        let info_dict = torrent_dict.get("info").unwrap();
+        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
+            Some(torrent_dict) => torrent_dict,
+            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
+        };
+        let info_dict = match torrent_dict.get("info") {
+            Some(info_dict) => info_dict,
+            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
+        };
 
-        info_dict.get_from_dict("piece length").unwrap().try_into_integer().unwrap().clone()
+        match info_dict.get_from_dict("piece length") {
+            Some(piece_length) => piece_length.try_into_integer().unwrap().clone(),
+            None => panic!("Could not get piece length from info dict ref in torrent file: {}", self.torrent_name)
+        }
     }
 }
