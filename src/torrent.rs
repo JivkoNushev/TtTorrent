@@ -13,8 +13,8 @@ pub struct Torrent {
 }
 
 impl Torrent {
-    pub fn new(torrent_name: String) -> Torrent {
-        let torrent_file = TorrentFile::new(&torrent_name);
+    pub async fn new(torrent_name: String) -> Torrent {
+        let torrent_file = TorrentFile::new(&torrent_name).await;
 
         let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()) {
             Some(info_hash) => info_hash,

@@ -1,5 +1,6 @@
 use std::io::{ Read, Result };
 use sha1::{Sha1, Digest};
+use tokio::io::AsyncReadExt;
 
 use crate::torrent::torrent_file::Sha1Hash;
 
@@ -23,11 +24,11 @@ pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     Sha1Hash::new(&hasher.finalize())
 }   
 
-pub fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
+pub async fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
-    let mut file = std::fs::File::open(path)?;
+    let mut file = tokio::fs::File::open(path).await?;
 
-    file.read_to_end(&mut buf)?;
+    file.read_to_end(&mut buf).await?;
 
     Ok(buf)
 }

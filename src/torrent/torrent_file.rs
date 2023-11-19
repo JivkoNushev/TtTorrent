@@ -18,8 +18,8 @@ pub struct TorrentFile {
     bencoded_dict: BencodedValue,
 } 
 impl TorrentFile {
-    pub fn new(torrent_file_name: &str) -> TorrentFile {
-        let torrent_file: Vec<u8> = match read_file_as_bytes(torrent_file_name) {
+    pub async fn new(torrent_file_name: &str) -> TorrentFile {
+        let torrent_file: Vec<u8> = match read_file_as_bytes(torrent_file_name).await {
             Ok(data) => data,
             Err(e) => panic!("Error reading torrent file: {:?}", e)
         };

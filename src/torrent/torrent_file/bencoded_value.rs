@@ -24,6 +24,9 @@ pub enum BencodedValue {
 
     /// Represents a Bencoded string.
     String(String),
+
+    /// Represents a Bencoded byte string.
+    ByteString(Vec<u8>),
 }
 
 impl BencodedValue {

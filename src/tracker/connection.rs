@@ -6,8 +6,10 @@ use crate::utils::UrlEncodable;
 
 pub(super) fn tracker_url_get(bencoded_dict: &BencodedValue) -> Option<String> {
     if let Some(tracker_announce) = bencoded_dict.get_from_dict("announce") {
-        if let BencodedValue::String(tracker_announce) = tracker_announce {
-            return Some(tracker_announce.clone());
+        if let BencodedValue::ByteString(tracker_announce) = tracker_announce {
+            if let Ok(announce) = String::from_utf8(tracker_announce) {
+                return Some(announce);
+            }
         }
         None
     } else {

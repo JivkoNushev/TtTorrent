@@ -59,7 +59,7 @@ impl TorrentDownloaderHandler {
     async fn download_torrent(&mut self) {
         // parse torrent file
         println!("Parsing torrent file: {}", self.torrent_name);
-        let torrent = Torrent::new(self.torrent_name.clone());
+        let torrent = Torrent::new(self.torrent_name.clone()).await;
 
         // get peers
         println!("Getting peers for torrent file: {}", self.torrent_name);

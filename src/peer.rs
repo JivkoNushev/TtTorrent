@@ -32,11 +32,14 @@ impl Peer {
     }
 
     pub async fn get_from_torrent(torrent: &Torrent) -> Vec<Peer> {
-        let tracker = Tracker::new(&torrent).await;
-        
-        Peer::get_peers(&tracker).await
+        if crate::DEBUG_MODE {
+            vec![Peer::new(PeerAddress { address: "127.0.0.1".into(), port: "51413".into() }, 0)]
+        }
+        else {
+            let tracker = Tracker::new(&torrent).await;
+            Peer::get_peers(&tracker).await
+        }
     }
-
 
     async fn get_peers(tracker: &Tracker) -> Vec<Peer> {
         let url = tracker.get_url();

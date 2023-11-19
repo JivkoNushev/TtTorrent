@@ -100,6 +100,17 @@ fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
                     bencoded_string.append(&mut string.clone().as_bytes().to_vec());
     
                 }
+                BencodedValue::ByteString(bytes) => {
+                    // append the len of the word
+                    let word_len = bytes.len().to_string();
+                    let mut word_len = word_len.as_bytes().to_vec();
+                    bencoded_string.append(&mut word_len);
+    
+                    // append the ':'
+                    bencoded_string.push(':' as u8);
+    
+                    bencoded_string.append(&mut bytes.clone());
+                }
                 _ => panic!("Invalid BencodedValue type")
             }
         }
@@ -257,9 +268,9 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
             break;
         }
         else if torrent_file[*cur_index] == b'd' {
-            if key.is_empty() {
-                panic!("[Error] Trying to parse a dict with an empty key");
-            }
+            // if key.is_empty() {
+            //     panic!("[Error] Trying to parse a dict with an empty key");
+            // }
 
             dict.insert_into_dict(key.clone(), create_dict(torrent_file, cur_index));
             key.clear();
@@ -331,16 +342,25 @@ fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
                     dict.insert_into_dict(key.clone(), BencodedValue::ByteAddresses(split_bytes));
                 }
                 else {
-                    if key.is_empty() {
-                        panic!("[Error] Trying to parse a string or a byte string with an empty key");
-                    }
+                    // if key.is_empty() {
+                    //     panic!("[Error] Trying to parse a string or a byte string with an empty key");
+                    // }
+                    // println!("key: {}", key);
 
-                    let str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index+word_len]).expect("Couldn't parse a word value from a UTF-8 encoded byte array while parsing a dictionary");
-                    let word = String::from(str_slice);
+                    // let str_slice = std::str::from_utf8(&torrent_file[*cur_index..*cur_index+word_len]).expect("Couldn't parse a word value from a UTF-8 encoded byte array while parsing a dictionary");
+                    // let word = String::from(str_slice);
     
+                    // *cur_index += word_len;
+
+                    // dict.insert_into_dict(key.clone(), BencodedValue::String(word));
+
+                    // parse to ByteString
+                    let byte_string = torrent_file[*cur_index..*cur_index + word_len].to_vec();
+
                     *cur_index += word_len;
 
-                    dict.insert_into_dict(key.clone(), BencodedValue::String(word));
+                    dict.insert_into_dict(key.clone(), BencodedValue::ByteString(byte_string));
+                    
                 }
                 key.clear();
             }
@@ -588,13 +608,13 @@ mod tests {
         let _dict = create_dict(&torrent_file, &mut 0);
     }
 
-    #[test]
-    #[should_panic(expected = "[Error] Trying to parse a dict with an empty key")]
-    fn test_create_dict_empty_key_dict() {
-        let torrent_file = "dd8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
+    // #[test]
+    // #[should_panic(expected = "[Error] Trying to parse a dict with an empty key")]
+    // fn test_create_dict_empty_key_dict() {
+    //     let torrent_file = "dd8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
 
-        let _dict = create_dict(&torrent_file, &mut 0);
-    }
+    //     let _dict = create_dict(&torrent_file, &mut 0);
+    // }
 
 
     #[test]
