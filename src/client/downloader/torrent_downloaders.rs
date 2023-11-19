@@ -61,6 +61,8 @@ impl TorrentDownloaderHandler {
         println!("Parsing torrent file: {}", self.torrent_name);
         let torrent = Torrent::new(self.torrent_name.clone()).await;
 
+        println!("Torrent file parsed: {:#?}", torrent);
+
         // get peers
         println!("Getting peers for torrent file: {}", self.torrent_name);
         let peers = Peer::get_from_torrent(&torrent).await;

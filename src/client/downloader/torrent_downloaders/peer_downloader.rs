@@ -2,7 +2,7 @@ use std::{sync::Arc, fmt::Result};
 
 use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt}};
 
-use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes};
+use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::{CLIENT_PEER_ID, Client}};
 use crate::peer::Peer;
 use crate::peer::peer_messages::PeerMessage;
 
@@ -146,7 +146,9 @@ impl PeerDownloaderHandler {
     }
 
     async fn send_handshake(&mut self, stream: &mut TcpStream) {
-        let handshake = Handshake::new( self.torrent.info_hash.as_bytes().clone(), self.peer.id.clone());
+        let handshake = Handshake::new( self.torrent.info_hash.as_bytes().clone(), Client::get_client_id().await);
+
+        println!("info_hash: {:?}", handshake);
 
         match stream.write_all(&handshake.as_bytes()).await {
             Ok(_) => {},
@@ -158,10 +160,17 @@ impl PeerDownloaderHandler {
 
     async fn recv_handshake(&mut self, stream: &mut TcpStream) -> tokio::io::Result<[u8;20]> {
         let mut buf = vec![0; 68];
+        let mut buf = Vec::new();
 
-        stream.read_exact(&mut buf).await.map_err(|e| {
+        let n = stream.read(buf.as_mut_slice()).await.map_err(|e| {
             tokio::io::Error::new(tokio::io::ErrorKind::Other, format!("Error: couldn't receive handshake response from peer {}: {}", self.peer.address, e))
         })?;
+
+        // stream.read_exact(&mut buf).await.map_err(|e| {
+        //     tokio::io::Error::new(tokio::io::ErrorKind::Other, format!("Error: couldn't receive handshake response from peer {}: {}", self.peer.address, e))
+        // })?;
+
+        println!("Received handshake response from peer {}: {:?}", self.peer.address, buf);
 
         if buf.len() != 68 {
             return Err(tokio::io::Error::new(tokio::io::ErrorKind::Other, "Invalid handshake length"));
