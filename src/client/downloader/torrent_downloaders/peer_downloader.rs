@@ -38,8 +38,8 @@ impl PeerDownloaderHandler {
         }
     }
 
-    fn check_hash(l: &[u8;20], r: [u8;20]) -> bool {
-        l as &[u8] == r
+    fn check_hash(l: &[u8;20], r: &[u8;20]) -> bool {
+        l == r
     }
 
     fn response_is_ok(response: &Vec<u8>) -> bool {
@@ -170,7 +170,7 @@ impl PeerDownloaderHandler {
         let handshake = Handshake::from_bytes(buf);
 
         // check info hash
-        if !PeerDownloaderHandler::check_hash(&self.torrent.get_info_hash_ref().as_bytes(), handshake.info_hash) {
+        if !PeerDownloaderHandler::check_hash(&self.torrent.get_info_hash_ref().as_bytes(), &handshake.info_hash) {
             return Err(tokio::io::Error::new(tokio::io::ErrorKind::Other, "Info hash doesn't match handshake info hash"));
         }
 
