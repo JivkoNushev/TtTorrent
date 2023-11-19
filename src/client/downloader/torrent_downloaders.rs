@@ -38,10 +38,10 @@ pub struct TorrentDownloaderHandler {
 
 impl TorrentDownloaderHandler {
     pub fn new(torrent_name: String, downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
-        println!("Creating a TorrentDownloaderHandler for torrent file: {}", torrent_name.clone());
+        println!("Creating a TorrentDownloaderHandler for torrent file: {}", torrent_name);
         
         TorrentDownloaderHandler { 
-            torrent_name: torrent_name,
+            torrent_name,
             downloader_tx
         }
     }
@@ -52,7 +52,7 @@ impl TorrentDownloaderHandler {
         if let Some(peer_downloaders) = guard.get_mut(&torrent_name) {
             peer_downloaders.push(peer_downloader);
         } else {
-            guard.insert(torrent_name.clone(), vec![peer_downloader]);
+            guard.insert(torrent_name, vec![peer_downloader]);
         }
     }
 
@@ -62,11 +62,11 @@ impl TorrentDownloaderHandler {
         let torrent = Torrent::new(self.torrent_name.clone());
 
         // get peers
-        println!("Getting peers for torrent file: {}", self.torrent_name.clone());
+        println!("Getting peers for torrent file: {}", self.torrent_name);
         let peers = Peer::get_from_torrent(&torrent).await;
 
         // create a file
-        println!("Creating a file for: {}", self.torrent_name.clone());
+        println!("Creating a file for: {}", self.torrent_name);
 
         // TODO: Create a File type that has destination
         let file = tokio::fs::File::create("test.txt").await.unwrap();
