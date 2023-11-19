@@ -3,7 +3,7 @@ use torrent_client::client::Client;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let (client, downloader_tx, _seeder_tx) = Client::new().await;
+    let (client, downloader_tx, _seeder_tx) = Client::new();
 
     let _ = tokio::join!(
         client.run(),

@@ -18,7 +18,7 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub async fn new(peer_address: PeerAddress, id_num: usize) -> Peer {
+    pub fn new(peer_address: PeerAddress, id_num: usize) -> Peer {
         
         let id: [u8; 20] = [id_num as u8;20];
 
@@ -39,7 +39,7 @@ impl Peer {
 
 
     async fn get_peers(tracker: &Tracker) -> Vec<Peer> {
-        let url = tracker.get_url().await;
+        let url = tracker.get_url();
 
         let resp = match reqwest::get(url).await {
             Ok(resp) => resp,
@@ -48,7 +48,7 @@ impl Peer {
         
         let bencoded_response = resp.bytes().await.unwrap();
         
-        let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response).await;
+        let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response);
         
         let mut peer_array: Vec<Peer> = Vec::new();
         if let BencodedValue::Dict(dict) = bencoded_response {
@@ -63,7 +63,7 @@ impl Peer {
                     }
 
                     // TODO: try removing the clone for the address
-                    let peer = Peer::new(addr.clone(), i).await;
+                    let peer = Peer::new(addr.clone(), i);
                     peer_array.push(peer);
                 }
             }

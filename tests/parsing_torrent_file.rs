@@ -14,11 +14,11 @@ fn test_read_file_as_bytes() {
 fn test_sha1hash_new() {
     let sha1_hash = Sha1Hash::new(&[90;20]);
 
-    assert!(vec![90;20] == sha1_hash.get_hash_ref());
+    assert!(vec![90;20] == sha1_hash.as_bytes());
 
     let sha1_hash = Sha1Hash::new("丂丂丂丂丂丂AA".as_bytes());
 
-    assert!("丂丂丂丂丂丂AA".as_bytes().to_vec() == sha1_hash.get_hash_ref());
+    assert!("丂丂丂丂丂丂AA".as_bytes().to_vec() == sha1_hash.as_bytes());
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn test_sha1hash_new() {
 fn test_sha1hash_new_invalid_hash_len() {
     let sha1_hash = Sha1Hash::new(&[90;21]);
 
-    assert!(vec![90;20] == sha1_hash.get_hash_ref());
+    assert!(vec![90;20] == sha1_hash.as_bytes());
 }
 
 #[test]
@@ -235,9 +235,7 @@ fn test_is_valid_torrent_file_invalid() {
 fn test_parse_torrent_file() {
     let torrent_file = "d8:announce5:url:)4:infod6:lengthi89e4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
 
-    async {
-        let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file).await;
-    };
+    let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file);
     assert!(true);
 }
 
@@ -247,19 +245,15 @@ fn test_parse_torrent_file() {
 fn test_parse_torrent_file_invalid() {
     let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
 
-    async {
-        let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file).await;
-    };
+    let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file);
 }
 
 #[test]
 fn test_parse_to_torrent_file() {
     let torrent_file = "d8:announce5:url:)4:infod6:lengthi89e4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
-    async {
-        let torrent_file_struct = TorrentParser::parse_torrent_file(&torrent_file).await;
+    let torrent_file_struct = TorrentParser::parse_torrent_file(&torrent_file);
 
-        let new_torrent_file = TorrentParser::parse_to_torrent_file(&torrent_file_struct).await;
+    let new_torrent_file = TorrentParser::parse_to_torrent_file(&torrent_file_struct);
 
-        assert_eq!(torrent_file, new_torrent_file);
-    };
+    assert_eq!(torrent_file, new_torrent_file);
 }

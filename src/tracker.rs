@@ -1,5 +1,3 @@
-
-
 mod connection;
 
 use crate::torrent::Torrent;
@@ -25,7 +23,7 @@ impl Tracker {
         }
     }
 
-    pub async fn get_url(&self) -> String {
+    pub fn get_url(&self) -> String {
         format!("{}{}", self.url, self.params)
     }
 }

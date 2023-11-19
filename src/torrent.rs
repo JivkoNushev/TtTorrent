@@ -13,10 +13,10 @@ pub struct Torrent {
 }
 
 impl Torrent {
-    pub async fn new(torrent_name: String) -> Torrent {
-        let torrent_file = TorrentFile::new(torrent_name.clone()).await;
+    pub fn new(torrent_name: String) -> Torrent {
+        let torrent_file = TorrentFile::new(torrent_name.clone());
 
-        let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()).await {
+        let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()) {
             Some(info_hash) => info_hash,
             None => panic!("Could not get info hash from torrent file: {}", torrent_name)
         };
@@ -32,7 +32,7 @@ impl Torrent {
         &self.info_hash
     }
 
-    pub async fn get_piece_length(&self) -> i128 {
+    pub fn get_piece_length(&self) -> i128 {
         let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
             Some(torrent_dict) => torrent_dict,
             None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)

@@ -6,15 +6,15 @@ use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash };
 pub struct TorrentParser {}
 
 impl TorrentParser {
-    pub async fn parse_torrent_file(torrent_file: &[u8]) -> BencodedValue {
+    pub fn parse_torrent_file(torrent_file: &[u8]) -> BencodedValue {
         parse_torrent_file_(torrent_file)
     } 
 
-    pub async fn parse_to_torrent_file(torrent_file: &BencodedValue) -> Vec<u8> {
+    pub fn parse_to_torrent_file(torrent_file: &BencodedValue) -> Vec<u8> {
         parse_to_torrent_file_(torrent_file)
     }
 
-    pub async fn parse_tracker_response(torrent_file: &[u8]) -> BencodedValue {
+    pub fn parse_tracker_response(torrent_file: &[u8]) -> BencodedValue {
         parse_tracker_response_(torrent_file)
     }
 }

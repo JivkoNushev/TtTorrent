@@ -22,7 +22,7 @@ pub struct TorrentDownloader {
 }
 
 impl TorrentDownloader {
-    pub async fn new(torrent_name: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
+    pub fn new(torrent_name: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
         TorrentDownloader {
             torrent_name,
             handler_rx,
@@ -37,7 +37,7 @@ pub struct TorrentDownloaderHandler {
 }
 
 impl TorrentDownloaderHandler {
-    pub async fn new(torrent_name: String, downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
+    pub fn new(torrent_name: String, downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
         println!("Creating a TorrentDownloaderHandler for torrent file: {}", torrent_name.clone());
         
         TorrentDownloaderHandler { 
@@ -59,7 +59,7 @@ impl TorrentDownloaderHandler {
     async fn download_torrent(&mut self) {
         // parse torrent file
         println!("Parsing torrent file: {}", self.torrent_name);
-        let torrent = Torrent::new(self.torrent_name.clone()).await;
+        let torrent = Torrent::new(self.torrent_name.clone());
 
         // get peers
         println!("Getting peers for torrent file: {}", self.torrent_name.clone());
@@ -77,7 +77,7 @@ impl TorrentDownloaderHandler {
 
         while let Some(peer) = stream.next().await {
             let (tx, rx) = mpsc::channel::<String>(100);
-            let peer_downloader = PeerDownloader::new(peer.id.clone(), rx).await;
+            let peer_downloader = PeerDownloader::new(peer.id.clone(), rx);
             
             TorrentDownloaderHandler::peer_downloaders_push(self.torrent_name.clone(), peer_downloader).await;
 
@@ -86,7 +86,7 @@ impl TorrentDownloaderHandler {
             let file_copy = Arc::clone(&file);
 
             tokio::spawn(async move {
-                let peer_downloader_handle = PeerDownloaderHandler::new(peer, torrent_clone, file_copy, tx_clone).await;
+                let peer_downloader_handle = PeerDownloaderHandler::new(peer, torrent_clone, file_copy, tx_clone);
 
                 peer_downloader_handle.run().await;
             });

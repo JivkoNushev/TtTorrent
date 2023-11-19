@@ -16,7 +16,7 @@ pub struct Downloader {
 }
 
 impl Downloader {
-    pub async fn new(tx: mpsc::Sender<String>, rx: mpsc::Receiver<String>) -> Downloader {
+    pub fn new(tx: mpsc::Sender<String>, rx: mpsc::Receiver<String>) -> Downloader {
         Downloader {
             client_tx: tx,
             client_rx: rx,
@@ -30,13 +30,13 @@ impl Downloader {
     async fn download_torrent(torrent_name: String) {
         let (tx, rx) = mpsc::channel::<String>(100);
 
-        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), rx).await;
+        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), rx);
     
         Downloader::torrent_downloaders_push(torrent_downloader).await;
 
         println!("Downloading torrent file: {}", torrent_name);
         tokio::spawn(async move {
-            let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent_name, tx).await;
+            let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent_name, tx);
             torrent_downloader_handler.run().await;
         });
     }

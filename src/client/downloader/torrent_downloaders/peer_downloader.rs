@@ -12,7 +12,7 @@ pub struct PeerDownloader {
 }
 
 impl PeerDownloader {
-    pub async fn new(peer_id: [u8;20], handler_rx: mpsc::Receiver<String>) -> PeerDownloader {
+    pub fn new(peer_id: [u8;20], handler_rx: mpsc::Receiver<String>) -> PeerDownloader {
         PeerDownloader {
             peer_id,
             handler_rx
@@ -29,7 +29,7 @@ pub struct PeerDownloaderHandler {
 
 impl PeerDownloaderHandler {
 
-    pub async fn new(peer: Peer, torrent: Torrent, file: Arc<Mutex<File>>,downloader_tx: mpsc::Sender<String>) -> PeerDownloaderHandler {
+    pub fn new(peer: Peer, torrent: Torrent, file: Arc<Mutex<File>>,downloader_tx: mpsc::Sender<String>) -> PeerDownloaderHandler {
         PeerDownloaderHandler {
             peer,
             torrent,
@@ -38,11 +38,11 @@ impl PeerDownloaderHandler {
         }
     }
 
-    async fn check_hash(l: &[u8;20], r: [u8;20]) -> bool {
+    fn check_hash(l: &[u8;20], r: [u8;20]) -> bool {
         l as &[u8] == r
     }
 
-    async fn response_is_ok(response: &Vec<u8>) -> bool {
+    fn response_is_ok(response: &Vec<u8>) -> bool {
         response == &[1]
     }
 
@@ -54,7 +54,7 @@ impl PeerDownloaderHandler {
         let interested_response = PeerMessage::recv_interested(stream).await;
         println!("Interested received from peer {}: {:?}", self.peer.address, interested_response);
 
-        if PeerDownloaderHandler::response_is_ok(&interested_response).await {
+        if PeerDownloaderHandler::response_is_ok(&interested_response) {
             self.peer.am_interested = true;
         }
         else {
@@ -70,7 +70,7 @@ impl PeerDownloaderHandler {
         let unchoke_response = PeerMessage::recv_unchoke(stream).await;
         println!("Unchoke received from peer {}: {:?}", self.peer.address, unchoke_response);
 
-        if PeerDownloaderHandler::response_is_ok(&unchoke_response).await {
+        if PeerDownloaderHandler::response_is_ok(&unchoke_response) {
             self.peer.choking = false;
         }
         else {
@@ -84,7 +84,7 @@ impl PeerDownloaderHandler {
     }
 
     async fn request_piece(&mut self, stream: &mut TcpStream, piece_index: u32) -> Vec<u8> {
-        let piece_length = self.torrent.get_piece_length().await;
+        let piece_length = self.torrent.get_piece_length();
 
         const BLOCK_SIZE: u32 = 1 << 14;
 
@@ -160,7 +160,7 @@ impl PeerDownloaderHandler {
         let mut buf = vec![0; 68];
 
         stream.read_exact(&mut buf).await.map_err(|e| {
-            tokio::io::Error::new(tokio::io::ErrorKind::Other, format!("Error: couldn't receive handshake response {}", e))
+            tokio::io::Error::new(tokio::io::ErrorKind::Other, format!("Error: couldn't receive handshake response from peer {}: {}", self.peer.address, e))
         })?;
 
         if buf.len() != 68 {
@@ -170,7 +170,7 @@ impl PeerDownloaderHandler {
         let handshake = Handshake::from_bytes(buf);
 
         // check info hash
-        if !PeerDownloaderHandler::check_hash(&self.torrent.get_info_hash_ref().as_bytes(), handshake.info_hash).await {
+        if !PeerDownloaderHandler::check_hash(&self.torrent.get_info_hash_ref().as_bytes(), handshake.info_hash) {
             return Err(tokio::io::Error::new(tokio::io::ErrorKind::Other, "Info hash doesn't match handshake info hash"));
         }
 
