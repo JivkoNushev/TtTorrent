@@ -46,5 +46,25 @@ impl TorrentFile {
 
         None
     }
+
+    pub fn get_piece_hash(&self, piece_index: usize) -> Option<Sha1Hash> {
+        let info_dict = match self.bencoded_dict.get_from_dict("info") {
+            Some(info_dict) => info_dict,
+            None => panic!("Could not get info dict from torrent file ref: {:?}", self.bencoded_dict)
+        };
+
+        let pieces = match info_dict.get_from_dict("pieces") {
+            Some(pieces) => pieces,
+            None => panic!("Could not get pieces from info dict ref in torrent file: {:?}", self.bencoded_dict)
+        };
+
+        if let BencodedValue::ByteSha1Hashes(pieces) = pieces {
+            if let Some(piece_hash) = pieces.get(piece_index) {
+                return Some(piece_hash.clone());
+            }
+        }
+
+        None
+    }
 }
 

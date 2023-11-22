@@ -60,8 +60,9 @@ impl TorrentDownloaderHandler {
         // parse torrent file
         println!("Parsing torrent file: {}", self.torrent_name);
         let torrent = Torrent::new(self.torrent_name.clone()).await;
+        let torrent = Arc::new(Mutex::new(torrent));
 
-        println!("Torrent file parsed: {:#?}", torrent);
+        // println!("Torrent file parsed: {:#?}", torrent);
 
         // get peers
         println!("Getting peers for torrent file: {}", self.torrent_name);
@@ -84,7 +85,7 @@ impl TorrentDownloaderHandler {
             TorrentDownloaderHandler::peer_downloaders_push(self.torrent_name.clone(), peer_downloader).await;
 
             let tx_clone = tx.clone();
-            let torrent_clone = torrent.clone();
+            let torrent_clone = Arc::clone(&torrent);
             let file_copy = Arc::clone(&file);
 
             tokio::spawn(async move {

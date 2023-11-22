@@ -1,8 +1,12 @@
 pub mod peer_address;
 pub mod peer_messages;
 
+use std::fmt::Display;
+use std::sync::Arc;
+
 pub use peer_address::PeerAddress;
 pub use peer_messages::PeerMessage;
+use tokio::sync::Mutex;
 
 use crate::torrent::{ Torrent, TorrentParser };
 use crate::torrent::torrent_file::BencodedValue;
@@ -15,6 +19,12 @@ pub struct Peer {
     pub port: String,
     pub am_interested: bool,
     pub choking: bool,
+}
+
+impl Display for Peer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.address, self.port)
+    }
 }
 
 impl Peer {
@@ -31,12 +41,12 @@ impl Peer {
         }
     }
 
-    pub async fn get_from_torrent(torrent: &Torrent) -> Vec<Peer> {
+    pub async fn get_from_torrent(torrent: &Arc<Mutex<Torrent>>) -> Vec<Peer> {
         if crate::DEBUG_MODE {
             vec![Peer::new(PeerAddress { address: "127.0.0.1".into(), port: "51413".into() }, 0)]
         }
         else {
-            let tracker = Tracker::new(&torrent).await;
+            let tracker = Tracker::new(torrent).await;
             Peer::get_peers(&tracker).await
         }
     }

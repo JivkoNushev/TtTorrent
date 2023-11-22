@@ -7,7 +7,7 @@ use crate::utils::AsBytes;
 pub mod handshake;
 pub use handshake::Handshake;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MessageID {
     Choke = 0,
     Unchoke = 1,
@@ -38,7 +38,7 @@ impl MessageID {
         }
     }   
 }
-
+#[derive(Debug)]
 pub struct Message {
     pub size: u32,
     pub id: MessageID,
