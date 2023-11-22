@@ -5,7 +5,6 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 pub use peer_address::PeerAddress;
-pub use peer_messages::PeerMessage;
 use tokio::sync::Mutex;
 
 use crate::torrent::{ Torrent, TorrentParser };

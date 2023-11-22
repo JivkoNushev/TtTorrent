@@ -4,7 +4,6 @@ use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, A
 
 use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::{CLIENT_PEER_ID, Client}};
 use crate::peer::Peer;
-use crate::peer::peer_messages::PeerMessage;
 use crate::utils::sha1_hash;
 
 
@@ -78,82 +77,6 @@ impl PeerDownloaderHandler {
     fn check_hash(l: &[u8;20], r: &[u8;20]) -> bool {
         l == r
     }
-
-    fn response_is_ok(response: &Vec<u8>) -> bool {
-        response == &[1]
-    }
-
-    async fn interested(&mut self, stream: &mut TcpStream) {
-        // send interested
-        PeerMessage::send_interested(stream).await;
-
-        // receive interested
-        let interested_response = PeerMessage::recv_interested(stream).await;
-        println!("Interested received from peer {}: {:?}", self.peer.address, interested_response);
-
-        if PeerDownloaderHandler::response_is_ok(&interested_response) {
-            self.peer.am_interested = true;
-        }
-        else {
-            self.peer.am_interested = false;
-        }
-    }
-
-    async fn unchoke(&mut self, stream: &mut TcpStream) {
-        // send interested
-        PeerMessage::send_unchoke(stream).await;
-
-        // receive interested
-        let unchoke_response = PeerMessage::recv_unchoke(stream).await;
-        println!("Unchoke received from peer {}: {:?}", self.peer.address, unchoke_response);
-
-        if PeerDownloaderHandler::response_is_ok(&unchoke_response) {
-            self.peer.choking = false;
-        }
-        else {
-            self.peer.am_interested = true;
-        }
-    }
-
-    async fn bitfield(&mut self, stream: &mut TcpStream) {
-        let bitfield_response = PeerMessage::recv_bitfield(stream).await;
-        println!("Received bitfield from peer '{}': {:?}", self.peer.address, bitfield_response);        
-    }
-
-    // async fn request_piece(&mut self, stream: &mut TcpStream, piece_index: u32) -> Vec<u8> {
-    //     let piece_length = self.torrent.get_piece_length();
-
-    //     const BLOCK_SIZE: u32 = 1 << 14;
-
-    //     let block_count: u32 = piece_length as u32 / BLOCK_SIZE;
-    //     let last_block_size: u32 = piece_length as u32 % BLOCK_SIZE;
-
-    //     let mut piece: Vec<u8> = vec![0; piece_length as usize];
-
-    //     for i in 0..block_count {
-    //         PeerMessage::send_request(stream, piece_index, BLOCK_SIZE * i, BLOCK_SIZE).await;
-
-    //         let piece_response_block = PeerMessage::recv_piece(stream).await;
-    //         println!("Piece block response from peer {}: {:?}", self.peer.address, piece_response_block);
-
-    //         // add to piece 
-    //         let piece_response_block = &piece_response_block[9..];
-    //         piece.append(&mut piece_response_block.to_vec());
-    //     }
-    //     // last piece
-    //     PeerMessage::send_request(stream, piece_index, block_count, last_block_size).await;
-
-    //     let piece_response_block = PeerMessage::recv_piece(stream).await;
-    //     println!("Piece block response from peer {}: {:?}", self.peer.address, piece_response_block);
-
-    //     // add to piece 
-    //     let piece_response_block = &piece_response_block[9..];
-    //     piece.append(&mut piece_response_block.to_vec());
-
-    //     println!("The whole piece {piece_index}: {piece:?}");
-
-    //     piece
-    // }
 
     async fn send(&mut self, stream: &mut TcpStream, message: Message) -> std::io::Result<()> {
         stream.write_all(&message.as_bytes()).await?;
