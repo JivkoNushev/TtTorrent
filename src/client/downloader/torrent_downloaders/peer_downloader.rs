@@ -1,6 +1,7 @@
 use std::{sync::Arc, fmt::Result, f32::consts::E, mem};
 
 use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt}};
+use rand::Rng;
 
 use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::{CLIENT_PEER_ID, Client}};
 use crate::peer::Peer;
@@ -72,6 +73,26 @@ impl PeerDownloaderHandler {
         else {
             None
         }
+    }
+
+    async fn get_random_not_downloaded_piece(&self) -> usize {
+        let mut torrent_guard = self.torrent.lock().await;
+
+        let mut rng = rand::thread_rng();
+
+        let piece_index = rng.gen_range(0..torrent_guard.pieces_left.len());
+
+        let piece = torrent_guard.pieces_left[piece_index] as usize;
+
+        torrent_guard.pieces_left.remove(piece_index);
+
+        piece
+    }
+
+    async fn pieces_left(&self) -> bool {
+        let torrent_guard = self.torrent.lock().await;
+
+        !torrent_guard.pieces_left.is_empty()
     }
 
     async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize) {
@@ -202,7 +223,7 @@ impl PeerDownloaderHandler {
 
         let mut piece: Vec<u8> = Vec::new();
         
-        for i in 1..=block_count {
+        for i in 0..block_count {
             println!("Requesting block {} from peer {}", i, self.peer);
 
             // create a message
@@ -379,7 +400,10 @@ impl PeerDownloaderHandler {
 
         // receive unchoke response
         let unchoke_response = match self.recv_response(&mut stream).await {
-            Ok(response) => response,
+            Ok(response) => {
+                self.peer.choking = false;
+                response
+            }
             Err(e) => {
                 eprintln!("Error: couldn't receive unchoke message response from peer {}: {}", self.peer, e);
                 return;
@@ -393,8 +417,20 @@ impl PeerDownloaderHandler {
 
         println!("Unchoke message response from peer {}: {:?}", self.peer, unchoke_response);
 
+        if self.peer.choking || !self.peer.am_interested {
+            todo!("Handle choke and not interested");
+        }
+
         // request piece
-        let piece_index = 0;
+        // get random not downloaded piece
+
+        if !self.pieces_left().await {
+            println!("No pieces left to download");
+            return;
+        }
+
+        let piece_index = self.get_random_not_downloaded_piece().await;
+
         let piece = match self.request_piece(&mut stream, piece_index).await {
             Ok(piece) => piece,
             Err(e) => {

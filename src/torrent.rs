@@ -24,11 +24,37 @@ impl Torrent {
             None => panic!("Could not get info hash from torrent file: {}", torrent_name)
         };
 
+        let pieces_left = {
+            let torrent_dict = match torrent_file.get_bencoded_dict_ref().try_into_dict() {
+                Some(torrent_dict) => torrent_dict,
+                None => panic!("Could not get torrent dict ref from torrent file: {}", torrent_name)
+            };
+            let info_dict = match torrent_dict.get("info") {
+                Some(info_dict) => info_dict,
+                None => panic!("Could not get info dict from torrent file ref: {}", torrent_name)
+            };
+            let pieces = match info_dict.get_from_dict("pieces") {
+                Some(pieces) => pieces,
+                None => panic!("Could not get pieces from info dict ref in torrent file: {}", torrent_name)
+            };
+
+            if let BencodedValue::ByteSha1Hashes(pieces) = pieces {
+                let mut pieces_left = Vec::new();
+                for i in 0..pieces.len() {
+                    pieces_left.push(i as u32);
+                }
+                pieces_left
+            }
+            else {
+                panic!("Could not get pieces from info dict ref in torrent file: {}", torrent_name)
+            }
+        };
+
         Torrent {
             torrent_name,
             torrent_file,
             info_hash,
-            pieces_left: Vec::new(),
+            pieces_left,
         }
     }
 
