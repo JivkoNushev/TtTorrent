@@ -86,13 +86,24 @@ impl PeerDownloaderHandler {
     async fn recv(&mut self, stream: &mut TcpStream, message_id: MessageID) -> std::io::Result<Message> {
         let mut recv_size: [u8; 4] = [0; 4];
 
-        stream.read_exact(&mut recv_size).await?;
+        let mut recv_size_u32: u32;
+        loop {
+            stream.read_exact(&mut recv_size).await?;
 
-        let recv_size = u32::from_be_bytes(recv_size);
+            recv_size_u32 = u32::from_be_bytes(recv_size);
+
+            println!("Received size: {:?}", recv_size_u32);
+
+            if 0 != recv_size_u32 {
+                break;
+            }
+        }
         
-        let mut buf: Vec<u8> = vec![0; recv_size as usize];
+        let mut buf: Vec<u8> = vec![0; recv_size_u32 as usize];
 
         stream.read_exact(&mut buf).await?;
+
+        println!("Received message: {:?}", buf);
 
         if MessageID::from(buf[0]) != message_id {
             return Err(std::io::Error::new(std::io::ErrorKind::Other , format!("Error: received message id doesn't match the expected message id: {:?}", MessageID::from(buf[0]))));
@@ -102,6 +113,20 @@ impl PeerDownloaderHandler {
             MessageID::from(buf[0]),
             buf[1..].to_vec()
         ))
+    }
+
+    async fn recv_response(&mut self, stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
+        let mut recv_size: [u8; 4] = [0; 4];
+
+        stream.read_exact(&mut recv_size).await?;
+
+        let recv_size = u32::from_be_bytes(recv_size);
+
+        let mut buf: Vec<u8> = vec![0; recv_size as usize];
+
+        stream.read_exact(&mut buf).await?;
+
+        Ok(buf)
     }
 
     async fn send_handshake(&mut self, stream: &mut TcpStream) {
@@ -149,9 +174,15 @@ impl PeerDownloaderHandler {
         
         let piece_length = self.get_piece_length().await;
 
+        println!("Piece length: {piece_length}");
+
         const BLOCK_SIZE: u32 = 1 << 14;
 
+        println!("Block size: {BLOCK_SIZE}");
+
         let block_count: u32 = piece_length as u32 / BLOCK_SIZE;
+
+        println!("Block count: {block_count}");
 
         let mut piece: Vec<u8> = vec![0; piece_length as usize];
 
@@ -168,6 +199,8 @@ impl PeerDownloaderHandler {
                 ].concat()
             );
 
+            println!("Request message: {:?}", request_message);
+
             // send request
             if let Err(e) = self.send(stream, request_message).await {
                 eprintln!("Error: couldn't send request message to peer {}: {}", self.peer, e);
@@ -176,6 +209,8 @@ impl PeerDownloaderHandler {
 
             // receive piece
             let request_response = self.recv(stream, MessageID::Piece).await?; 
+
+            println!("Received block {} from peer {}", i, self.peer);
 
             let payload = &request_response.payload[1..];
 
@@ -281,10 +316,6 @@ impl PeerDownloaderHandler {
             }
         };
 
-        // self.bitfield(&mut stream).await;
-        // self.interested(&mut stream).await;
-        // self.unchoke(&mut stream).await;
-
         // send a handshake
         self.send_handshake(&mut stream).await;
 
@@ -317,30 +348,22 @@ impl PeerDownloaderHandler {
         } else {
             self.peer.am_interested = true;
         }
-
         println!("Interested message sent to peer {}", self.peer);
 
-        // receive unchoke
-        let unchoke_message_response = match self.recv(&mut stream, MessageID::Unchoke).await {
-            Ok(message) => {
-                self.peer.choking = false;
-                message
-            },
+        let unchoke_response = match self.recv_response(&mut stream).await {
+            Ok(response) => response,
             Err(e) => {
                 eprintln!("Error: couldn't receive unchoke message response from peer {}: {}", self.peer, e);
                 return;
-            }
+            } 
         };
 
-        println!("Unchoke message response from peer {}: {:?}", self.peer, unchoke_message_response);
-
-        if self.peer.choking || !self.peer.am_interested {
-            println!("Couldn't start downloading from peer {}", self.peer);
-        }
-        else {
-            println!("Starting to download from peer {}", self.peer);
+        if unchoke_response.is_empty() {
+            println!("Unchoke response is empty from peer {}", self.peer);
+            return;
         }
 
+        println!("Unchoke message response from peer {}: {:?}", self.peer, unchoke_response);
 
         let piece_index = 0;
         let piece = match self.request_piece(&mut stream, piece_index).await {

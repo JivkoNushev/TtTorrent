@@ -1,0 +1,23 @@
+Hello from seeder
+Sending a torrent file to the downloader
+Received a torrent file: test_data/foo2.torrent
+Downloading torrent file: test_data/foo2.torrent
+Creating a TorrentDownloaderHandler for torrent file: test_data/foo2.torrent
+Parsing torrent file: test_data/foo2.torrent
+Waiting for peer downloader messages...
+Getting peers for torrent file: test_data/foo2.torrent
+Creating a file for: test_data/foo2.torrent
+Connected to peer 127.0.0.1:51413: PollEvented { io: Some(TcpStream { addr: 127.0.0.1:58526, peer: 127.0.0.1:51413, fd: 10 }) }
+Handshake sent to peer: 127.0.0.1:51413
+Received handshake response from peer 127.0.0.1:51413: [19, 66, 105, 116, 84, 111, 114, 114, 101, 110, 116, 32, 112, 114, 111, 116, 111, 99, 111, 108, 0, 0, 0, 0, 0, 16, 0, 5, 149, 8, 139, 22, 54, 100, 139, 70, 111, 138, 32, 157, 116, 110, 236, 19, 180, 38, 4, 241, 45, 84, 82, 51, 48, 48, 48, 45, 54, 49, 48, 112, 122, 120, 56, 56, 109, 55, 107, 102]
+Handshake received from peer: 127.0.0.1:51413
+Received size: [0, 0, 0, 2]
+Received message: [5, 128]
+Bitfield message from peer 127.0.0.1:51413: Message { size: 2, id: Bitfield, payload: [128] }
+Interested message sent to peer 127.0.0.1:51413
+Unchoke message response from peer 127.0.0.1:51413: [1]
+Requesting piece 0 from peer 127.0.0.1:51413
+Piece length: 32768
+Block size: 16384
+Block count: 2
+Requesting block 0 from peer 127.0.0.1:51413
