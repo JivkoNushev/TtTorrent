@@ -51,6 +51,18 @@ impl PeerDownloaderHandler {
         torrent_guard.get_piece_length() as u32
     }
 
+    async fn get_piece_count(&self) -> usize {
+        let torrent_guard = self.torrent.lock().await;
+
+        torrent_guard.get_piece_count().try_into().unwrap()
+    }
+
+    async fn get_file_size(&self) -> u64 {
+        let torrent_guard = self.torrent.lock().await;
+
+        torrent_guard.get_file_size()
+    }
+
     async fn get_piece_hash(&self, piece_index: usize) -> Option<[u8; 20]> {
         let torrent_guard = self.torrent.lock().await;
 
@@ -172,15 +184,19 @@ impl PeerDownloaderHandler {
     async fn request_piece(&mut self, stream: &mut TcpStream, piece_index: usize) -> std::io::Result<Vec<u8>> {
         println!("Requesting piece {} from peer {}", piece_index, self.peer);
         
-        let piece_length = self.get_piece_length().await;
+        let mut piece_length: u64 = self.get_piece_length().await as u64;
+        if piece_index == self.get_piece_count().await - 1 {
+            let file_size = self.get_file_size().await;
+            piece_length = file_size % piece_length;
+        }
 
         println!("Piece length: {piece_length}");
 
-        const BLOCK_SIZE: u32 = 1 << 14;
+        const BLOCK_SIZE: u64 = 1 << 14;
 
         println!("Block size: {BLOCK_SIZE}");
 
-        let block_count: u32 = piece_length as u32 / BLOCK_SIZE;
+        let block_count: u32 = (piece_length + (BLOCK_SIZE - 1)) as u32 / BLOCK_SIZE;
 
         println!("Block count: {block_count}");
 
@@ -291,7 +307,8 @@ impl PeerDownloaderHandler {
     }
 
     pub async fn run(mut self) {
-        // establish connection
+        // ---------------------------- establish connection ---------------------------- 
+
         let mut stream = TcpStream::connect(format!("{}:{}", self.peer.address, self.peer.port)).await;
 
         let mut counter = 0;
@@ -315,11 +332,13 @@ impl PeerDownloaderHandler {
                 return;
             }
         };
+        
+        // ---------------------------- send messages ---------------------------- 
 
         // send a handshake
         self.send_handshake(&mut stream).await;
 
-        // receive a handshake
+        // receive handshake response
         if let Err(e) = self.recv_handshake(&mut stream).await {
             eprintln!("Error: couldn't receive handshake from peer {}: {}", self.peer, e);
             return;
@@ -334,9 +353,9 @@ impl PeerDownloaderHandler {
             }
         };
 
-        println!("Bitfield message from peer {}: {:?}", self.peer, bitfield_message);
+        // println!("Bitfield message from peer {}: {:?}", self.peer, bitfield_message);
 
-        // send interested
+        // send interested message
         let interested_message = Message::new(
             MessageID::Interested,
             vec![]
@@ -350,6 +369,8 @@ impl PeerDownloaderHandler {
         }
         println!("Interested message sent to peer {}", self.peer);
 
+
+        // receive unchoke response
         let unchoke_response = match self.recv_response(&mut stream).await {
             Ok(response) => response,
             Err(e) => {
@@ -365,6 +386,7 @@ impl PeerDownloaderHandler {
 
         println!("Unchoke message response from peer {}: {:?}", self.peer, unchoke_response);
 
+        // request piece
         let piece_index = 0;
         let piece = match self.request_piece(&mut stream, piece_index).await {
             Ok(piece) => piece,
