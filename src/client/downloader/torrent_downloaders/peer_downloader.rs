@@ -57,7 +57,7 @@ impl PeerDownloaderHandler {
         torrent_guard.get_piece_count().try_into().unwrap()
     }
 
-    async fn get_file_size(&self) -> u64 {
+    async fn get_file_size(&self) -> u32 {
         let torrent_guard = self.torrent.lock().await;
 
         torrent_guard.get_file_size()
@@ -184,7 +184,7 @@ impl PeerDownloaderHandler {
     async fn request_piece(&mut self, stream: &mut TcpStream, piece_index: usize) -> std::io::Result<Vec<u8>> {
         println!("Requesting piece {} from peer {}", piece_index, self.peer);
         
-        let mut piece_length: u64 = self.get_piece_length().await as u64;
+        let mut piece_length: u32 = self.get_piece_length().await as u32;
         if piece_index == self.get_piece_count().await - 1 {
             let file_size = self.get_file_size().await;
             piece_length = file_size % piece_length;
@@ -192,17 +192,17 @@ impl PeerDownloaderHandler {
 
         println!("Piece length: {piece_length}");
 
-        const BLOCK_SIZE: u64 = 1 << 14;
+        const BLOCK_SIZE: u32 = 1 << 14;
 
         println!("Block size: {BLOCK_SIZE}");
 
-        let block_count: u32 = (piece_length + (BLOCK_SIZE - 1)) as u32 / BLOCK_SIZE;
+        let block_count: u32 = piece_length / BLOCK_SIZE;
 
         println!("Block count: {block_count}");
 
-        let mut piece: Vec<u8> = vec![0; piece_length as usize];
-
-        for i in 0..block_count {
+        let mut piece: Vec<u8> = Vec::new();
+        
+        for i in 1..=block_count {
             println!("Requesting block {} from peer {}", i, self.peer);
 
             // create a message
@@ -271,7 +271,7 @@ impl PeerDownloaderHandler {
         // receive piece
         let request_response = self.recv(stream, MessageID::Piece).await?;
 
-        let payload = &request_response.payload[1..];
+        let payload = &request_response.payload;
 
         // check the index
         let piece_index_response = u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
@@ -281,12 +281,17 @@ impl PeerDownloaderHandler {
 
         // check offset start
         let offset_start_response = u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]);
+        println!("offset response: {offset_start_response}");
         if offset_start_response != block_count * BLOCK_SIZE {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Offset start doesn't match the requested offset start"));
         }
 
         // save the block to piece
         let block = &payload[8..];
+
+        println!("Block: {:?}", block);
+
+        println!("piece: {:?}", piece);
 
         piece.append(&mut block.to_vec());
 
@@ -295,6 +300,8 @@ impl PeerDownloaderHandler {
 
         let piece_hash = sha1_hash(piece.clone());
         if let Some(hash) = self.get_piece_hash(piece_index).await {
+            println!("Piece hash: {:?}", piece_hash);
+            println!("Hash: {:?}", hash);
             if hash[..] != piece_hash.as_bytes()[..] {
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, "Piece hash doesn't match the requested piece hash"));
             }

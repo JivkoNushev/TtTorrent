@@ -74,7 +74,7 @@ impl Torrent {
         }
     }
 
-    pub fn get_file_size(&self) -> u64 {
+    pub fn get_file_size(&self) -> u32 {
         let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
             Some(torrent_dict) => torrent_dict,
             None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
@@ -90,22 +90,23 @@ impl Torrent {
                 let mut total_size = 0;
                 for file in files {
                     if let BencodedValue::Dict(file) = file {
-                        if let Some(length) = file.get_from_dict("length") {
+                        if let Some(length) = file.get("length") {
                             if let BencodedValue::Integer(length) = length {
                                 total_size += length;
                             }
                         }
                     }
                 }
-                return total_size as u64;
+                return total_size as u32;
             }
         }
         // else, get length
         if let Some(length) = info_dict.get_from_dict("length") {
             if let BencodedValue::Integer(length) = length {
-                return length as u64;
+                return length as u32;
             }
         }
 
+        0
     }
 }
