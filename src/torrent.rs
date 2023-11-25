@@ -1,3 +1,5 @@
+use std::collections::{LinkedList, BTreeMap};
+
 use tokio::sync::Mutex;
 
 pub mod torrent_file;
@@ -134,5 +136,45 @@ impl Torrent {
         }
 
         0
+    }
+
+    pub fn get_files(&self) -> Vec<BTreeMap<String, BencodedValue>> {
+        // if has files, return the files
+        // else place the one file in a list and return it
+
+        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
+            Some(torrent_dict) => torrent_dict,
+            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
+        };
+        let info_dict = match torrent_dict.get("info") {
+            Some(info_dict) => info_dict,
+            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
+        };
+        
+        let mut files = Vec::new();
+        
+        if let Some(files_list) = info_dict.get_from_dict("files") {
+            if let BencodedValue::List(files_list) = files_list {
+                for file in files_list {
+                    if let BencodedValue::Dict(file) = file {
+                        files.push(file.clone());
+                    }
+                }
+            }
+        }
+        else {
+            if let Some(file) = info_dict.get_from_dict("name") {
+                if let BencodedValue::String(file) = file {
+                    if let BencodedValue::Integer(length) = info_dict.get_from_dict("length").unwrap() {
+                        let mut file_dict = BTreeMap::new();
+                        file_dict.insert("path".to_string(), BencodedValue::String(file.clone()));
+                        file_dict.insert("length".to_string(), BencodedValue::Integer(length.clone()));
+                        files.push(file_dict);
+                    }
+                }
+            }
+        }
+
+        files
     }
 }

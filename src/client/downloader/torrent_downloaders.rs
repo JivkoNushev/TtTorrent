@@ -72,7 +72,7 @@ impl TorrentDownloaderHandler {
         println!("Creating a file for: {}", self.torrent_name);
 
         // TODO: Create a File type that has destination
-        let file = tokio::fs::File::create("test.txt").await.unwrap();
+        let file = tokio::fs::File::create("./test.txt").await.unwrap();
         let file = Arc::new(Mutex::new(file));
 
         // download from peers

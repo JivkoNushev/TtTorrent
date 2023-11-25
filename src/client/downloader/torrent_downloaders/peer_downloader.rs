@@ -1,9 +1,9 @@
-use std::{sync::Arc, fmt::Result, f32::consts::E, mem};
+use std::{sync::Arc, fmt::Result, f32::consts::E, mem, collections::BTreeMap};
 
 use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt}};
 use rand::Rng;
 
-use crate::{torrent::{Torrent, Sha1Hash}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::{CLIENT_PEER_ID, Client}};
+use crate::{torrent::{Torrent, Sha1Hash, BencodedValue}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::{CLIENT_PEER_ID, Client}};
 use crate::peer::Peer;
 use crate::utils::sha1_hash;
 
@@ -75,6 +75,12 @@ impl PeerDownloaderHandler {
         }
     }
 
+    async fn get_files(&self) -> Vec<BTreeMap<String, BencodedValue>> {
+        let torrent_guard = self.torrent.lock().await;
+
+        torrent_guard.get_files()
+    }
+
     async fn get_random_not_downloaded_piece(&self) -> usize {
         let mut torrent_guard = self.torrent.lock().await;
 
@@ -136,7 +142,7 @@ impl PeerDownloaderHandler {
 
         stream.read_exact(&mut buf).await?;
 
-        println!("Received message: {:?}", buf);
+        // println!("Received message: {:?}", buf);
 
         if MessageID::from(buf[0]) != message_id {
             return Err(std::io::Error::new(std::io::ErrorKind::Other , format!("Error: received message id doesn't match the expected message id: {:?}", MessageID::from(buf[0]))));
@@ -249,7 +255,7 @@ impl PeerDownloaderHandler {
 
             println!("Received block {} from peer {}", i, self.peer);
 
-            let payload = &request_response.payload[1..];
+            let payload = &request_response.payload;
 
             // check the index
             let piece_index_response = u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
@@ -270,6 +276,10 @@ impl PeerDownloaderHandler {
 
         // last piece
         let last_block_size: u32 = piece_length as u32 % BLOCK_SIZE;
+
+        if last_block_size == 0 {
+            return Ok(piece);
+        }
 
         // create a message
         let request_message = Message::new(
@@ -292,6 +302,8 @@ impl PeerDownloaderHandler {
         // receive piece
         let request_response = self.recv(stream, MessageID::Piece).await?;
 
+        println!("Received last block from peer {}", self.peer);
+
         let payload = &request_response.payload;
 
         // check the index
@@ -310,9 +322,9 @@ impl PeerDownloaderHandler {
         // save the block to piece
         let block = &payload[8..];
 
-        println!("Block: {:?}", block);
+        // println!("Block: {:?}", block);
 
-        println!("piece: {:?}", piece);
+        // println!("piece: {:?}", piece);
 
         piece.append(&mut block.to_vec());
 
@@ -424,23 +436,25 @@ impl PeerDownloaderHandler {
         // request piece
         // get random not downloaded piece
 
-        if !self.pieces_left().await {
-            println!("No pieces left to download");
-            return;
+        let files_to_download = self.get_files().await;
+
+        while self.pieces_left().await {
+            let piece_index = self.get_random_not_downloaded_piece().await;
+
+            let piece = match self.request_piece(&mut stream, piece_index).await {
+                Ok(piece) => piece,
+                Err(e) => {
+                    eprintln!("Error: couldn't request piece from peer {}: {}", self.peer, e);
+                    return;
+                }
+            };
+            
+            // write to file
+            self.write_to_file(piece, piece_index).await;
+            println!("Piece {} written to file", piece_index);
         }
 
-        let piece_index = self.get_random_not_downloaded_piece().await;
-
-        let piece = match self.request_piece(&mut stream, piece_index).await {
-            Ok(piece) => piece,
-            Err(e) => {
-                eprintln!("Error: couldn't request piece from peer {}: {}", self.peer, e);
-                return;
-            }
-        };
-        
-        // write to file
-        self.write_to_file(piece, piece_index).await;
+        println!("Finished downloading from peer {}", self.peer);
     }
     
 }
