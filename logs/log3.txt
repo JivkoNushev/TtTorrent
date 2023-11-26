@@ -1,0 +1,29 @@
+Hello from seeder
+Sending a torrent file to the downloader
+Received a torrent file: test_torrents/torrent_folder.torrent
+Downloading torrent file: test_torrents/torrent_folder.torrent
+Creating a TorrentDownloaderHandler for torrent file: test_torrents/torrent_folder.torrent
+Parsing torrent file: test_torrents/torrent_folder.torrent
+Waiting for peer downloader messages...
+Getting peers for torrent file: test_torrents/torrent_folder.torrent
+Creating a file for: test_torrents/torrent_folder.torrent
+Connected to peer 127.0.0.1:51413: PollEvented { io: Some(TcpStream { addr: 127.0.0.1:57424, peer: 127.0.0.1:51413, fd: 10 }) }
+Handshake sent to peer: 127.0.0.1:51413
+Connected to peer 192.168.0.28:37051: PollEvented { io: Some(TcpStream { addr: 192.168.0.13:56052, peer: 192.168.0.28:37051, fd: 11 }) }
+Handshake sent to peer: 192.168.0.28:37051
+Received handshake response from peer 192.168.0.28:37051: [19, 66, 105, 116, 84, 111, 114, 114, 101, 110, 116, 32, 112, 114, 111, 116, 111, 99, 111, 108, 0, 0, 0, 0, 0, 24, 0, 5, 112, 128, 67, 229, 19, 236, 172, 118, 114, 206, 34, 205, 70, 203, 53, 237, 116, 53, 186, 149, 45, 113, 66, 52, 54, 49, 48, 45, 73, 79, 45, 85, 120, 42, 119, 102, 42, 46, 115, 85]
+Handshake received from peer: 192.168.0.28:37051
+Received size: 2
+Interested message sent to peer 192.168.0.28:37051
+Unchoke message response from peer 192.168.0.28:37051: [1]
+Requesting piece 1 from peer 192.168.0.28:37051
+Piece length: 25770
+Block size: 16384
+Block count: 1
+Requesting block 0 from peer 192.168.0.28:37051
+Request message: Message { size: 13, id: Request, payload: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 64, 0] }
+Received size: 1
+Received handshake response from peer 127.0.0.1:51413: [19, 66, 105, 116, 84, 111, 114, 114, 101, 110, 116, 32, 112, 114, 111, 116, 111, 99, 111, 108, 0, 0, 0, 0, 0, 16, 0, 5, 112, 128, 67, 229, 19, 236, 172, 118, 114, 206, 34, 205, 70, 203, 53, 237, 116, 53, 186, 149, 45, 84, 82, 51, 48, 48, 48, 45, 112, 103, 120, 111, 52, 51, 56, 106, 121, 109, 101, 101]
+Handshake received from peer: 127.0.0.1:51413
+Received size: 2
+Interested message sent to peer 127.0.0.1:51413

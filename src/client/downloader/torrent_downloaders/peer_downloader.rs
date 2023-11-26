@@ -339,7 +339,7 @@ impl PeerDownloaderHandler {
             }
 
             // receive piece
-            let request_response = self.recv(stream, MessageID::Piece).await?; 
+            let request_response = self.recv(stream, MessageID::Piece).await?;
 
             println!("Received block {} from peer {}", i, self.peer);
 
@@ -481,7 +481,7 @@ impl PeerDownloaderHandler {
             }
         };
 
-        // println!("Bitfield message from peer {}: {:?}", self.peer, bitfield_message);
+        println!("Bitfield message from peer {}: {:?}", self.peer, bitfield_message);
 
         // send interested message
         let interested_message = Message::new(
@@ -495,6 +495,7 @@ impl PeerDownloaderHandler {
         } else {
             self.peer.am_interested = true;
         }
+
         println!("Interested message sent to peer {}", self.peer);
 
 
@@ -525,6 +526,7 @@ impl PeerDownloaderHandler {
         // get random not downloaded piece
 
         let files_to_download = self.get_files().await;
+
 
         while self.pieces_left().await {
             let piece_index = self.get_random_not_downloaded_piece().await;
