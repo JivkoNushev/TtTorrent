@@ -139,9 +139,6 @@ impl Torrent {
     }
 
     pub fn get_files(&self) -> Vec<BTreeMap<String, BencodedValue>> {
-        // if has files, return the files
-        // else place the one file in a list and return it
-
         let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
             Some(torrent_dict) => torrent_dict,
             None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)

@@ -9,7 +9,7 @@ async fn main() {
         client.run(),
         tokio::spawn(async move {
             println!("Sending a torrent file to the downloader");
-            let _ = downloader_tx.send("test_torrents/pokemon_names.torrent".to_string()).await;
+            let _ = downloader_tx.send("test_torrents/torrent_folder.torrent".to_string()).await;
         })
     );
 }

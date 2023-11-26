@@ -1,4 +1,4 @@
-use std::{sync::Arc, fmt::Result, f32::consts::E, mem, collections::BTreeMap};
+use std::{sync::Arc, fmt::Result, f32::consts::E, mem, collections::BTreeMap, ops::Index};
 
 use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt}};
 use rand::Rng;
@@ -102,15 +102,103 @@ impl PeerDownloaderHandler {
     }
 
     async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize) {
-        let mut file_guard = self.file.lock().await;
+        // get files by piece index
+        // write to files
 
+        let files = self.get_files().await;
+        
         let piece_length = self.get_piece_length().await;
 
-        let offset = piece_index as u32 * piece_length;
+        let piece_offset = piece_index as u32 * piece_length;
 
-        file_guard.seek(std::io::SeekFrom::Start(offset as u64)).await.unwrap();
+        let mut length_sum = 0;
 
-        file_guard.write_all(&piece).await.unwrap();
+        let mut files_index = 0;
+        let mut file_offset = 0;
+
+        let mut pieces_offset = 0;
+        if piece_offset != 0 {
+            for (i, file) in files.iter().enumerate() {
+                if let BencodedValue::Integer(file_length) = file.get("length").unwrap() {
+                    length_sum += *file_length as u32;
+
+                    if length_sum >= piece_offset {
+                        files_index = i;
+                        file_offset = *file_length as u32 - (length_sum - piece_offset);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut bytes_left = piece_length;
+
+        while bytes_left > 0 {
+            let file = &files[files_index];
+
+            let file_length = if let BencodedValue::Integer(file_length) = file.get("length").unwrap() {
+                *file_length as u32
+            } else {
+                panic!("Error: couldn't get file length");
+            };
+
+            let file_path: Vec<String> = if let BencodedValue::List(file_path) = file.get("path").unwrap() {
+                file_path.iter().map(|path| {
+                    if let BencodedValue::String(path) = path {
+                        path.clone()
+                    } else {
+                        panic!("Error: couldn't get file path");
+                    }
+                }).collect()
+            } else {
+                panic!("Error: couldn't get file path");
+            };
+            let file_path = file_path.join("/");
+
+            // open if exists, create if doesnt
+
+            // let path_buf = std::fs::(format!("test_data/folder_with_files/{file_path}")).await.unwrap();
+            let path_buf = std::path::PathBuf::from(format!("test_data/folder_with_files/{file_path}"));
+
+            let dir = path_buf.parent().unwrap();
+
+            tokio::fs::create_dir_all(dir).await.unwrap();
+
+            let file = tokio::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .append(true)
+                .create(true)
+                .open(path_buf)
+                .await
+                .unwrap();
+
+            let bytes_to_write = if bytes_left > file_length - file_offset {
+                file_length - file_offset
+            } else {
+                bytes_left
+            };
+
+            let mut file_guard = file;
+
+            file_guard.seek(std::io::SeekFrom::Start(file_offset as u64)).await.unwrap();
+
+            file_guard.write_all(
+                &piece[pieces_offset as usize..(pieces_offset + bytes_to_write) as usize]
+            ).await.unwrap();
+
+            bytes_left -= bytes_to_write;
+        }
+
+        // let mut file_guard = self.file.lock().await;
+
+        // let piece_length = self.get_piece_length().await;
+
+        // let offset = piece_index as u32 * piece_length;
+
+        // file_guard.seek(std::io::SeekFrom::Start(offset as u64)).await.unwrap();
+
+        // file_guard.write_all(&piece).await.unwrap();
     }
 
     fn check_hash(l: &[u8;20], r: &[u8;20]) -> bool {
