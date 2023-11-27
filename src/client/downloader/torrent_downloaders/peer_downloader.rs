@@ -107,7 +107,7 @@ impl PeerDownloaderHandler {
         
         let piece_length = self.get_piece_length().await;
 
-        let piece_offset = piece_index as u32 * piece_length;
+        let piece_offset = piece_index as u64 * piece_length as u64;
 
         let mut length_sum = 0;
 
@@ -120,16 +120,16 @@ impl PeerDownloaderHandler {
                 if let BencodedValue::Integer(file_length) = file.get("length").unwrap() {
                     length_sum += *file_length as u32;
 
-                    if length_sum >= piece_offset {
+                    if length_sum as u64 >= piece_offset {
                         files_index = i;
-                        file_offset = *file_length as u32 - (length_sum - piece_offset);
+                        file_offset = *file_length as u64 - (length_sum as u64 - piece_offset);
                         break;
                     }
                 }
             }
         }
 
-        let mut bytes_left = piece_length;
+        let mut bytes_left = piece_length as u64;
 
         while bytes_left > 0 {
             let file = &files[files_index];
@@ -171,10 +171,10 @@ impl PeerDownloaderHandler {
                 .await
                 .unwrap();
 
-            let bytes_to_write = if bytes_left > file_length - file_offset {
-                file_length - file_offset
+            let bytes_to_write = if bytes_left as u64 > file_length as u64 - file_offset {
+                file_length as u64 - file_offset
             } else {
-                bytes_left
+                bytes_left as u64
             };
 
             let mut file_guard = file;
@@ -185,7 +185,7 @@ impl PeerDownloaderHandler {
                 &piece[pieces_offset as usize..(pieces_offset + bytes_to_write) as usize]
             ).await.unwrap();
 
-            bytes_left -= bytes_to_write;
+            bytes_left -= bytes_to_write as u64;
         }
 
         // let mut file_guard = self.file.lock().await;
