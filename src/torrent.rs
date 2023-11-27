@@ -64,7 +64,7 @@ impl Torrent {
         &self.info_hash
     }
 
-    pub fn get_piece_length(&self) -> i128 {
+    pub fn get_piece_length(&self, piece_index: usize) -> i128 {
         let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
             Some(torrent_dict) => torrent_dict,
             None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
@@ -74,9 +74,16 @@ impl Torrent {
             None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
         };
 
-        match info_dict.get_from_dict("piece length") {
+        let piece_length = match info_dict.get_from_dict("piece length") {
             Some(piece_length) => piece_length.try_into_integer().unwrap().clone(),
             None => panic!("Could not get piece length from info dict ref in torrent file: {}", self.torrent_name)
+        };
+
+        if piece_index as u32 == self.get_piece_count() - 1 {
+            self.get_file_size() as i128 % piece_length
+        }
+        else {
+            piece_length
         }
     }
 

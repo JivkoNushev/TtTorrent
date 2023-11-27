@@ -8,6 +8,14 @@ use crate::peer::Peer;
 use crate::utils::sha1_hash;
 
 
+pub struct DownloadableFile {
+    start: u64,
+    size: u64,
+    path: String,
+    md5sum: Option<String>
+}
+
+
 pub struct PeerDownloader {
     pub peer_id: [u8;20],
     pub handler_rx: mpsc::Receiver<String>
@@ -46,10 +54,10 @@ impl PeerDownloaderHandler {
         torrent_guard.info_hash.as_bytes().clone()
     }
 
-    async fn get_piece_length(&self) -> u32 {
+    async fn get_piece_length(&self, piece_index: usize) -> u32 {
         let torrent_guard = self.torrent.lock().await;
 
-        torrent_guard.get_piece_length() as u32
+        torrent_guard.get_piece_length(piece_index) as u32
     }
 
     async fn get_piece_count(&self) -> usize {
@@ -101,102 +109,74 @@ impl PeerDownloaderHandler {
         !torrent_guard.pieces_left.is_empty()
     }
 
-    async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize, files: &Vec<BTreeMap<String, BencodedValue>>) {
-        // get files by piece index
-        // write to files
-        
-        let piece_length = self.get_piece_length().await;
+    async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize, files: &Vec<DownloadableFile>) {
+        let piece_length = self.get_piece_length(piece_index).await as u64;
+        let piece_start_offset = piece_length as u64 * piece_index as u64;
 
-        let piece_offset = piece_index as u64 * piece_length as u64;
-
-        let mut length_sum = 0;
-
-        let mut files_index = 0;
+        let mut file_index= 0;
         let mut file_offset = 0;
 
-        let mut pieces_offset = 0;
-        if piece_offset != 0 {
-            for (i, file) in files.iter().enumerate() {
-                if let BencodedValue::Integer(file_length) = file.get("length").unwrap() {
-                    length_sum += *file_length as u32;
+        let mut changed = false;
 
-                    if length_sum as u64 >= piece_offset {
-                        files_index = i;
-                        file_offset = *file_length as u64 - (length_sum as u64 - piece_offset);
-                        break;
-                    }
-                }
+        for (i, file) in files.iter().enumerate() {
+            if file.start <= piece_start_offset && piece_start_offset < file.start + file.size {
+                file_index = i as u64;
+                file_offset = piece_start_offset - file.start;
+
+                changed = true;
+
+                break;
             }
+        }  
+
+        if changed == false {
+            eprintln!("Error: couldn't find file index and offset");
+            return;
         }
 
-        let mut bytes_left = piece_length as u64;
+        println!("File offset: {}", file_offset);
+
+        let mut bytes_left = piece_length;
 
         while bytes_left > 0 {
-            let file = &files[files_index];
+            let file = &files[file_index as usize];
 
-            let file_length = if let BencodedValue::Integer(file_length) = file.get("length").unwrap() {
-                *file_length as u32
-            } else {
-                panic!("Error: couldn't get file length");
-            };
-
-            let file_path: Vec<String> = if let BencodedValue::List(file_path) = file.get("path").unwrap() {
-                file_path.iter().map(|path| {
-                    if let BencodedValue::String(path) = path {
-                        path.clone()
-                    } else {
-                        panic!("Error: couldn't get file path");
-                    }
-                }).collect()
-            } else {
-                panic!("Error: couldn't get file path");
-            };
-            let file_path = file_path.join("/");
-
-            // open if exists, create if doesnt
-
-            // let path_buf = std::fs::(format!("test_data/folder_with_files/{file_path}")).await.unwrap();
-            let path_buf = std::path::PathBuf::from(format!("test_data/folder_with_files/{file_path}"));
+            let path_buf = std::path::PathBuf::from(format!("test_data/folder_with_files/{}", file.path));
 
             let dir = path_buf.parent().unwrap();
 
             tokio::fs::create_dir_all(dir).await.unwrap();
 
-            let file = tokio::fs::OpenOptions::new()
+            let mut fd = tokio::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .append(true)
                 .create(true)
-                .open(path_buf)
+                .open(path_buf.clone())
                 .await
                 .unwrap();
 
-            let bytes_to_write = if bytes_left as u64 > file_length as u64 - file_offset {
-                file_length as u64 - file_offset
+            // maybe return min() of both ?
+            let bytes_to_write = if file.size - file_offset > bytes_left  {
+                bytes_left
             } else {
-                bytes_left as u64
+                file.size - file_offset
             };
 
-            let mut file_guard = file;
 
-            file_guard.seek(std::io::SeekFrom::Start(file_offset as u64)).await.unwrap();
+            fd.seek(std::io::SeekFrom::Start(file_offset as u64)).await.unwrap();
 
-            file_guard.write_all(
-                &piece[pieces_offset as usize..(pieces_offset + bytes_to_write) as usize]
+            let written_bytes = piece_length - bytes_left;
+
+            println!("Writing piece index {piece_index} to file {}, bytes left {bytes_left}", path_buf.display());
+
+            fd.write_all(
+                &piece[written_bytes as usize..(written_bytes + bytes_to_write) as usize]
             ).await.unwrap();
 
             bytes_left -= bytes_to_write as u64;
+            file_index += 1;
         }
-
-        // let mut file_guard = self.file.lock().await;
-
-        // let piece_length = self.get_piece_length().await;
-
-        // let offset = piece_index as u32 * piece_length;
-
-        // file_guard.seek(std::io::SeekFrom::Start(offset as u64)).await.unwrap();
-
-        // file_guard.write_all(&piece).await.unwrap();
     }
 
     fn check_hash(l: &[u8;20], r: &[u8;20]) -> bool {
@@ -217,7 +197,7 @@ impl PeerDownloaderHandler {
 
             recv_size_u32 = u32::from_be_bytes(recv_size);
 
-            println!("Received size: {:?}", recv_size_u32);
+           // println!("Received size: {:?}", recv_size_u32);
 
             if 0 != recv_size_u32 {
                 break;
@@ -228,9 +208,7 @@ impl PeerDownloaderHandler {
 
         stream.read_exact(&mut buf).await?;
 
-        // println!("Received message: {:?}", buf);
-
-       
+        //// println!("Received message: {:?}", buf);
 
         Ok(Message::new(
             MessageID::from(buf[0]),
@@ -254,14 +232,14 @@ impl PeerDownloaderHandler {
 
     async fn send_handshake(&mut self, stream: &mut TcpStream) {
         let handshake = Handshake::new( self.get_info_hash().await, Client::get_client_id().await);
-        // println!("handshake as bytes {:?}", handshake.as_bytes());
+        //// println!("handshake as bytes {:?}", handshake.as_bytes());
 
         match stream.write_all(&handshake.as_bytes()).await {
             Ok(_) => {},
             Err(e) => panic!("Error: couldn't send handshake {}", e)
         }
 
-        println!("Handshake sent to peer: {}", self.peer);
+       // println!("Handshake sent to peer: {}", self.peer);
     }
 
     async fn recv_handshake(&mut self, stream: &mut TcpStream) -> tokio::io::Result<[u8;20]> {
@@ -271,7 +249,7 @@ impl PeerDownloaderHandler {
             tokio::io::Error::new(tokio::io::ErrorKind::Other, format!("Error: couldn't receive handshake response from peer {}: {}", self.peer, e))
         })?;
 
-        println!("Received handshake response from peer {}: {:?}", self.peer, buf);
+       // println!("Received handshake response from peer {}: {:?}", self.peer, buf);
 
         if buf.len() != 68 {
             return Err(tokio::io::Error::new(tokio::io::ErrorKind::Other, "Invalid handshake length"));
@@ -287,34 +265,30 @@ impl PeerDownloaderHandler {
         // save peer id
         self.peer.id = handshake.peer_id;
 
-        println!("Handshake received from peer: {}", self.peer);
+       // println!("Handshake received from peer: {}", self.peer);
 
         Ok(handshake.peer_id)
     }
 
     async fn request_piece(&mut self, stream: &mut TcpStream, piece_index: usize) -> std::io::Result<Vec<u8>> {
-        println!("Requesting piece {} from peer {}", piece_index, self.peer);
+       // println!("Requesting piece {} from peer {}", piece_index, self.peer);
         
-        let mut piece_length: u32 = self.get_piece_length().await as u32;
-        if piece_index == self.get_piece_count().await - 1 {
-            let file_size = self.get_file_size().await;
-            piece_length = file_size % piece_length;
-        }
-
-        println!("Piece length: {piece_length}");
+        let piece_length: u32 = self.get_piece_length(piece_index).await as u32;
+       
+       // println!("Piece length: {piece_length}");
 
         const BLOCK_SIZE: u32 = 1 << 14;
 
-        println!("Block size: {BLOCK_SIZE}");
+       // println!("Block size: {BLOCK_SIZE}");
 
         let block_count: u32 = piece_length / BLOCK_SIZE;
 
-        println!("Block count: {block_count}");
+       // println!("Block count: {block_count}");
 
         let mut piece: Vec<u8> = Vec::new();
         
         for i in 0..block_count {
-            println!("Requesting block {} from peer {}", i, self.peer);
+           // println!("Requesting block {} from peer {}", i, self.peer);
 
             // create a message
             let request_message = Message::new(
@@ -326,7 +300,7 @@ impl PeerDownloaderHandler {
                 ].concat()
             );
 
-            println!("Request message: {:?}", request_message);
+           // println!("Request message: {:?}", request_message);
 
             // send request
             if let Err(e) = self.send(stream, request_message).await {
@@ -345,7 +319,7 @@ impl PeerDownloaderHandler {
                 request_response = self.recv(stream, MessageID::Piece).await?;
             }
 
-            println!("Received block {} from peer {}", i, self.peer);
+           // println!("Received block {} from peer {}", i, self.peer);
 
             let payload = &request_response.payload;
 
@@ -383,7 +357,7 @@ impl PeerDownloaderHandler {
             ].concat()
         );
 
-        println!("Requesting last piece from peer {}", self.peer);
+       // println!("Requesting last piece from peer {}", self.peer);
 
         // send request
         if let Err(e) = self.send(stream, request_message).await {
@@ -392,9 +366,16 @@ impl PeerDownloaderHandler {
         }
 
         // receive piece
-        let request_response = self.recv(stream, MessageID::Piece).await?;
+        let mut request_response = self.recv(stream, MessageID::Piece).await?;
+        loop {
+            if request_response.id == MessageID::Piece {
+                break;
+            }
 
-        println!("Received last block from peer {}", self.peer);
+            request_response = self.recv(stream, MessageID::Piece).await?;
+        }
+
+       // println!("Received last block from peer {}", self.peer);
 
         let payload = &request_response.payload;
 
@@ -406,7 +387,7 @@ impl PeerDownloaderHandler {
 
         // check offset start
         let offset_start_response = u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]);
-        println!("offset response: {offset_start_response}");
+       // println!("offset response: {offset_start_response}");
         if offset_start_response != block_count * BLOCK_SIZE {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Offset start doesn't match the requested offset start"));
         }
@@ -414,19 +395,22 @@ impl PeerDownloaderHandler {
         // save the block to piece
         let block = &payload[8..];
 
-        // println!("Block: {:?}", block);
+        //// println!("Block: {:?}", block);
 
-        // println!("piece: {:?}", piece);
+        //// println!("piece: {:?}", piece);
 
         piece.append(&mut block.to_vec());
 
         // check piece hash
         // sha1 hash the piece 
 
+        // println!("{}", piece.iter().map(|&c| c as char).collect::<String>());
+
+
         let piece_hash = sha1_hash(piece.clone());
         if let Some(hash) = self.get_piece_hash(piece_index).await {
-            println!("Piece hash: {:?}", piece_hash);
-            println!("Hash: {:?}", hash);
+           // println!("Piece hash: {:?}", piece_hash);
+           // println!("Hash: {:?}", hash);
             if hash[..] != piece_hash.as_bytes()[..] {
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, "Piece hash doesn't match the requested piece hash"));
             }
@@ -456,7 +440,7 @@ impl PeerDownloaderHandler {
 
         let mut stream = match stream {
             Ok(stream) => {
-                println!("Connected to peer {}: {:?}", self.peer, stream);
+               // println!("Connected to peer {}: {:?}", self.peer, stream);
                 stream
             },
             Err(e) => {
@@ -485,7 +469,7 @@ impl PeerDownloaderHandler {
             }
         };
 
-        println!("Bitfield message from peer {}: {:?}", self.peer, bitfield_message);
+       // println!("Bitfield message from peer {}: {:?}", self.peer, bitfield_message);
 
         // send interested message
         let interested_message = Message::new(
@@ -500,7 +484,7 @@ impl PeerDownloaderHandler {
             self.peer.am_interested = true;
         }
 
-        println!("Interested message sent to peer {}", self.peer);
+       // println!("Interested message sent to peer {}", self.peer);
 
 
         // receive unchoke response
@@ -516,11 +500,11 @@ impl PeerDownloaderHandler {
         };
 
         if unchoke_response.is_empty() {
-            println!("Unchoke response is empty from peer {}", self.peer);
+           // println!("Unchoke response is empty from peer {}", self.peer);
             return;
         }
 
-        println!("Unchoke message response from peer {}: {:?}", self.peer, unchoke_response);
+       // println!("Unchoke message response from peer {}: {:?}", self.peer, unchoke_response);
 
         if self.peer.choking || !self.peer.am_interested {
             todo!("Handle choke and not interested");
@@ -529,7 +513,46 @@ impl PeerDownloaderHandler {
         // request piece
         // get random not downloaded piece
 
+
         let files_to_download = self.get_files().await;
+        let mut files_to_download = files_to_download.iter().map(|file| {
+            let size = if let BencodedValue::Integer(size) = file.get("length").unwrap() {
+                *size as u64
+            } else {
+                panic!("Error: couldn't get file size");
+            };
+
+            let path: Vec<String> = if let BencodedValue::List(path) = file.get("path").unwrap() {
+                path.iter().map(|path| {
+                    if let BencodedValue::String(path) = path {
+                        path.clone()
+                    } else {
+                        panic!("Error: couldn't get file path");
+                    }
+                }).collect()
+            } else {
+                panic!("Error: couldn't get file path");
+            };
+            let path = path.join("/");
+
+            let md5sum = if let Some(BencodedValue::String(md5sum)) = file.get("md5sum") {
+                Some(md5sum.clone())
+            } else {
+                None
+            };
+
+            DownloadableFile {
+                start: 0,
+                size,
+                path,
+                md5sum
+            }
+        }).collect::<Vec<DownloadableFile>>();
+
+        // start of file is the size of the previous file
+        for i in 1..files_to_download.len() {
+            files_to_download[i].start = files_to_download[i - 1].start + files_to_download[i - 1].size;
+        }
 
         while self.pieces_left().await {
             let piece_index = self.get_random_not_downloaded_piece().await;
@@ -543,8 +566,10 @@ impl PeerDownloaderHandler {
             };
             
             // write to file
+            // println!("{}", piece.iter().map(|&c| c as char).collect::<String>());
+
             self.write_to_file(piece, piece_index, &files_to_download).await;
-            println!("Piece {} written to file", piece_index);
+            println!("Piece {} written to file from peer {}", piece_index, self.peer);
         }
 
         println!("Finished downloading from peer {}", self.peer);

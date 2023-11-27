@@ -4,4 +4,4 @@ pub mod peer;
 pub mod tracker;
 pub mod utils;
 
-const DEBUG_MODE: bool = true;
+const DEBUG_MODE: bool = false;

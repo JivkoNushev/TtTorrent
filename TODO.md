@@ -26,3 +26,5 @@ loop {
 - use repr(C)
 
 - fix peer tcp connections
+
+- show how many pieces have been downloaded as percentage
