@@ -101,11 +101,9 @@ impl PeerDownloaderHandler {
         !torrent_guard.pieces_left.is_empty()
     }
 
-    async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize) {
+    async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize, files: &Vec<BTreeMap<String, BencodedValue>>) {
         // get files by piece index
         // write to files
-
-        let files = self.get_files().await;
         
         let piece_length = self.get_piece_length().await;
 
@@ -232,9 +230,7 @@ impl PeerDownloaderHandler {
 
         // println!("Received message: {:?}", buf);
 
-        if MessageID::from(buf[0]) != message_id {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other , format!("Error: received message id doesn't match the expected message id: {:?}", MessageID::from(buf[0]))));
-        }
+       
 
         Ok(Message::new(
             MessageID::from(buf[0]),
@@ -339,7 +335,15 @@ impl PeerDownloaderHandler {
             }
 
             // receive piece
-            let request_response = self.recv(stream, MessageID::Piece).await?;
+            let mut request_response = self.recv(stream, MessageID::Piece).await?;
+
+            loop {
+                if request_response.id == MessageID::Piece {
+                    break;
+                }
+
+                request_response = self.recv(stream, MessageID::Piece).await?;
+            }
 
             println!("Received block {} from peer {}", i, self.peer);
 
@@ -527,7 +531,6 @@ impl PeerDownloaderHandler {
 
         let files_to_download = self.get_files().await;
 
-
         while self.pieces_left().await {
             let piece_index = self.get_random_not_downloaded_piece().await;
 
@@ -540,7 +543,7 @@ impl PeerDownloaderHandler {
             };
             
             // write to file
-            self.write_to_file(piece, piece_index).await;
+            self.write_to_file(piece, piece_index, &files_to_download).await;
             println!("Piece {} written to file", piece_index);
         }
 
