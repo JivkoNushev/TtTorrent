@@ -89,18 +89,29 @@ impl PeerDownloaderHandler {
         torrent_guard.get_files()
     }
 
-    async fn get_random_not_downloaded_piece(&self) -> usize {
+    async fn get_random_not_downloaded_piece(&self, bitfield: Vec<usize>) -> usize {
         let mut torrent_guard = self.torrent.lock().await;
+        
+        let common_indexes = bitfield
+        .iter()
+        .filter(|&i| torrent_guard.pieces_left.contains(i))
+        .collect::<Vec<&usize>>();
 
         let mut rng = rand::thread_rng();
 
-        let piece_index = rng.gen_range(0..torrent_guard.pieces_left.len());
+        let piece_index = rng.gen_range(0..common_indexes.len());
 
-        let piece = torrent_guard.pieces_left[piece_index] as usize;
+        let piece = common_indexes[piece_index];
 
         torrent_guard.pieces_left.remove(piece_index);
 
-        piece
+        let all_pieces_count = torrent_guard.get_piece_count();
+
+        // % downloaded pieces
+        let percent_downloaded = (all_pieces_count - torrent_guard.pieces_left.len() as u32) * 100 / all_pieces_count;
+        
+        println!("{}% Downloaded", percent_downloaded);
+        piece.clone()
     }
 
     async fn pieces_left(&self) -> bool {
@@ -110,8 +121,10 @@ impl PeerDownloaderHandler {
     }
 
     async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize, files: &Vec<DownloadableFile>) {
+        
         let piece_length = self.get_piece_length(piece_index).await as u64;
-        let piece_start_offset = piece_length as u64 * piece_index as u64;
+
+        let piece_start_offset = self.get_piece_length(0).await as u64 * piece_index as u64;
 
         let mut file_index= 0;
         let mut file_offset = 0;
@@ -123,6 +136,9 @@ impl PeerDownloaderHandler {
                 file_index = i as u64;
                 file_offset = piece_start_offset - file.start;
 
+                // println!("file start: {}", file.start);
+                // println!("piece_start_offset: {}", piece_start_offset);
+
                 changed = true;
 
                 break;
@@ -131,10 +147,10 @@ impl PeerDownloaderHandler {
 
         if changed == false {
             eprintln!("Error: couldn't find file index and offset");
-            return;
+            return
         }
 
-        println!("File offset: {}", file_offset);
+        // println!("File offset: {}", file_offset);
 
         let mut bytes_left = piece_length;
 
@@ -168,7 +184,7 @@ impl PeerDownloaderHandler {
 
             let written_bytes = piece_length - bytes_left;
 
-            println!("Writing piece index {piece_index} to file {}, bytes left {bytes_left}", path_buf.display());
+            // println!("Writing piece index {piece_index} to file {}, bytes left {bytes_left}", path_buf.display());
 
             fd.write_all(
                 &piece[written_bytes as usize..(written_bytes + bytes_to_write) as usize]
@@ -468,8 +484,18 @@ impl PeerDownloaderHandler {
                 return;
             }
         };
+        
+        let bitfield = bitfield_message.payload;
 
-       // println!("Bitfield message from peer {}: {:?}", self.peer, bitfield_message);
+        let mut bitfield_piece_indexes = Vec::new();
+        for (i, byte) in bitfield.iter().enumerate() {
+            for j in 0..8 {
+                if byte & (1 << (7 - j)) != 0 {
+                    // println!("Piece {} is available", i * 8 + j);
+                    bitfield_piece_indexes.push(i * 8 + j);
+                }
+            }
+        }
 
         // send interested message
         let interested_message = Message::new(
@@ -555,7 +581,7 @@ impl PeerDownloaderHandler {
         }
 
         while self.pieces_left().await {
-            let piece_index = self.get_random_not_downloaded_piece().await;
+            let piece_index = self.get_random_not_downloaded_piece(bitfield_piece_indexes.clone()).await;
 
             let piece = match self.request_piece(&mut stream, piece_index).await {
                 Ok(piece) => piece,
@@ -566,10 +592,9 @@ impl PeerDownloaderHandler {
             };
             
             // write to file
-            // println!("{}", piece.iter().map(|&c| c as char).collect::<String>());
 
             self.write_to_file(piece, piece_index, &files_to_download).await;
-            println!("Piece {} written to file from peer {}", piece_index, self.peer);
+            // println!("Piece {} written to file from peer {}", piece_index, self.peer);
         }
 
         println!("Finished downloading from peer {}", self.peer);

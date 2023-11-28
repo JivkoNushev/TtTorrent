@@ -44,7 +44,7 @@ impl Peer {
         if crate::DEBUG_MODE {
             vec![
                 Peer::new(PeerAddress { address: "127.0.0.1".into(), port: "51413".into() }, 0),
-                Peer::new(PeerAddress { address: "192.168.0.28".into(), port: "37051".into() }, 1),
+                // Peer::new(PeerAddress { address: "192.168.0.28".into(), port: "37051".into() }, 1),
             ]
         }
         else {

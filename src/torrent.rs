@@ -14,7 +14,7 @@ pub struct Torrent {
     pub torrent_name: String,
     pub torrent_file: TorrentFile,
     pub info_hash: Sha1Hash,
-    pub pieces_left: Vec<u32>,
+    pub pieces_left: Vec<usize>,
 }
 
 impl Torrent {
@@ -43,7 +43,7 @@ impl Torrent {
             if let BencodedValue::ByteSha1Hashes(pieces) = pieces {
                 let mut pieces_left = Vec::new();
                 for i in 0..pieces.len() {
-                    pieces_left.push(i as u32);
+                    pieces_left.push(i);
                 }
                 pieces_left
             }
