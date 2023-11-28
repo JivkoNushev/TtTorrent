@@ -8,6 +8,7 @@ use crate::peer::Peer;
 use crate::utils::sha1_hash;
 
 
+#[derive(Debug)]
 pub struct DownloadableFile {
     start: u64,
     size: u64,
@@ -118,6 +119,52 @@ impl PeerDownloaderHandler {
         let torrent_guard = self.torrent.lock().await;
 
         !torrent_guard.pieces_left.is_empty()
+    }
+
+    async fn get_files_to_download(&self) -> Vec<DownloadableFile> {
+        let files_to_download = self.get_files().await;
+        println!("got files: {}", files_to_download.len());
+
+        let mut files_to_download = files_to_download.iter().map(|file| {
+            let size = if let BencodedValue::Integer(size) = file.get("length").unwrap() {
+                *size as u64
+            } else {
+                panic!("Error: couldn't get file size");
+            };
+
+            let path: Vec<String> = if let BencodedValue::List(path) = file.get("path").unwrap() {
+                path.iter().map(|path| {
+                    if let BencodedValue::String(path) = path {
+                        path.clone()
+                    } else {
+                        panic!("Error: couldn't get file path");
+                    }
+                }).collect()
+            } else {
+                panic!("Error: couldn't get file path");
+            };
+            let path = path.join("/");
+
+            let md5sum = if let Some(BencodedValue::String(md5sum)) = file.get("md5sum") {
+                Some(md5sum.clone())
+            } else {
+                None
+            };
+
+            DownloadableFile {
+                start: 0,
+                size,
+                path,
+                md5sum
+            }
+        }).collect::<Vec<DownloadableFile>>();
+
+        // start of file is the size of the previous file
+        for i in 1..files_to_download.len() {
+            files_to_download[i].start = files_to_download[i - 1].start + files_to_download[i - 1].size;
+        }
+        
+        files_to_download
     }
 
     async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize, files: &Vec<DownloadableFile>) {
@@ -485,10 +532,8 @@ impl PeerDownloaderHandler {
             }
         };
         
-        let bitfield = bitfield_message.payload;
-
         let mut bitfield_piece_indexes = Vec::new();
-        for (i, byte) in bitfield.iter().enumerate() {
+        for (i, byte) in bitfield_message.payload.iter().enumerate() {
             for j in 0..8 {
                 if byte & (1 << (7 - j)) != 0 {
                     // println!("Piece {} is available", i * 8 + j);
@@ -498,24 +543,23 @@ impl PeerDownloaderHandler {
         }
 
         // send interested message
-        let interested_message = Message::new(
+        if let Err(e) = self.send(&mut stream, Message::new(
             MessageID::Interested,
             vec![]
-        );
-
-        if let Err(e) = self.send(&mut stream, interested_message).await {
+        )).await {
             eprintln!("Error: couldn't send interested message to peer {}: {}", self.peer, e);
             return;
         } else {
             self.peer.am_interested = true;
         }
 
-       // println!("Interested message sent to peer {}", self.peer);
-
-
         // receive unchoke response
         let unchoke_response = match self.recv_response(&mut stream).await {
             Ok(response) => {
+                if response.is_empty() {
+                    eprintln!("Unchoke response is empty from peer {}", self.peer);
+                    return;
+                }
                 self.peer.choking = false;
                 response
             }
@@ -525,60 +569,15 @@ impl PeerDownloaderHandler {
             } 
         };
 
-        if unchoke_response.is_empty() {
-           // println!("Unchoke response is empty from peer {}", self.peer);
-            return;
-        }
-
-       // println!("Unchoke message response from peer {}: {:?}", self.peer, unchoke_response);
-
+        // println!("Unchoke message response from peer {}: {:?}", self.peer, unchoke_response);
         if self.peer.choking || !self.peer.am_interested {
             todo!("Handle choke and not interested");
         }
 
-        // request piece
-        // get random not downloaded piece
+        // get files as structures
+        let files = self.get_files_to_download().await;
 
-
-        let files_to_download = self.get_files().await;
-        let mut files_to_download = files_to_download.iter().map(|file| {
-            let size = if let BencodedValue::Integer(size) = file.get("length").unwrap() {
-                *size as u64
-            } else {
-                panic!("Error: couldn't get file size");
-            };
-
-            let path: Vec<String> = if let BencodedValue::List(path) = file.get("path").unwrap() {
-                path.iter().map(|path| {
-                    if let BencodedValue::String(path) = path {
-                        path.clone()
-                    } else {
-                        panic!("Error: couldn't get file path");
-                    }
-                }).collect()
-            } else {
-                panic!("Error: couldn't get file path");
-            };
-            let path = path.join("/");
-
-            let md5sum = if let Some(BencodedValue::String(md5sum)) = file.get("md5sum") {
-                Some(md5sum.clone())
-            } else {
-                None
-            };
-
-            DownloadableFile {
-                start: 0,
-                size,
-                path,
-                md5sum
-            }
-        }).collect::<Vec<DownloadableFile>>();
-
-        // start of file is the size of the previous file
-        for i in 1..files_to_download.len() {
-            files_to_download[i].start = files_to_download[i - 1].start + files_to_download[i - 1].size;
-        }
+        println!("Files to download: {:?}", files);
 
         while self.pieces_left().await {
             let piece_index = self.get_random_not_downloaded_piece(bitfield_piece_indexes.clone()).await;
@@ -592,9 +591,7 @@ impl PeerDownloaderHandler {
             };
             
             // write to file
-
-            self.write_to_file(piece, piece_index, &files_to_download).await;
-            // println!("Piece {} written to file from peer {}", piece_index, self.peer);
+            self.write_to_file(piece, piece_index, &files).await;
         }
 
         println!("Finished downloading from peer {}", self.peer);

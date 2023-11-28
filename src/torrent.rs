@@ -163,19 +163,35 @@ impl Torrent {
                     if let BencodedValue::Dict(file) = file {
                         files.push(file.clone());
                     }
+                    else {
+                        panic!("Could not get files from info dict ref in torrent file: {}", self.torrent_name)
+                    }
                 }
+            }
+            else {
+                panic!("Could not get files from info dict ref in torrent file: {}", self.torrent_name)
             }
         }
         else {
-            if let Some(file) = info_dict.get_from_dict("name") {
-                if let BencodedValue::String(file) = file {
+            if let Some(file_name) = info_dict.get_from_dict("name") {
+                if let BencodedValue::ByteString(file_name) = file_name {
                     if let BencodedValue::Integer(length) = info_dict.get_from_dict("length").unwrap() {
                         let mut file_dict = BTreeMap::new();
-                        file_dict.insert("path".to_string(), BencodedValue::String(file.clone()));
+                        let path = BencodedValue::List(vec![BencodedValue::String(String::from_utf8(file_name).unwrap())]);
+                        file_dict.insert("path".to_string(), path);
                         file_dict.insert("length".to_string(), BencodedValue::Integer(length.clone()));
                         files.push(file_dict);
                     }
+                    else {
+                        panic!("Could not get files from info dict ref in torrent file: {}", self.torrent_name)
+                    }
                 }
+                else {
+                    panic!("Could not get files from info dict ref in torrent file: {}", self.torrent_name)
+                }
+            }
+            else {
+                panic!("Could not get files from info dict ref in torrent file: {}", self.torrent_name)
             }
         }
 
