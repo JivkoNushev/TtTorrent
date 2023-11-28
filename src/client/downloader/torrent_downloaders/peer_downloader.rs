@@ -61,18 +61,6 @@ impl PeerDownloaderHandler {
         torrent_guard.get_piece_length(piece_index) as u32
     }
 
-    async fn get_piece_count(&self) -> usize {
-        let torrent_guard = self.torrent.lock().await;
-
-        torrent_guard.get_piece_count().try_into().unwrap()
-    }
-
-    async fn get_file_size(&self) -> u32 {
-        let torrent_guard = self.torrent.lock().await;
-
-        torrent_guard.get_file_size()
-    }
-
     async fn get_piece_hash(&self, piece_index: usize) -> Option<[u8; 20]> {
         let torrent_guard = self.torrent.lock().await;
 
@@ -178,30 +166,32 @@ impl PeerDownloaderHandler {
 
         let mut changed = false;
 
-        for (i, file) in files.iter().enumerate() {
-            if file.start <= piece_start_offset && piece_start_offset < file.start + file.size {
-                file_index = i as u64;
-                file_offset = piece_start_offset - file.start;
-
-                // println!("file start: {}", file.start);
-                // println!("piece_start_offset: {}", piece_start_offset);
-
-                changed = true;
-
-                break;
-            }
-        }  
-
-        if changed == false {
-            eprintln!("Error: couldn't find file index and offset");
-            return
-        }
+        
 
         // println!("File offset: {}", file_offset);
 
         let mut bytes_left = piece_length;
 
         while bytes_left > 0 {
+            for (i, file) in files.iter().enumerate() {
+                if file.start <= piece_start_offset && piece_start_offset < file.start + file.size {
+                    file_index = i as u64;
+                    file_offset = piece_start_offset - file.start;
+    
+                    // println!("file start: {}", file.start);
+                    // println!("piece_start_offset: {}", piece_start_offset);
+    
+                    changed = true;
+    
+                    break;
+                }
+            }  
+    
+            if changed == false {
+                eprintln!("Error: couldn't find file index and offset");
+                return
+            }
+            
             let file = &files[file_index as usize];
 
             let path_buf = std::path::PathBuf::from(format!("test_data/folder_with_files/{}", file.path));
@@ -220,6 +210,9 @@ impl PeerDownloaderHandler {
                 .unwrap();
 
             // maybe return min() of both ?
+            println!("file_size: {}", file.size);
+            println!("File offset: {}", file_offset);
+
             let bytes_to_write = if file.size - file_offset > bytes_left  {
                 bytes_left
             } else {
@@ -554,7 +547,7 @@ impl PeerDownloaderHandler {
         }
 
         // receive unchoke response
-        let unchoke_response = match self.recv_response(&mut stream).await {
+        let _ = match self.recv_response(&mut stream).await {
             Ok(response) => {
                 if response.is_empty() {
                     eprintln!("Unchoke response is empty from peer {}", self.peer);
