@@ -7,7 +7,6 @@ use crate::{torrent::{Torrent, Sha1Hash, BencodedValue}, peer::peer_messages::{M
 use crate::peer::Peer;
 use crate::utils::sha1_hash;
 
-
 #[derive(Debug)]
 pub struct DownloadableFile {
     start: u64,
@@ -156,30 +155,35 @@ impl PeerDownloaderHandler {
     }
 
     async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize, files: &Vec<DownloadableFile>) {
-        
+        // if piece_index > 1 {
+        //     return;
+        // }
+
         let piece_length = self.get_piece_length(piece_index).await as u64;
 
-        let piece_start_offset = self.get_piece_length(0).await as u64 * piece_index as u64;
+        let mut piece_start_offset = self.get_piece_length(0).await as u64 * piece_index as u64;
 
         let mut file_index= 0;
         let mut file_offset = 0;
 
-        let mut changed = false;
-
         
-
         // println!("File offset: {}", file_offset);
-
+        
         let mut bytes_left = piece_length;
-
+        
         while bytes_left > 0 {
+            let mut changed = false;
+
+            if piece_index == 2 {
+                println!("!");
+            }
+
             for (i, file) in files.iter().enumerate() {
                 if file.start <= piece_start_offset && piece_start_offset < file.start + file.size {
                     file_index = i as u64;
                     file_offset = piece_start_offset - file.start;
     
-                    // println!("file start: {}", file.start);
-                    // println!("piece_start_offset: {}", piece_start_offset);
+                    println!("piece_start_offset {piece_index}: {}", piece_start_offset);
     
                     changed = true;
     
@@ -203,32 +207,44 @@ impl PeerDownloaderHandler {
             let mut fd = tokio::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                .append(true)
+                // .append(true)         BRUH
                 .create(true)
                 .open(path_buf.clone())
                 .await
                 .unwrap();
 
-            // maybe return min() of both ?
-            println!("file_size: {}", file.size);
-            println!("File offset: {}", file_offset);
-
+                // maybe return min() of both ?
+            println!("file_size {piece_index}: {}", file.size);
+            println!("File offset {piece_index}: {}", file_offset);
+            
             let bytes_to_write = if file.size - file_offset > bytes_left  {
                 bytes_left
             } else {
                 file.size - file_offset
             };
+            
+            println!("bytes to write {piece_index}: {bytes_to_write}");
+            println!("piece length {piece_index}: {piece_length}");
 
+            fd.seek(std::io::SeekFrom::Start(file_offset)).await.unwrap();
 
-            fd.seek(std::io::SeekFrom::Start(file_offset as u64)).await.unwrap();
+            let i = fd.seek(std::io::SeekFrom::Current(0 as i64)).await.unwrap();
+
+            println!("seeked to {piece_index}: {i}");
 
             let written_bytes = piece_length - bytes_left;
 
+            println!("written bytes {piece_index}: {written_bytes}");
+
             // println!("Writing piece index {piece_index} to file {}, bytes left {bytes_left}", path_buf.display());
 
+           
             fd.write_all(
                 &piece[written_bytes as usize..(written_bytes + bytes_to_write) as usize]
             ).await.unwrap();
+
+
+            piece_start_offset += bytes_to_write;
 
             bytes_left -= bytes_to_write as u64;
             file_index += 1;
@@ -330,8 +346,6 @@ impl PeerDownloaderHandler {
        // println!("Requesting piece {} from peer {}", piece_index, self.peer);
         
         let piece_length: u32 = self.get_piece_length(piece_index).await as u32;
-       
-       // println!("Piece length: {piece_length}");
 
         const BLOCK_SIZE: u32 = 1 << 14;
 
@@ -570,11 +584,10 @@ impl PeerDownloaderHandler {
         // get files as structures
         let files = self.get_files_to_download().await;
 
-        println!("Files to download: {:?}", files);
+        // println!("Files to download: {:?}", files);
 
         while self.pieces_left().await {
             let piece_index = self.get_random_not_downloaded_piece(bitfield_piece_indexes.clone()).await;
-
             let piece = match self.request_piece(&mut stream, piece_index).await {
                 Ok(piece) => piece,
                 Err(e) => {
@@ -582,6 +595,21 @@ impl PeerDownloaderHandler {
                     return;
                 }
             };
+
+
+            // let _ = tokio::fs::OpenOptions::new()
+            //     .read(true)
+            //     .write(true)
+            //     .append(true)
+            //     .create(true)
+            //     .open(format!("chunk{piece_index}.txt"))
+            //     .await
+            //     .unwrap()
+            //     .write_all(&piece)
+            //     .await
+            //     .unwrap();
+
+            // println!("Received piece {} from peer {}: {}", piece_index, self.peer, piece.iter().map(|&c| c as char).collect::<String>());
             
             // write to file
             self.write_to_file(piece, piece_index, &files).await;
