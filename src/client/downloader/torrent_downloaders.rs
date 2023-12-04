@@ -89,7 +89,7 @@ impl TorrentDownloaderHandler {
             let file_copy = Arc::clone(&file);
 
             tokio::spawn(async move {
-                let peer_downloader_handle = PeerDownloaderHandler::new(peer, torrent_clone, file_copy, tx_clone);
+                let peer_downloader_handle = PeerDownloaderHandler::new(peer, torrent_clone, tx_clone);
 
                 peer_downloader_handle.run().await;
             });
