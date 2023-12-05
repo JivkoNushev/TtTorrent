@@ -16,32 +16,47 @@ lazy_static! {
 }
 
 pub struct TorrentDownloader {
-    pub torrent_name: String,
+    pub torrent: Arc<Mutex<Torrent>>,
     pub handler_rx: mpsc::Receiver<String>,
     pub peer_downloaders: Vec<PeerDownloader>,
 }
 
 impl TorrentDownloader {
-    pub fn new(torrent_name: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
+    pub async fn new(torrent_name: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
+        let torrent = Torrent::new(torrent_name).await;
+        let torrent = Arc::new(Mutex::new(torrent));
+        
         TorrentDownloader {
-            torrent_name,
+            torrent,
             handler_rx,
             peer_downloaders: Vec::new()
         }
     }
+
+    pub async fn get_downloaded_percentage(&self) -> f32 {
+        let torrent = self.torrent.lock().await;
+
+        let pieces_left = torrent.pieces_left.len();
+        let total_pieces = torrent.get_pieces_count();
+
+        let downloaded_percentage = (total_pieces - pieces_left) as f32 / total_pieces as f32;
+        
+        // Round to two decimal places
+        let downloaded_percentage = (downloaded_percentage * 100.0).round() / 100.0;
+
+        downloaded_percentage
+    }
 }
 
 pub struct TorrentDownloaderHandler {
-    torrent_name: String,
+    torrent: Arc<Mutex<Torrent>>,
     downloader_tx: mpsc::Sender<String>,
 }
 
 impl TorrentDownloaderHandler {
-    pub fn new(torrent_name: String, downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
-        println!("Creating a TorrentDownloaderHandler for torrent file: {}", torrent_name);
-        
+    pub fn new(torrent: Arc<Mutex<Torrent>>, downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
         TorrentDownloaderHandler { 
-            torrent_name,
+            torrent,
             downloader_tx
         }
     }
@@ -58,35 +73,27 @@ impl TorrentDownloaderHandler {
 
     async fn download_torrent(&mut self) {
         // parse torrent file
-        println!("Parsing torrent file: {}", self.torrent_name);
-        let torrent = Torrent::new(self.torrent_name.clone()).await;
-        let torrent = Arc::new(Mutex::new(torrent));
-
+        // println!("Parsing torrent file: {}", self.torrent);
+        
         // println!("Torrent file parsed: {:#?}", torrent);
 
         // get peers
-        println!("Getting peers for torrent file: {}", self.torrent_name);
-        let peers = Peer::get_from_torrent(&torrent).await;
-
-        // create a file
-        println!("Creating a file for: {}", self.torrent_name);
-
-        // TODO: Create a File type that has destination
-        let file = tokio::fs::File::create("./test.txt").await.unwrap();
-        let file = Arc::new(Mutex::new(file));
+        // println!("Getting peers for torrent file: {}", self.torrent_name);
+        let peers = Peer::get_from_torrent(&self.torrent).await;
 
         // download from peers
         let mut stream = tokio_stream::iter(peers);
+
+        let torrent_name = self.torrent.lock().await.torrent_name.clone();
 
         while let Some(peer) = stream.next().await {
             let (tx, rx) = mpsc::channel::<String>(100);
             let peer_downloader = PeerDownloader::new(peer.id.clone(), rx);
             
-            TorrentDownloaderHandler::peer_downloaders_push(self.torrent_name.clone(), peer_downloader).await;
+            TorrentDownloaderHandler::peer_downloaders_push(torrent_name.clone(), peer_downloader).await;
 
             let tx_clone = tx.clone();
-            let torrent_clone = Arc::clone(&torrent);
-            let file_copy = Arc::clone(&file);
+            let torrent_clone = Arc::clone(&self.torrent);
 
             tokio::spawn(async move {
                 let peer_downloader_handle = PeerDownloaderHandler::new(peer, torrent_clone, tx_clone);

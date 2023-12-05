@@ -1,5 +1,6 @@
 use std::{sync::Arc, fmt::Result, f32::consts::E, mem, collections::BTreeMap, ops::Index};
 
+use sha1::digest::typenum::bit;
 use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt}};
 use rand::Rng;
 
@@ -14,7 +15,6 @@ pub struct DownloadableFile {
     path: String,
     md5sum: Option<String>
 }
-
 
 pub struct PeerDownloader {
     pub peer_id: [u8;20],
@@ -33,19 +33,11 @@ impl PeerDownloader {
 pub struct PeerDownloaderHandler {
     peer: Peer,
     torrent: Arc<Mutex<Torrent>>,
-    downloader_tx: mpsc::Sender<String>,
+    _downloader_tx: mpsc::Sender<String>,
 }
 
+// getters
 impl PeerDownloaderHandler {
-
-    pub fn new(peer: Peer, torrent: Arc<Mutex<Torrent>>, downloader_tx: mpsc::Sender<String>) -> PeerDownloaderHandler {
-        PeerDownloaderHandler {
-            peer,
-            torrent,
-            downloader_tx
-        }
-    }
-
     async fn get_info_hash(&self) -> [u8; 20] {
         let torrent_guard = self.torrent.lock().await;
 
@@ -61,12 +53,9 @@ impl PeerDownloaderHandler {
     async fn get_piece_hash(&self, piece_index: usize) -> Option<[u8; 20]> {
         let torrent_guard = self.torrent.lock().await;
 
-        if let Some(piece) = torrent_guard.torrent_file.get_piece_hash(piece_index) {
-            Some(piece.as_bytes().clone())
-        }
-        else {
-            None
-        }
+        torrent_guard.torrent_file
+            .get_piece_hash(piece_index)
+            .map(|piece| piece.as_bytes().to_owned())
     }
 
     async fn get_files(&self) -> Vec<BTreeMap<String, BencodedValue>> {
@@ -74,29 +63,32 @@ impl PeerDownloaderHandler {
 
         torrent_guard.get_files()
     }
+}
+
+impl PeerDownloaderHandler {
+    pub fn new(peer: Peer, torrent: Arc<Mutex<Torrent>>, _downloader_tx: mpsc::Sender<String>) -> PeerDownloaderHandler {
+        PeerDownloaderHandler {
+            peer,
+            torrent,
+            _downloader_tx
+        }
+    }
 
     async fn get_random_not_downloaded_piece(&self, bitfield: Vec<usize>) -> usize {
+        
         let mut torrent_guard = self.torrent.lock().await;
         
+        // piece indexes that are needed from the client and the peer has them
         let common_indexes = bitfield
-        .iter()
-        .filter(|&i| torrent_guard.pieces_left.contains(i))
-        .collect::<Vec<&usize>>();
+            .iter()
+            .filter(|&i| torrent_guard.pieces_left.contains(i))
+            .collect::<Vec<&usize>>();
 
-        let mut rng = rand::thread_rng();
-
-        let piece_index = rng.gen_range(0..common_indexes.len());
-
+        let piece_index = rand::thread_rng().gen_range(0..common_indexes.len());
         let piece = common_indexes[piece_index];
-
+        
         torrent_guard.pieces_left.remove(piece_index);
 
-        let all_pieces_count = torrent_guard.get_piece_count();
-
-        // % downloaded pieces
-        let percent_downloaded = (all_pieces_count - torrent_guard.pieces_left.len() as u32) * 100 / all_pieces_count;
-        
-        println!("{}% Downloaded", percent_downloaded);
         piece.clone()
     }
 
@@ -227,42 +219,7 @@ impl PeerDownloaderHandler {
         Ok(())
     }
 
-    async fn recv(&mut self, stream: &mut TcpStream, message_id: MessageID) -> std::io::Result<Message> {
-        let mut recv_size: [u8; 4] = [0; 4];
-
-        let mut recv_size_u32: u32;
-        loop {
-            stream.read_exact(&mut recv_size).await?;
-
-            recv_size_u32 = u32::from_be_bytes(recv_size);
-
-            if 0 != recv_size_u32 {
-                break;
-            }
-        }
-        
-        let mut buf: Vec<u8> = vec![0; recv_size_u32 as usize];
-
-        stream.read_exact(&mut buf).await?;
-
-        Ok(Message::new(
-            MessageID::from(buf[0]),
-            buf[1..].to_vec()
-        ))
-    }
-
     async fn recv_response(&mut self, stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
-        // let mut recv_size: [u8; 4] = [0; 4];
-
-        // stream.read_exact(&mut recv_size).await?;
-
-        // let recv_size = u32::from_be_bytes(recv_size);
-
-        // let mut buf: Vec<u8> = vec![0; recv_size as usize];
-
-        // stream.read_exact(&mut buf).await?;
-
-        // Ok(buf)
         let mut recv_size: [u8; 4] = [0; 4];
 
         let mut recv_size_u32: u32;
@@ -343,17 +300,19 @@ impl PeerDownloaderHandler {
             }
 
             // receive piece
-            let mut request_response = self.recv(stream, MessageID::Piece).await?;
+            let request_response = self.recv_response(stream).await?;
+            let mut request_message = Message::from_bytes(request_response);
 
             loop {
-                if request_response.id == MessageID::Piece {
+                if request_message.id == MessageID::Piece {
                     break;
                 }
 
-                request_response = self.recv(stream, MessageID::Piece).await?;
+                let request_response = self.recv_response(stream).await?;
+                request_message = Message::from_bytes(request_response);
             }
 
-            let payload = &request_response.payload;
+            let payload = &request_message.payload;
 
             // check the index
             let piece_index_response = u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
@@ -396,16 +355,19 @@ impl PeerDownloaderHandler {
         }
 
         // receive piece
-        let mut request_response = self.recv(stream, MessageID::Piece).await?;
+        let request_response = self.recv_response(stream).await?;
+        let mut request_message = Message::from_bytes(request_response);
+
         loop {
-            if request_response.id == MessageID::Piece {
+            if request_message.id == MessageID::Piece {
                 break;
             }
 
-            request_response = self.recv(stream, MessageID::Piece).await?;
+            let request_response = self.recv_response(stream).await?;
+            request_message = Message::from_bytes(request_response);
         }
 
-        let payload = &request_response.payload;
+        let payload = &request_message.payload;
 
         // check the index
         let piece_index_response = u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
@@ -440,15 +402,12 @@ impl PeerDownloaderHandler {
     async fn get_stream(&mut self) -> std::io::Result<TcpStream> {
         let mut stream = TcpStream::connect(format!("{}:{}", self.peer.address, self.peer.port)).await;
 
-        let mut counter = 0;
-        while let Err(_) = stream {
-            stream = TcpStream::connect(format!("{}:{}", self.peer.address, self.peer.port)).await;
-
-            if counter >= 100 {
+        for _ in 0..100 {
+            if let Ok(_) = stream {
                 break;
             }
 
-            counter += 1;
+            stream = TcpStream::connect(format!("{}:{}", self.peer.address, self.peer.port)).await;
         }
 
         stream
@@ -479,7 +438,6 @@ impl PeerDownloaderHandler {
 
     async fn unchoke(&mut self, stream: &mut TcpStream) -> std::io::Result<()> {
         let unchoke_message = self.recv_response(stream).await?;
-        // let unchoke_message = self.recv(stream, MessageID::Unchoke).await?;
 
         if unchoke_message.is_empty() {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Peer is not unchoking"));
@@ -491,7 +449,12 @@ impl PeerDownloaderHandler {
     }
 
     async fn get_available_pieces(&mut self, stream: &mut TcpStream) -> std::io::Result<Vec<usize>> {
-        let bitfield_message = self.recv(stream, MessageID::Bitfield).await?;
+        let bitfield_message = self.recv_response(stream).await?;
+        let bitfield_message = Message::from_bytes(bitfield_message);
+
+        if bitfield_message.id != MessageID::Bitfield {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Peer didn't send a bitfield message"));
+        }
         
         let mut available_pieces = Vec::new();
         for (i, byte) in bitfield_message.payload.iter().enumerate() {
@@ -528,7 +491,6 @@ impl PeerDownloaderHandler {
         if self.peer.choking || !self.peer.am_interested {
             todo!("Handle choke and not interested");
         }
-
         // ---------------------------- download ----------------------------
 
         let files = self.get_files_to_download().await;

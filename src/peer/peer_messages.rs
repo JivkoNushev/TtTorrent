@@ -40,7 +40,7 @@ impl MessageID {
 }
 #[derive(Debug)]
 pub struct Message {
-    pub size: u32,
+    pub size: usize,
     pub id: MessageID,
     pub payload: Vec<u8>,
 }
@@ -59,7 +59,7 @@ impl AsBytes for Message {
 
 impl Message {
     pub fn new(id: MessageID, payload: Vec<u8>) -> Message {
-        let size = payload.len() as u32 + 1;
+        let size = payload.len() + 1;
 
         Message {
             size,
@@ -67,4 +67,16 @@ impl Message {
             payload,
         }
     }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> Message {
+        let id = MessageID::from(bytes[0]);
+        let payload = bytes[1..].to_vec();
+
+        Message {
+            size: payload.len() + 1,
+            id,
+            payload,
+        }
+    }
+
 }

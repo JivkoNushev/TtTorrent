@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
 use tokio::sync::{mpsc, Mutex};
 use lazy_static::lazy_static;
+
+use crate::torrent::Torrent;
 
 pub mod torrent_downloaders;
 
@@ -30,13 +34,15 @@ impl Downloader {
     async fn download_torrent(torrent_name: String) {
         let (tx, rx) = mpsc::channel::<String>(100);
 
-        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), rx);
+        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), rx).await;
     
+        let torrent = Arc::clone(&torrent_downloader.torrent);
+
         Downloader::torrent_downloaders_push(torrent_downloader).await;
 
         println!("Downloading torrent file: {}", torrent_name);
         tokio::spawn(async move {
-            let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent_name, tx);
+            let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent, tx);
             torrent_downloader_handler.run().await;
         });
     }
@@ -77,6 +83,24 @@ impl Downloader {
                     }
                 }
             }),
+            // printing downloaded percentage for every torrent file
+            tokio::spawn(async move {
+                loop {
+                    let guard = TORRENT_DOWNLOADERS.lock().await;
+
+                    if guard.len() == 0 {
+                        continue;
+                    }
+
+                    for torrent_downloader in guard.iter() {
+                        let downloaded_percentage = torrent_downloader.get_downloaded_percentage().await;
+
+                        let torrent_name = torrent_downloader.torrent.lock().await.torrent_name.clone();
+
+                        println!("{torrent_name}: {downloaded_percentage}%");
+                    }
+                }
+            })
         );
         
     }
