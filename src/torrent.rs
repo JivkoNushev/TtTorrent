@@ -13,10 +13,11 @@ pub struct Torrent {
     pub torrent_file: TorrentFile,
     pub info_hash: Sha1Hash,
     pub pieces_left: Vec<usize>,
+    pub dest_path: String,
 }
 
 impl Torrent {
-    pub async fn new(torrent_name: String) -> Torrent {
+    pub async fn new(torrent_name: String, dest_path: String) -> Torrent {
         let torrent_file = TorrentFile::new(&torrent_name).await;
 
         let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()) {
@@ -54,6 +55,7 @@ impl Torrent {
             torrent_file,
             info_hash,
             pieces_left,
+            dest_path
         }
     }
 
@@ -61,7 +63,11 @@ impl Torrent {
         &self.info_hash
     }
 
-    pub fn get_piece_length(&self, piece_index: usize) -> u128 {
+    pub fn get_dest_path(&self) -> &String {
+        &self.dest_path
+    }
+
+    pub fn get_piece_length(&self, piece_index: usize) -> u64 {
         let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
             Some(torrent_dict) => torrent_dict,
             None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
@@ -72,15 +78,15 @@ impl Torrent {
         };
 
         let piece_length = match info_dict.get_from_dict("piece length") {
-            Some(piece_length) => piece_length.try_into_integer().unwrap().clone(),
+            Some(piece_length) => piece_length.try_into_integer().unwrap().clone() as u64,
             None => panic!("Could not get piece length from info dict ref in torrent file: {}", self.torrent_name)
         };
 
         if piece_index == self.get_pieces_count() - 1 {
-            self.get_file_size() % piece_length as u128
+            self.get_file_size() % piece_length
         }
         else {
-            piece_length as u128
+            piece_length
         }
     }
 
@@ -106,7 +112,7 @@ impl Torrent {
         }
     }
 
-    pub fn get_file_size(&self) -> u128 {
+    pub fn get_file_size(&self) -> u64 {
         let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
             Some(torrent_dict) => torrent_dict,
             None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
@@ -116,7 +122,7 @@ impl Torrent {
             None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
         };
 
-        let mut total_size: u128 = 0;
+        let mut total_size: u64 = 0;
 
         if let Some(files_dict) = info_dict.get_from_dict("files") {
             let files = match files_dict {
@@ -140,7 +146,7 @@ impl Torrent {
                     _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
                 };
 
-                total_size += *length as u128;
+                total_size += *length as u64;
             }
         }
         else { 
@@ -153,7 +159,7 @@ impl Torrent {
                 _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
             };
 
-            total_size = file_length as u128;
+            total_size = file_length as u64;
         }
         
         total_size

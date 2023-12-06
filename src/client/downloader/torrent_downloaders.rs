@@ -22,8 +22,8 @@ pub struct TorrentDownloader {
 }
 
 impl TorrentDownloader {
-    pub async fn new(torrent_name: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
-        let torrent = Torrent::new(torrent_name).await;
+    pub async fn new(torrent_name: String, dest_path: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
+        let torrent = Torrent::new(torrent_name, dest_path).await;
         let torrent = Arc::new(Mutex::new(torrent));
         
         TorrentDownloader {
@@ -40,8 +40,6 @@ impl TorrentDownloader {
         let total_pieces = torrent.get_pieces_count();
 
         let downloaded_percentage = (total_pieces - pieces_left) as f32 / total_pieces as f32;
-        
-        // Round to two decimal places
         let downloaded_percentage = (downloaded_percentage * 100.0).round() / 100.0;
 
         downloaded_percentage
@@ -71,22 +69,18 @@ impl TorrentDownloaderHandler {
         }
     }
 
-    async fn download_torrent(&mut self) {
-        // parse torrent file
-        // println!("Parsing torrent file: {}", self.torrent);
-        
-        // println!("Torrent file parsed: {:#?}", torrent);
-
-        // get peers
-        // println!("Getting peers for torrent file: {}", self.torrent_name);
+    async fn download_torrent(&mut self) -> std::io::Result<()> {
         let peers = Peer::get_from_torrent(&self.torrent).await;
 
-        // download from peers
-        let mut stream = tokio_stream::iter(peers);
+        if peers.len() == 0 {
+            return std::io::Result::Err(std::io::Error::new(std::io::ErrorKind::Other, "No peers found"));
+        }
+
+        let mut stream_of_peers = tokio_stream::iter(peers);
 
         let torrent_name = self.torrent.lock().await.torrent_name.clone();
 
-        while let Some(peer) = stream.next().await {
+        while let Some(peer) = stream_of_peers.next().await {
             let (tx, rx) = mpsc::channel::<String>(100);
             let peer_downloader = PeerDownloader::new(peer.id.clone(), rx);
             
@@ -96,12 +90,20 @@ impl TorrentDownloaderHandler {
             let torrent_clone = Arc::clone(&self.torrent);
 
             tokio::spawn(async move {
-                let peer_downloader_handle = PeerDownloaderHandler::new(peer, torrent_clone, tx_clone);
+                let peer_downloader_handle = PeerDownloaderHandler::new(peer.clone(), torrent_clone, tx_clone);
 
-                peer_downloader_handle.run().await;
+                match peer_downloader_handle.run().await {
+                    Ok(_) => {
+                        println!("Finished downloading from peer '{}'", peer);
+                    },
+                    Err(e) => {
+                        println!("Peer '{}' finished with error: {}", peer, e);
+                    }
+                }
             });
         }
 
+        Ok(())
     }
 
 
@@ -123,11 +125,9 @@ impl TorrentDownloaderHandler {
 
     pub async fn run(mut self) {
         let _ = tokio::join!(
-            // downloading the torrent file
             self.download_torrent(),
-            // Receiving messages from the peer downloaders
+
             tokio::spawn(async move {
-                println!("Waiting for peer downloader messages...");
                 loop {
                     if let Some((torrent_name, msg)) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
                         println!("For torrent file '{torrent_name}' Received peer message: {msg}");

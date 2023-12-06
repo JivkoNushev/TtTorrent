@@ -3,8 +3,6 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use lazy_static::lazy_static;
 
-use crate::torrent::Torrent;
-
 pub mod torrent_downloaders;
 
 use tokio_stream::StreamExt;
@@ -16,11 +14,11 @@ lazy_static! {
 
 pub struct Downloader {
     client_tx: mpsc::Sender<String>,
-    client_rx: mpsc::Receiver<String>,
+    client_rx: mpsc::Receiver<(String, String)>,
 }
 
 impl Downloader {
-    pub fn new(tx: mpsc::Sender<String>, rx: mpsc::Receiver<String>) -> Downloader {
+    pub fn new(tx: mpsc::Sender<String>, rx: mpsc::Receiver<(String, String)>) -> Downloader {
         Downloader {
             client_tx: tx,
             client_rx: rx,
@@ -31,10 +29,10 @@ impl Downloader {
         TORRENT_DOWNLOADERS.lock().await.push(torrent_downloader);
     }
     
-    async fn download_torrent(torrent_name: String) {
+    async fn download_torrent(torrent_name: String, dest_path: String) {
         let (tx, rx) = mpsc::channel::<String>(100);
 
-        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), rx).await;
+        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), dest_path, rx).await;
     
         let torrent = Arc::clone(&torrent_downloader.torrent);
 
@@ -66,10 +64,10 @@ impl Downloader {
             // Downloading given torrent files
             tokio::spawn(async move {
                 loop {
-                    if let Some(torrent_file) = self.client_rx.recv().await {
+                    if let Some((torrent_file, dest_path)) = self.client_rx.recv().await {
                         tokio::spawn(async move {
                             println!("Received a torrent file: {}", torrent_file);
-                            Downloader::download_torrent(torrent_file).await;
+                            Downloader::download_torrent(torrent_file, dest_path).await;
                         }); 
                     }
                 }
@@ -86,6 +84,8 @@ impl Downloader {
             // printing downloaded percentage for every torrent file
             tokio::spawn(async move {
                 loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
                     let guard = TORRENT_DOWNLOADERS.lock().await;
 
                     if guard.len() == 0 {

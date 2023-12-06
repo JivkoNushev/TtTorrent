@@ -186,7 +186,7 @@ fn to_bencoded_list(bencoded_list: &BencodedValue) -> Vec<u8> {
     bencoded_string
 }
 
-fn parse_bencoded_integer(input: &[u8]) -> i128 {
+fn parse_bencoded_integer(input: &[u8]) -> i64 {
     let mut index = 0;
 
     if input.is_empty() {
@@ -214,7 +214,7 @@ fn parse_bencoded_integer(input: &[u8]) -> i128 {
         if number.is_empty() {
             panic!("Invalid bencoded integer: parsing an empty number");
         }
-        number.parse::<i128>().unwrap()
+        number.parse::<i64>().unwrap()
     }
     else if input[index] == b'-' {
         panic!("Invalid bencoded integer: negative integer")
@@ -224,7 +224,7 @@ fn parse_bencoded_integer(input: &[u8]) -> i128 {
     }
 }
 
-fn parse_integer(input: &[u8]) -> i128 {
+fn parse_integer(input: &[u8]) -> i64 {
     if input.is_empty() {
         panic!("Invalid integer: empty input");
     }
@@ -249,7 +249,7 @@ fn parse_integer(input: &[u8]) -> i128 {
         panic!("Invalid integer: leading zeros");
     }
 
-    number.parse::<i128>().unwrap()
+    number.parse::<i64>().unwrap()
 }
 
 fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
@@ -434,9 +434,9 @@ mod tests {
         let result = parse_integer(input);
         assert_eq!(result, 123);
 
-        let input = b"123456789123456789123456789123456789123";
+        let input = b"1234567891234567891";
         let result = parse_integer(input);
-        assert_eq!(result, 123456789123456789123456789123456789123);
+        assert_eq!(result, 1234567891234567891);
 
         let input = b"0";
         let result = parse_integer(input);
@@ -477,9 +477,9 @@ mod tests {
         let result = parse_bencoded_integer(input);
         assert_eq!(result, 123);
 
-        let input = b"i123456789123456789123456789123456789123e";
+        let input = b"i1234567891234567891e";
         let result = parse_bencoded_integer(input);
-        assert_eq!(result, 123456789123456789123456789123456789123);
+        assert_eq!(result, 1234567891234567891);
 
         let input = b"i0e";
         let result = parse_bencoded_integer(input);
@@ -536,10 +536,10 @@ mod tests {
         assert_eq!(result, BencodedValue::Integer(123));
         assert_eq!(cur_index, 5);
 
-        let input = b"i123456789123456789123456789123456789123e";
+        let input = b"i1234567891234567891e";
         let mut cur_index = 0;
         let result = create_int(input, &mut cur_index);
-        assert_eq!(result, BencodedValue::Integer(123456789123456789123456789123456789123));
+        assert_eq!(result, BencodedValue::Integer(1234567891234567891));
         assert_eq!(cur_index, 41);
 
         let input = b"i0e";

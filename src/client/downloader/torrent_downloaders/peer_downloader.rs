@@ -1,10 +1,9 @@
-use std::{sync::Arc, fmt::Result, f32::consts::E, mem, collections::BTreeMap, ops::Index};
+use std::{sync::Arc, collections::BTreeMap};
 
-use sha1::digest::typenum::bit;
-use tokio::{sync::{mpsc, Mutex}, fs::File, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt}};
+use tokio::{sync::{mpsc, Mutex}, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt}};
 use rand::Rng;
 
-use crate::{torrent::{Torrent, Sha1Hash, BencodedValue}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::{CLIENT_PEER_ID, Client}};
+use crate::{torrent::{Torrent, BencodedValue}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::{CLIENT_PEER_ID, Client}};
 use crate::peer::Peer;
 use crate::utils::sha1_hash;
 
@@ -40,19 +39,17 @@ pub struct PeerDownloaderHandler {
 impl PeerDownloaderHandler {
     async fn get_info_hash(&self) -> [u8; 20] {
         let torrent_guard = self.torrent.lock().await;
-
         torrent_guard.info_hash.as_bytes().clone()
     }
 
-    async fn get_piece_length(&self, piece_index: usize) -> u32 {
+    async fn get_piece_length(&self, piece_index: usize) -> u64 {
         let torrent_guard = self.torrent.lock().await;
-
-        torrent_guard.get_piece_length(piece_index) as u32
+        torrent_guard.get_piece_length(piece_index)
     }
 
     async fn get_piece_hash(&self, piece_index: usize) -> Option<[u8; 20]> {
         let torrent_guard = self.torrent.lock().await;
-
+        
         torrent_guard.torrent_file
             .get_piece_hash(piece_index)
             .map(|piece| piece.as_bytes().to_owned())
@@ -60,22 +57,10 @@ impl PeerDownloaderHandler {
 
     async fn get_files(&self) -> Vec<BTreeMap<String, BencodedValue>> {
         let torrent_guard = self.torrent.lock().await;
-
         torrent_guard.get_files()
-    }
-}
-
-impl PeerDownloaderHandler {
-    pub fn new(peer: Peer, torrent: Arc<Mutex<Torrent>>, _downloader_tx: mpsc::Sender<String>) -> PeerDownloaderHandler {
-        PeerDownloaderHandler {
-            peer,
-            torrent,
-            _downloader_tx
-        }
     }
 
     async fn get_random_not_downloaded_piece(&self, bitfield: Vec<usize>) -> usize {
-        
         let mut torrent_guard = self.torrent.lock().await;
         
         // piece indexes that are needed from the client and the peer has them
@@ -92,49 +77,47 @@ impl PeerDownloaderHandler {
         piece.clone()
     }
 
-    async fn pieces_left(&self) -> bool {
-        let torrent_guard = self.torrent.lock().await;
-
-        !torrent_guard.pieces_left.is_empty()
-    }
-
     async fn get_files_to_download(&self) -> Vec<DownloadableFile> {
         let files_to_download = self.get_files().await;
-        // println!("got files: {}", files_to_download.len());
 
-        let mut files_to_download = files_to_download.iter().map(|file| {
-            let size = if let BencodedValue::Integer(size) = file.get("length").unwrap() {
-                *size as u64
-            } else {
-                panic!("Error: couldn't get file size");
-            };
+        let mut files_to_download = files_to_download
+            .iter()
+            .map(|file| {
+                let size = match file.get("length") {
+                    Some(BencodedValue::Integer(size)) => *size as u64,
+                    _ => panic!("Error: couldn't get file size")
+                };
 
-            let path: Vec<String> = if let BencodedValue::List(path) = file.get("path").unwrap() {
-                path.iter().map(|path| {
-                    if let BencodedValue::String(path) = path {
-                        path.clone()
-                    } else {
-                        panic!("Error: couldn't get file path");
-                    }
-                }).collect()
-            } else {
-                panic!("Error: couldn't get file path");
-            };
-            let path = path.join("/");
+                let path = match file.get("path") {
+                    Some(BencodedValue::List(path_list)) => {
+                        path_list
+                            .iter()
+                            .map(|path| {
+                                match path {
+                                    BencodedValue::String(path) => path.clone(),
+                                    _ => panic!("Error: couldn't get file path")
+                                }
+                            })
+                            .collect::<Vec<String>>()
+                    },
+                    _ => panic!("Error: couldn't get file path")
+                };
 
-            let md5sum = if let Some(BencodedValue::String(md5sum)) = file.get("md5sum") {
-                Some(md5sum.clone())
-            } else {
-                None
-            };
+                let path = path.join("/");
 
-            DownloadableFile {
-                start: 0,
-                size,
-                path,
-                md5sum
-            }
-        }).collect::<Vec<DownloadableFile>>();
+                let md5sum = match file.get("md5sum") {
+                    Some(BencodedValue::String(md5sum)) => Some(md5sum.clone()),
+                    _ => None
+                };
+
+                DownloadableFile {
+                    start: 0,
+                    size,
+                    path,
+                    md5sum
+                }
+            })
+            .collect::<Vec<DownloadableFile>>();
 
         // start of file is the size of the previous file
         for i in 1..files_to_download.len() {
@@ -143,49 +126,56 @@ impl PeerDownloaderHandler {
         
         files_to_download
     }
+}
+
+impl PeerDownloaderHandler {
+    pub fn new(peer: Peer, torrent: Arc<Mutex<Torrent>>, _downloader_tx: mpsc::Sender<String>) -> PeerDownloaderHandler {
+        PeerDownloaderHandler {
+            peer,
+            torrent,
+            _downloader_tx
+        }
+    }
+
+    async fn pieces_left(&self) -> bool {
+        let torrent_guard = self.torrent.lock().await;
+        !torrent_guard.pieces_left.is_empty()
+    }
 
     async fn write_to_file(&self, piece: Vec<u8>, piece_index: usize, files: &Vec<DownloadableFile>) {
-        let piece_length = self.get_piece_length(piece_index).await as u64;
-
-        let mut piece_start_offset = self.get_piece_length(0).await as u64 * piece_index as u64;
+        let piece_length = self.get_piece_length(piece_index).await;
+        let mut piece_start_offset = self.get_piece_length(0).await * piece_index as u64;
 
         let mut file_index= 0;
         let mut file_offset = 0;
         
         let mut bytes_left = piece_length;
-        
         while bytes_left > 0 {
-            let mut changed = false;
             for (i, file) in files.iter().enumerate() {
+                // if this piece is in this file
                 if file.start <= piece_start_offset && piece_start_offset < file.start + file.size {
-                    file_index = i as u64;
+                    file_index = i;
                     file_offset = piece_start_offset - file.start;
-    
-                    changed = true;
     
                     break;
                 }
             }  
-    
-            if changed == false {
-                eprintln!("Error: couldn't find file index and offset");
-                return
-            }
             
-            let file = &files[file_index as usize];
+            let file = &files[file_index];
 
-            let path_buf = std::path::PathBuf::from(format!("test_data/folder_with_files/{}", file.path));
+            let torrent_dest_path = self.torrent.lock().await.get_dest_path().clone();
 
-            let dir = path_buf.parent().unwrap();
-
-            tokio::fs::create_dir_all(dir).await.unwrap();
+            let file_path = std::path::PathBuf::from(format!("{}/{}", torrent_dest_path, file.path));
+            
+            // create the directories if they don't exist
+            let file_dir = file_path.parent().unwrap();
+            tokio::fs::create_dir_all(file_dir).await.unwrap();
 
             let mut fd = tokio::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                // .append(true)         BRUH
                 .create(true)
-                .open(path_buf.clone())
+                .open(file_path.clone())
                 .await
                 .unwrap();
 
@@ -204,8 +194,7 @@ impl PeerDownloaderHandler {
             ).await.unwrap();
 
             piece_start_offset += bytes_to_write;
-
-            bytes_left -= bytes_to_write as u64;
+            bytes_left -= bytes_to_write;
             file_index += 1;
         }
     }

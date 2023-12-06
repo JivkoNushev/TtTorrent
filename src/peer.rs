@@ -7,11 +7,12 @@ use std::sync::Arc;
 pub use peer_address::PeerAddress;
 use tokio::sync::Mutex;
 
+use crate::MAX_PEERS_COUNT;
 use crate::torrent::{ Torrent, TorrentParser };
 use crate::torrent::torrent_file::BencodedValue;
 use crate::tracker::Tracker;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Peer {
     pub id: [u8;20],
     pub address: String,
@@ -28,7 +29,6 @@ impl Display for Peer {
 
 impl Peer {
     pub fn new(peer_address: PeerAddress, id_num: usize) -> Peer {
-        
         let id: [u8; 20] = [id_num as u8;20];
 
         Peer {
@@ -49,11 +49,11 @@ impl Peer {
         }
         else {
             let tracker = Tracker::new(torrent).await;
-            Peer::get_peers(&tracker).await
+            Peer::get_peers(&tracker, MAX_PEERS_COUNT).await
         }
     }
 
-    async fn get_peers(tracker: &Tracker) -> Vec<Peer> {
+    async fn get_peers(tracker: &Tracker, max_peers_count: usize) -> Vec<Peer> {
         let url = tracker.get_url();
 
         let resp = match reqwest::get(url).await {
@@ -62,37 +62,30 @@ impl Peer {
         };
         
         let bencoded_response = resp.bytes().await.unwrap();
-        
         let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response);
         
-        let mut peer_array: Vec<Peer> = Vec::new();
-        if let BencodedValue::Dict(dict) = bencoded_response {
+        let mut peers = Vec::new();
+        
+        let bencoded_dict = match bencoded_response {
+            BencodedValue::Dict(dict) => dict,
+            _ => panic!("Error: Invalid parsed dictionary from tracker response")
+        };
 
-            let value = dict.get("peers");
-            
-            if let Some(BencodedValue::ByteAddresses(byte_addresses)) = value {
-                for (i, addr) in byte_addresses.into_iter().enumerate() {
-                    // TODO: get a specific number of addresses
-                    if i >= 200 {
-                        break;
-                    }
+        let bencoded_peers = match bencoded_dict.get("peers") {
+            Some(BencodedValue::ByteAddresses(byte_addresses)) => byte_addresses,
+            Some(BencodedValue::Dict(_peer_dict)) => todo!(),
+            _ => panic!("Error: Invalid peers key from tracker response")
+        };
 
-                    // TODO: try removing the clone for the address
-                    let peer = Peer::new(addr.clone(), i);
-                    peer_array.push(peer);
-                }
+        for (i, addr) in bencoded_peers.into_iter().enumerate() {
+            if i >= max_peers_count {
+                break;
             }
-            else if let Some(BencodedValue::Dict(_peer_dict)) = value {
-                todo!();
-            }
-            else {
-                panic!("Error: Invalid peers key from tracker response");
-            }
-        }
-        else {
-            panic!("Error: Invalid parsed dictionary from tracker response");
+
+            let peer = Peer::new(addr.clone(), i);
+            peers.push(peer);
         }
 
-        peer_array
+        peers
     }
 }

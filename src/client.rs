@@ -22,8 +22,8 @@ impl Client {
         "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap()
     }
 
-    pub fn new() -> (Client, mpsc::Sender<String>, mpsc::Sender<String>) {
-        let (downloader_tx, downloader_rx) = mpsc::channel::<String>(100);
+    pub fn new() -> (Client, mpsc::Sender<(String, String)>, mpsc::Sender<String>) {
+        let (downloader_tx, downloader_rx) = mpsc::channel::<(String, String)>(100);
         let (client_tx, _client_rx) = mpsc::channel::<String>(100);
         
         let (seeder_tx, _seeder_rx) = mpsc::channel::<String>(100);
