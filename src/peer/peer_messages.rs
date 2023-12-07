@@ -67,9 +67,10 @@ impl Message {
     pub fn from_bytes(bytes: Vec<u8>) -> Message {
         let id = MessageID::from(bytes[0]);
         let payload = bytes[1..].to_vec();
+        let size = payload.len() + 1;
 
         Message {
-            size: payload.len() + 1,
+            size,
             id,
             payload,
         }

@@ -1,6 +1,4 @@
-
 use crate::utils::AsBytes;
-
 
 #[derive(Debug)]
 pub struct Handshake {

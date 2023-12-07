@@ -211,7 +211,7 @@ impl Torrent {
             };
 
             let mut file_dict = BTreeMap::new();
-            let path = BencodedValue::List(vec![BencodedValue::String(String::from_utf8(file_name).unwrap())]);
+            let path = BencodedValue::List(vec![BencodedValue::ByteString(file_name)]);
             file_dict.insert("path".to_string(), path);
             file_dict.insert("length".to_string(), BencodedValue::Integer(length.clone()));
             all_files.push(file_dict);

@@ -2,14 +2,14 @@ use tokio::sync::{mpsc, Mutex};
 use lazy_static::lazy_static;
 use tokio_stream::StreamExt;
 
-use std::{sync::Arc, collections::HashMap};
-
-pub mod peer_downloader;
-
-use peer_downloader::{ PeerDownloader, PeerDownloaderHandler};
+use std::sync::Arc;
+use std::collections::HashMap;
 
 use crate::peer::Peer;
 use crate::torrent::Torrent;
+
+pub mod peer_downloader;
+use peer_downloader::{ PeerDownloader, PeerDownloaderHandler};
 
 lazy_static! {
     static ref PEER_DOWNLOADERS: Mutex<HashMap<String, Vec<PeerDownloader>>> = Mutex::new(HashMap::new());
@@ -21,6 +21,20 @@ pub struct TorrentDownloader {
     pub peer_downloaders: Vec<PeerDownloader>,
 }
 
+// PEER_DOWNLOADERS methods
+impl TorrentDownloader {
+    async fn peer_downloaders_push(torrent_name: String, peer_downloader: PeerDownloader) {
+        let mut guard = PEER_DOWNLOADERS.lock().await;
+
+        if let Some(peer_downloaders) = guard.get_mut(&torrent_name) {
+            peer_downloaders.push(peer_downloader);
+        } else {
+            guard.insert(torrent_name, vec![peer_downloader]);
+        }
+    }
+}
+
+// TorrentDownloader methods
 impl TorrentDownloader {
     pub async fn new(torrent_name: String, dest_path: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
         let torrent = Torrent::new(torrent_name, dest_path).await;
@@ -59,16 +73,6 @@ impl TorrentDownloaderHandler {
         }
     }
 
-    async fn peer_downloaders_push(torrent_name: String, peer_downloader: PeerDownloader) {
-        let mut guard = PEER_DOWNLOADERS.lock().await;
-
-        if let Some(peer_downloaders) = guard.get_mut(&torrent_name) {
-            peer_downloaders.push(peer_downloader);
-        } else {
-            guard.insert(torrent_name, vec![peer_downloader]);
-        }
-    }
-
     async fn download_torrent(&mut self) -> std::io::Result<()> {
         let peers = Peer::get_from_torrent(&self.torrent).await;
 
@@ -84,7 +88,7 @@ impl TorrentDownloaderHandler {
             let (tx, rx) = mpsc::channel::<String>(100);
             let peer_downloader = PeerDownloader::new(peer.id.clone(), rx);
             
-            TorrentDownloaderHandler::peer_downloaders_push(torrent_name.clone(), peer_downloader).await;
+            TorrentDownloader::peer_downloaders_push(torrent_name.clone(), peer_downloader).await;
 
             let tx_clone = tx.clone();
             let torrent_clone = Arc::clone(&self.torrent);

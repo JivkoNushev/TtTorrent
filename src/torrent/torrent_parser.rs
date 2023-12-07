@@ -216,7 +216,7 @@ mod torrent_parser_tests {
         let torrent_file = "l4:spami90elee".as_bytes();
 
         let list = create_list(&torrent_file, &mut 0);
-        let list_valid = BencodedValue::List(vec![BencodedValue::String(String::from("spam")), BencodedValue::Integer(90), BencodedValue::List(Vec::new())]);
+        let list_valid = BencodedValue::List(vec![BencodedValue::ByteString("spam".as_bytes().to_vec()), BencodedValue::Integer(90), BencodedValue::List(Vec::new())]);
 
         assert_eq!(list_valid, list);
     }
@@ -227,7 +227,7 @@ mod torrent_parser_tests {
         let torrent_file = "l4:spami90ele".as_bytes();
 
         let list = create_list(&torrent_file, &mut 0);
-        let list_valid = BencodedValue::List(vec![BencodedValue::String(String::from("spam")), BencodedValue::Integer(90), BencodedValue::List(Vec::new())]);
+        let list_valid = BencodedValue::List(vec![BencodedValue::ByteString("spam".as_bytes().to_vec()), BencodedValue::Integer(90), BencodedValue::List(Vec::new())]);
 
         assert_eq!(list_valid, list);
     }

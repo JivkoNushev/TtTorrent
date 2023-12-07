@@ -147,11 +147,11 @@ fn test_bencodedvalue_into_list() {
 fn test_is_valid_torrent_file() {
 // one file
     let mut hashmap = BTreeMap::new();
-    hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
+    hashmap.insert(String::from("announce"), BencodedValue::ByteString("da".as_bytes().to_vec()));
     let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
-    info.insert(String::from("name"), BencodedValue::String("name".to_string()));
+    info.insert(String::from("name"), BencodedValue::ByteString("name".as_bytes().to_vec()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
-    info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
+    info.insert(String::from("pieces"), BencodedValue::ByteString("丂丂丂丂丂丂AA".as_bytes().to_vec()));
     info.insert(String::from("length"), BencodedValue::Integer(89));
 
     hashmap.insert(String::from("info"), BencodedValue::Dict(info));
@@ -162,21 +162,21 @@ fn test_is_valid_torrent_file() {
 
 // multiple files
     let mut hashmap = BTreeMap::new();
-    hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
+    hashmap.insert(String::from("announce"), BencodedValue::ByteString("da".as_bytes().to_vec()));
     let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
-    info.insert(String::from("name"), BencodedValue::String("name".to_string()));
+    info.insert(String::from("name"), BencodedValue::ByteString("name".as_bytes().to_vec()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
-    info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
+    info.insert(String::from("pieces"), BencodedValue::ByteString("丂丂丂丂丂丂AA".as_bytes().to_vec()));
     
     let mut files = Vec::new();
 
     let mut file1 = BTreeMap::new();
     file1.insert(String::from("length"), BencodedValue::Integer(89));
-    file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
+    file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::ByteString("name".as_bytes().to_vec())]));
 
     let mut file2 = BTreeMap::new();
     file2.insert(String::from("length"), BencodedValue::Integer(89));
-    file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
+    file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::ByteString("name".as_bytes().to_vec())]));
 
     files.push(BencodedValue::Dict(file1));
     files.push(BencodedValue::Dict(file2));
@@ -193,28 +193,28 @@ fn test_is_valid_torrent_file() {
 #[test]
 fn test_is_valid_torrent_file_invalid() {
     let mut hashmap = BTreeMap::new();
-    hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
+    hashmap.insert(String::from("announce"), BencodedValue::ByteString("da".as_bytes().to_vec()));
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
     assert!(bencoded_dict.torrent_file_is_valid() == false);
 
     let mut hashmap = BTreeMap::new();
-    hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
+    hashmap.insert(String::from("announce"), BencodedValue::ByteString("da".as_bytes().to_vec()));
     let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
-    info.insert(String::from("name"), BencodedValue::String("name".to_string()));
+    info.insert(String::from("name"), BencodedValue::ByteString("name".as_bytes().to_vec()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
-    info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
+    info.insert(String::from("pieces"), BencodedValue::ByteString("丂丂丂丂丂丂AA".as_bytes().to_vec()));
     info.insert(String::from("length"), BencodedValue::Integer(89));
     
     let mut files = Vec::new();
 
     let mut file1 = BTreeMap::new();
     file1.insert(String::from("length"), BencodedValue::Integer(89));
-    file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
+    file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::ByteString("name".as_bytes().to_vec())]));
 
     let mut file2 = BTreeMap::new();
     file2.insert(String::from("length"), BencodedValue::Integer(89));
-    file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
+    file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::ByteString("name".as_bytes().to_vec())]));
 
     files.push(BencodedValue::Dict(file1));
     files.push(BencodedValue::Dict(file2));

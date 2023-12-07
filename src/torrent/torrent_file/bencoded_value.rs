@@ -7,26 +7,23 @@ use super::Sha1Hash;
 /// Represents a value in the Bencode format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BencodedValue {
+    /// Represents a Bencoded dictionary (key-value pairs).
+    Dict(BTreeMap<String, BencodedValue>),
+
+    /// Represents a Bencoded list of values.
+    List(Vec<BencodedValue>),
+    
     /// Represents a Bencoded integer.
     Integer(i64),
 
+    /// Represents a Bencoded byte string.
+    ByteString(Vec<u8>),
+    
     /// Represents a Bencoded byte string as a list of SHA-1 hashes.
     ByteSha1Hashes(Vec<Sha1Hash>),
 
     /// Represents a Bencoded byte string as a list of SHA-1 hashes.
     ByteAddresses(Vec<PeerAddress>),
-
-    /// Represents a Bencoded list of values.
-    List(Vec<BencodedValue>),
-
-    /// Represents a Bencoded dictionary (key-value pairs).
-    Dict(BTreeMap<String, BencodedValue>),
-
-    /// Represents a Bencoded string.
-    String(String),
-
-    /// Represents a Bencoded byte string.
-    ByteString(Vec<u8>),
 }
 
 impl BencodedValue {

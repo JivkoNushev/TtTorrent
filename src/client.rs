@@ -16,7 +16,7 @@ pub struct Client {
     seeder: Seeder
 }
 
-// Client peer id methods
+// CLIENT_PEER_ID methods
 impl Client {
     fn create_client_peer_id() -> [u8; 20] {
         "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap()

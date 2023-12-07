@@ -12,6 +12,7 @@ pub struct Tracker {
     url: String,
     params: String,
 }
+
 impl Tracker {
     pub async fn new(torrent: &Arc<Mutex<Torrent>>) -> Tracker {
         let torrent_file = torrent.lock().await.torrent_file.clone();

@@ -1,12 +1,11 @@
-use std::sync::Arc;
-
 use tokio::sync::{mpsc, Mutex};
+use tokio_stream::StreamExt;
 use lazy_static::lazy_static;
 
-pub mod torrent_downloaders;
+use std::sync::Arc;
 
-use tokio_stream::StreamExt;
 use torrent_downloaders::{ TorrentDownloader, TorrentDownloaderHandler };
+pub mod torrent_downloaders;
 
 lazy_static! {
     static ref TORRENT_DOWNLOADERS: Mutex<Vec<TorrentDownloader>> = Mutex::new(Vec::new());
@@ -17,16 +16,21 @@ pub struct Downloader {
     client_rx: mpsc::Receiver<(String, String)>,
 }
 
+
+// TORRENT_DOWNLOADERS methods
+impl Downloader {
+    async fn torrent_downloaders_push(torrent_downloader: TorrentDownloader) {
+        TORRENT_DOWNLOADERS.lock().await.push(torrent_downloader);
+    }
+}
+
+// Downloader methods
 impl Downloader {
     pub fn new(tx: mpsc::Sender<String>, rx: mpsc::Receiver<(String, String)>) -> Downloader {
         Downloader {
             _client_tx: tx,
             client_rx: rx,
         }
-    }
-
-    async fn torrent_downloaders_push(torrent_downloader: TorrentDownloader) {
-        TORRENT_DOWNLOADERS.lock().await.push(torrent_downloader);
     }
     
     async fn download_torrent(torrent_name: String, dest_path: String) {
