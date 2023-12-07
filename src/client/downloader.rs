@@ -13,14 +13,14 @@ lazy_static! {
 }
 
 pub struct Downloader {
-    client_tx: mpsc::Sender<String>,
+    _client_tx: mpsc::Sender<String>,
     client_rx: mpsc::Receiver<(String, String)>,
 }
 
 impl Downloader {
     pub fn new(tx: mpsc::Sender<String>, rx: mpsc::Receiver<(String, String)>) -> Downloader {
         Downloader {
-            client_tx: tx,
+            _client_tx: tx,
             client_rx: rx,
         }
     }

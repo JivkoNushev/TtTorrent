@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use torrent_client::utils::{ UrlEncodable, read_file_as_bytes };
+use torrent_client::utils::UrlEncodable;
 use torrent_client::torrent::{ Sha1Hash, BencodedValue, TorrentParser };
 
 // #[test]

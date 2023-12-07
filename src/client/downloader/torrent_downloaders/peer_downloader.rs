@@ -3,7 +3,7 @@ use std::{sync::Arc, collections::BTreeMap};
 use tokio::{sync::{mpsc, Mutex}, net::TcpStream, io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt}};
 use rand::Rng;
 
-use crate::{torrent::{Torrent, BencodedValue}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::{CLIENT_PEER_ID, Client}};
+use crate::{torrent::{Torrent, BencodedValue}, peer::peer_messages::{Message, MessageID, Handshake}, utils::AsBytes, client::Client};
 use crate::peer::Peer;
 use crate::utils::sha1_hash;
 
@@ -12,7 +12,7 @@ pub struct DownloadableFile {
     start: u64,
     size: u64,
     path: String,
-    md5sum: Option<String>
+    _md5sum: Option<String>
 }
 
 pub struct PeerDownloader {
@@ -105,7 +105,7 @@ impl PeerDownloaderHandler {
 
                 let path = path.join("/");
 
-                let md5sum = match file.get("md5sum") {
+                let _md5sum = match file.get("md5sum") {
                     Some(BencodedValue::String(md5sum)) => Some(md5sum.clone()),
                     _ => None
                 };
@@ -114,7 +114,7 @@ impl PeerDownloaderHandler {
                     start: 0,
                     size,
                     path,
-                    md5sum
+                    _md5sum
                 }
             })
             .collect::<Vec<DownloadableFile>>();

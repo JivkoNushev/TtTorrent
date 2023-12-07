@@ -1,16 +1,18 @@
-pub mod peer_address;
-pub mod peer_messages;
+use tokio::sync::Mutex;
 
 use std::fmt::Display;
 use std::sync::Arc;
 
-pub use peer_address::PeerAddress;
-use tokio::sync::Mutex;
-
 use crate::MAX_PEERS_COUNT;
-use crate::torrent::{ Torrent, TorrentParser };
+use crate::torrent::{Torrent, TorrentParser};
 use crate::torrent::torrent_file::BencodedValue;
 use crate::tracker::Tracker;
+
+pub mod peer_address;
+pub use peer_address::PeerAddress;
+
+pub mod peer_messages;
+
 
 #[derive(Debug, Clone)]
 pub struct Peer {
@@ -29,10 +31,8 @@ impl Display for Peer {
 
 impl Peer {
     pub fn new(peer_address: PeerAddress, id_num: usize) -> Peer {
-        let id: [u8; 20] = [id_num as u8;20];
-
         Peer {
-            id,
+            id: [id_num as u8;20],
             address: peer_address.address,
             port: peer_address.port,
             am_interested: false,
@@ -42,6 +42,7 @@ impl Peer {
 
     pub async fn get_from_torrent(torrent: &Arc<Mutex<Torrent>>) -> Vec<Peer> {
         if crate::DEBUG_MODE {
+            // locally hosted peers
             vec![
                 Peer::new(PeerAddress { address: "127.0.0.1".into(), port: "51413".into() }, 0),
                 // Peer::new(PeerAddress { address: "192.168.0.28".into(), port: "37051".into() }, 1),

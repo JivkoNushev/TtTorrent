@@ -1,4 +1,3 @@
-use std::io::{ Read, Result };
 use sha1::{Sha1, Digest};
 use tokio::io::AsyncReadExt;
 
@@ -24,7 +23,7 @@ pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     Sha1Hash::new(&hasher.finalize())
 }   
 
-pub async fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
+pub async fn read_file_as_bytes(path: &str) -> std::io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     let mut file = tokio::fs::File::open(path).await?;
 

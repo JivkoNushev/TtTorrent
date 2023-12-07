@@ -1,11 +1,10 @@
 use std::collections::BTreeMap;
 
 pub mod torrent_file;
-pub mod torrent_parser;
+pub use torrent_file::{BencodedValue, TorrentFile, Sha1Hash};
 
-pub use torrent_file::{TorrentFile, Sha1Hash};
+pub mod torrent_parser;
 pub use torrent_parser::TorrentParser;
-pub use self::torrent_file::BencodedValue;
 
 #[derive(Debug)]
 pub struct Torrent {
@@ -25,7 +24,7 @@ impl Torrent {
             None => panic!("Could not get info hash from torrent file: {}", torrent_name)
         };
 
-        // still not downloaded piece indexes
+        // not downloaded piece indexes
         let pieces_left = {
             let torrent_dict = match torrent_file.get_bencoded_dict_ref().try_into_dict() {
                 Some(torrent_dict) => torrent_dict,
@@ -45,7 +44,7 @@ impl Torrent {
                 _ => panic!("Could not get pieces from info dict ref in torrent file: {}", torrent_name)
             };
 
-            let pieces_left: Vec<usize> = (0..pieces.len()).collect();
+            let pieces_left = (0..pieces.len()).collect::<Vec<usize>>();
 
             pieces_left
         };

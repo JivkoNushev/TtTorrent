@@ -1,7 +1,6 @@
-
 use torrent_client::client::Client;
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main] // flavor = "current_thread" ( maybe use one thread if its faster )
 async fn main() {
     let (client, downloader_tx, _seeder_tx) = Client::new();
 

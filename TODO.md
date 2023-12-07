@@ -28,3 +28,7 @@ loop {
 - fix peer tcp connections
 
 - show how many pieces have been downloaded as percentage
+
+- create a Message type for the messages between the processes
+
+- there are functions that return options but only return values or panic

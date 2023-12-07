@@ -1,6 +1,6 @@
 use percent_encoding::percent_encode;
 
-use crate::utils::{UrlEncodable, AsBytes};
+use crate::utils::UrlEncodable;
 
 /// Represents a SHA-1 hash as an array of 20 bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]

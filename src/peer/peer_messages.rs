@@ -1,8 +1,4 @@
-use tokio::{net::TcpStream, io::{AsyncWriteExt, AsyncReadExt}};
-
-use crate::torrent::Sha1Hash;
 use crate::utils::AsBytes;
-
 
 pub mod handshake;
 pub use handshake::Handshake;

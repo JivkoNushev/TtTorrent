@@ -48,14 +48,14 @@ impl TorrentDownloader {
 
 pub struct TorrentDownloaderHandler {
     torrent: Arc<Mutex<Torrent>>,
-    downloader_tx: mpsc::Sender<String>,
+    _downloader_tx: mpsc::Sender<String>,
 }
 
 impl TorrentDownloaderHandler {
-    pub fn new(torrent: Arc<Mutex<Torrent>>, downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
+    pub fn new(torrent: Arc<Mutex<Torrent>>, _downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
         TorrentDownloaderHandler { 
             torrent,
-            downloader_tx
+            _downloader_tx
         }
     }
 
