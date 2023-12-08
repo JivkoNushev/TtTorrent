@@ -1,29 +1,48 @@
 use tokio::sync::{mpsc, Mutex};
 use lazy_static::lazy_static;
+use tokio_stream::StreamExt;
 
-use std::{sync::Arc, collections::HashMap};
-
-pub mod peer_downloader;
-
-use peer_downloader::{ PeerDownloader, PeerDownloaderHandler};
+use std::sync::Arc;
+use std::collections::HashMap;
 
 use crate::peer::Peer;
 use crate::torrent::Torrent;
+use crate::client::messager::{ InterProcessMessage, MessageType };
+
+pub mod peer_downloader;
+use peer_downloader::{ PeerDownloader, PeerDownloaderHandler};
 
 lazy_static! {
     static ref PEER_DOWNLOADERS: Mutex<HashMap<String, Vec<PeerDownloader>>> = Mutex::new(HashMap::new());
 }
 
 pub struct TorrentDownloader {
-    pub torrent_name: String,
-    pub handler_rx: mpsc::Receiver<String>,
+    pub torrent: Arc<Mutex<Torrent>>,
+    pub handler_rx: mpsc::Receiver<InterProcessMessage>,
     pub peer_downloaders: Vec<PeerDownloader>,
 }
 
+// PEER_DOWNLOADERS methods
 impl TorrentDownloader {
-    pub async fn new(torrent_name: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
+    async fn peer_downloaders_push(torrent_name: String, peer_downloader: PeerDownloader) {
+        let mut guard = PEER_DOWNLOADERS.lock().await;
+
+        if let Some(peer_downloaders) = guard.get_mut(&torrent_name) {
+            peer_downloaders.push(peer_downloader);
+        } else {
+            guard.insert(torrent_name, vec![peer_downloader]);
+        }
+    }
+}
+
+// TorrentDownloader methods
+impl TorrentDownloader {
+    pub async fn new(torrent_name: String, dest_path: String, handler_rx: mpsc::Receiver<InterProcessMessage>) -> TorrentDownloader {
+        let torrent = Torrent::new(torrent_name, dest_path).await;
+        let torrent = Arc::new(Mutex::new(torrent));
+        
         TorrentDownloader {
-            torrent_name,
+            torrent,
             handler_rx,
             peer_downloaders: Vec::new()
         }
@@ -31,75 +50,65 @@ impl TorrentDownloader {
 }
 
 pub struct TorrentDownloaderHandler {
-    torrent_name: String,
-    downloader_tx: mpsc::Sender<String>,
+    torrent: Arc<Mutex<Torrent>>,
+    downloader_tx: mpsc::Sender<InterProcessMessage>,
 }
 
 impl TorrentDownloaderHandler {
-    pub async fn new(torrent_name: String, downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
-        println!("Creating a TorrentDownloaderHandler for torrent file: {}", torrent_name.clone());
-        
+    pub fn new(torrent: Arc<Mutex<Torrent>>, downloader_tx: mpsc::Sender<InterProcessMessage>) -> TorrentDownloaderHandler {
         TorrentDownloaderHandler { 
-            torrent_name: torrent_name,
+            torrent,
             downloader_tx
         }
     }
 
-    async fn peer_downloaders_push(torrent_name: String, peer_downloader: PeerDownloader) {
-        let mut guard = PEER_DOWNLOADERS.lock().await;
+    async fn download_torrent(&mut self) -> std::io::Result<()> {
+        let peers = Peer::get_from_torrent(&self.torrent).await;
 
-        if let Some(peer_downloaders) = guard.get_mut(&torrent_name) {
-            peer_downloaders.push(peer_downloader);
-        } else {
-            guard.insert(torrent_name.clone(), vec![peer_downloader]);
+        if peers.len() == 0 {
+            return std::io::Result::Err(std::io::Error::new(std::io::ErrorKind::Other, "No peers found"));
         }
-    }
 
-    async fn download_torrent(&mut self) {
-        // parse torrent file
-        println!("Parsing torrent file: {}", self.torrent_name);
-        let torrent = Torrent::new(self.torrent_name.clone()).await;
+        let mut stream_of_peers = tokio_stream::iter(peers);
 
-        // get peers
-        println!("Getting peers for torrent file: {}", self.torrent_name.clone());
-        let peers = Peer::get_from_torrent(&torrent).await;
+        let torrent_name = self.torrent.lock().await.torrent_name.clone();
 
-        // create a file
-        println!("Creating a file for: {}", self.torrent_name.clone());
-
-
-        // TODO: Create a File type that has destination
-        let file = tokio::fs::File::create("test.txt").await.unwrap();
-        let file = Arc::new(Mutex::new(file));
-
-        // download from peers
-        for peer in peers {
-            let (tx, rx) = mpsc::channel::<String>(100);
-            let peer_downloader = PeerDownloader::new(peer.id.clone(), rx).await;
+        while let Some(peer) = stream_of_peers.next().await {
+            let (tx, rx) = mpsc::channel::<InterProcessMessage>(100);
+            let peer_downloader = PeerDownloader::new(peer.id.clone(), rx);
             
-            TorrentDownloaderHandler::peer_downloaders_push(self.torrent_name.clone(), peer_downloader).await;
+            TorrentDownloader::peer_downloaders_push(torrent_name.clone(), peer_downloader).await;
 
             let tx_clone = tx.clone();
-            let torrent_clone = torrent.clone();
-            let file_copy = Arc::clone(&file);
+            let torrent_clone = Arc::clone(&self.torrent);
 
             tokio::spawn(async move {
-                let peer_downloader_handle = PeerDownloaderHandler::new(peer, torrent_clone, file_copy, tx_clone).await;
+                let peer_downloader_handle = PeerDownloaderHandler::new(peer.clone(), torrent_clone, tx_clone);
 
-                peer_downloader_handle.run().await;
+                match peer_downloader_handle.run().await {
+                    Ok(_) => {
+                        println!("Finished downloading from peer '{}'", peer);
+                    },
+                    Err(e) => {
+                        println!("Peer '{}' finished with error: {}", peer, e);
+                    }
+                }
             });
         }
+
+        Ok(())
     }
 
 
-    async fn peer_downloader_recv_msg() -> Option<(String, String)> {
+    async fn peer_downloader_recv_msg() -> Option<InterProcessMessage> {
         let mut guard = PEER_DOWNLOADERS.lock().await;
 
-        // TODO: async for loop ?
-        for (torrent_name, peer_downloaders) in guard.iter_mut() {
-            for peer_downloader in peer_downloaders.iter_mut() {
+        let mut stream = tokio_stream::iter(guard.iter_mut());
+
+        while let Some(v) = stream.next().await {
+            for peer_downloader in v.1.iter_mut() {
                 if let Some(msg) = &peer_downloader.handler_rx.recv().await {
-                    return Some((torrent_name.clone(), msg.clone()));
+                    return Some(msg.clone());
                 }
             }
         }
@@ -108,15 +117,22 @@ impl TorrentDownloaderHandler {
     }
 
     pub async fn run(mut self) {
+        let downloader_tx_clone = self.downloader_tx.clone();
+
         let _ = tokio::join!(
-            // downloading the torrent file
             self.download_torrent(),
-            // Receiving messages from the peer downloaders
             tokio::spawn(async move {
-                println!("Waiting for peer downloader messages...");
                 loop {
-                    if let Some((torrent_name, msg)) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
-                        println!("For torrent file '{torrent_name}' Received peer message: {msg}");
+                    if let Some(msg) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
+                        match msg.message_type {
+                            MessageType::DownloadedPiecesCount => {
+                                // send to downloader
+                                if let Err(e) = downloader_tx_clone.send(msg).await {
+                                    println!("Error sending message to downloader: {}", e);
+                                }
+                            },
+                            _ => {}
+                        }
                     }
                 }
             }),

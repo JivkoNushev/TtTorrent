@@ -1,23 +1,29 @@
+use tokio::sync::Mutex;
 
-
-mod connection;
+use std::sync::Arc;
 
 use crate::torrent::Torrent;
+
+mod connection;
+use connection::{tracker_params_default, tracker_url_get};
 
 #[derive(Debug, Clone)]
 pub struct Tracker {
     url: String,
     params: String,
 }
+
 impl Tracker {
-    pub async fn new(torrent: &Torrent) -> Tracker {
-        let url = match connection::tracker_url_get(torrent.torrent_file.get_bencoded_dict_ref()) {
+    pub async fn new(torrent: &Arc<Mutex<Torrent>>) -> Tracker {
+        let torrent_file = torrent.lock().await.torrent_file.clone();
+        let info_hash = torrent.lock().await.get_info_hash_ref().clone();
+
+        let url = match tracker_url_get(torrent_file.get_bencoded_dict_ref()) {
             Some(url) => url,
             None => panic!("Error: Invalid tracker url")
         };
 
-        let info_hash = torrent.get_info_hash_ref().await;
-        let params = connection::tracker_params_default(info_hash).await;
+        let params = tracker_params_default(&info_hash).await;
 
         Tracker {
             url,
@@ -25,7 +31,7 @@ impl Tracker {
         }
     }
 
-    pub async fn get_url(&self) -> String {
+    pub fn get_url(&self) -> String {
         format!("{}{}", self.url, self.params)
     }
 }

@@ -1,8 +1,7 @@
-use std::io::{ Read, Result };
 use sha1::{Sha1, Digest};
+use tokio::io::AsyncReadExt;
 
 use crate::torrent::torrent_file::Sha1Hash;
-
 
 pub trait UrlEncodable {
     fn as_url_encoded(&self) -> String;
@@ -12,7 +11,6 @@ impl UrlEncodable for [u8;20] {
     fn as_url_encoded(&self) -> String {
         percent_encoding::percent_encode(self, percent_encoding::NON_ALPHANUMERIC).to_string()
     }
-
 }
 
 pub trait AsBytes {
@@ -25,11 +23,11 @@ pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     Sha1Hash::new(&hasher.finalize())
 }   
 
-pub fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
+pub async fn read_file_as_bytes(path: &str) -> std::io::Result<Vec<u8>> {
     let mut buf = Vec::new();
-    let mut file = std::fs::File::open(path)?;
+    let mut file = tokio::fs::File::open(path).await?;
 
-    file.read_to_end(&mut buf)?;
+    file.read_to_end(&mut buf).await?;
 
     Ok(buf)
 }

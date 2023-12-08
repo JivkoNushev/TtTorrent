@@ -1,24 +1,24 @@
 use std::collections::BTreeMap;
 
-use torrent_client::utils::{ UrlEncodable, read_file_as_bytes };
+use torrent_client::utils::UrlEncodable;
 use torrent_client::torrent::{ Sha1Hash, BencodedValue, TorrentParser };
 
-#[test]
-fn test_read_file_as_bytes() {
-    let path = "tests/test_torrent_1.torrent";
-    let bytes = read_file_as_bytes(path).unwrap();
-    assert_eq!(bytes.len(), 392);
-}
+// #[test]
+// fn test_read_file_as_bytes() {
+//     let path = "tests/test_torrent_1.torrent";
+//     let bytes = read_file_as_bytes(path).await.unwrap();
+//     assert_eq!(bytes.len(), 392);
+// }
 
 #[test]
 fn test_sha1hash_new() {
     let sha1_hash = Sha1Hash::new(&[90;20]);
 
-    assert!(vec![90;20] == sha1_hash.get_hash_ref());
+    assert!(vec![90;20] == sha1_hash.as_bytes());
 
     let sha1_hash = Sha1Hash::new("丂丂丂丂丂丂AA".as_bytes());
 
-    assert!("丂丂丂丂丂丂AA".as_bytes().to_vec() == sha1_hash.get_hash_ref());
+    assert!("丂丂丂丂丂丂AA".as_bytes().to_vec() == sha1_hash.as_bytes());
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn test_sha1hash_new() {
 fn test_sha1hash_new_invalid_hash_len() {
     let sha1_hash = Sha1Hash::new(&[90;21]);
 
-    assert!(vec![90;20] == sha1_hash.get_hash_ref());
+    assert!(vec![90;20] == sha1_hash.as_bytes());
 }
 
 #[test]
@@ -147,11 +147,11 @@ fn test_bencodedvalue_into_list() {
 fn test_is_valid_torrent_file() {
 // one file
     let mut hashmap = BTreeMap::new();
-    hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
+    hashmap.insert(String::from("announce"), BencodedValue::ByteString("da".as_bytes().to_vec()));
     let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
-    info.insert(String::from("name"), BencodedValue::String("name".to_string()));
+    info.insert(String::from("name"), BencodedValue::ByteString("name".as_bytes().to_vec()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
-    info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
+    info.insert(String::from("pieces"), BencodedValue::ByteString("丂丂丂丂丂丂AA".as_bytes().to_vec()));
     info.insert(String::from("length"), BencodedValue::Integer(89));
 
     hashmap.insert(String::from("info"), BencodedValue::Dict(info));
@@ -162,21 +162,21 @@ fn test_is_valid_torrent_file() {
 
 // multiple files
     let mut hashmap = BTreeMap::new();
-    hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
+    hashmap.insert(String::from("announce"), BencodedValue::ByteString("da".as_bytes().to_vec()));
     let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
-    info.insert(String::from("name"), BencodedValue::String("name".to_string()));
+    info.insert(String::from("name"), BencodedValue::ByteString("name".as_bytes().to_vec()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
-    info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
+    info.insert(String::from("pieces"), BencodedValue::ByteString("丂丂丂丂丂丂AA".as_bytes().to_vec()));
     
     let mut files = Vec::new();
 
     let mut file1 = BTreeMap::new();
     file1.insert(String::from("length"), BencodedValue::Integer(89));
-    file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
+    file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::ByteString("name".as_bytes().to_vec())]));
 
     let mut file2 = BTreeMap::new();
     file2.insert(String::from("length"), BencodedValue::Integer(89));
-    file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
+    file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::ByteString("name".as_bytes().to_vec())]));
 
     files.push(BencodedValue::Dict(file1));
     files.push(BencodedValue::Dict(file2));
@@ -193,28 +193,28 @@ fn test_is_valid_torrent_file() {
 #[test]
 fn test_is_valid_torrent_file_invalid() {
     let mut hashmap = BTreeMap::new();
-    hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
+    hashmap.insert(String::from("announce"), BencodedValue::ByteString("da".as_bytes().to_vec()));
 
     let bencoded_dict = BencodedValue::Dict(hashmap);
     assert!(bencoded_dict.torrent_file_is_valid() == false);
 
     let mut hashmap = BTreeMap::new();
-    hashmap.insert(String::from("announce"), BencodedValue::String("da".to_string()));
+    hashmap.insert(String::from("announce"), BencodedValue::ByteString("da".as_bytes().to_vec()));
     let mut info: BTreeMap<String, BencodedValue> = BTreeMap::new();
-    info.insert(String::from("name"), BencodedValue::String("name".to_string()));
+    info.insert(String::from("name"), BencodedValue::ByteString("name".as_bytes().to_vec()));
     info.insert(String::from("piece length"), BencodedValue::Integer(262144));
-    info.insert(String::from("pieces"), BencodedValue::String("丂丂丂丂丂丂AA".to_string()));
+    info.insert(String::from("pieces"), BencodedValue::ByteString("丂丂丂丂丂丂AA".as_bytes().to_vec()));
     info.insert(String::from("length"), BencodedValue::Integer(89));
     
     let mut files = Vec::new();
 
     let mut file1 = BTreeMap::new();
     file1.insert(String::from("length"), BencodedValue::Integer(89));
-    file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
+    file1.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::ByteString("name".as_bytes().to_vec())]));
 
     let mut file2 = BTreeMap::new();
     file2.insert(String::from("length"), BencodedValue::Integer(89));
-    file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::String("name".to_string())]));
+    file2.insert(String::from("path"), BencodedValue::List(vec![BencodedValue::ByteString("name".as_bytes().to_vec())]));
 
     files.push(BencodedValue::Dict(file1));
     files.push(BencodedValue::Dict(file2));
@@ -235,9 +235,7 @@ fn test_is_valid_torrent_file_invalid() {
 fn test_parse_torrent_file() {
     let torrent_file = "d8:announce5:url:)4:infod6:lengthi89e4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
 
-    async {
-        let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file).await;
-    };
+    let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file);
     assert!(true);
 }
 
@@ -247,19 +245,15 @@ fn test_parse_torrent_file() {
 fn test_parse_torrent_file_invalid() {
     let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
 
-    async {
-        let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file).await;
-    };
+    let _torrent_file = TorrentParser::parse_torrent_file(&torrent_file);
 }
 
 #[test]
 fn test_parse_to_torrent_file() {
     let torrent_file = "d8:announce5:url:)4:infod6:lengthi89e4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AAee".as_bytes();
-    async {
-        let torrent_file_struct = TorrentParser::parse_torrent_file(&torrent_file).await;
+    let torrent_file_struct = TorrentParser::parse_torrent_file(&torrent_file);
 
-        let new_torrent_file = TorrentParser::parse_to_torrent_file(&torrent_file_struct).await;
+    let new_torrent_file = TorrentParser::parse_to_torrent_file(&torrent_file_struct);
 
-        assert_eq!(torrent_file, new_torrent_file);
-    };
+    assert_eq!(torrent_file, new_torrent_file);
 }

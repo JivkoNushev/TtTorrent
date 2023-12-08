@@ -7,41 +7,44 @@ use super::Sha1Hash;
 /// Represents a value in the Bencode format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BencodedValue {
-    /// Represents a Bencoded integer.
-    Integer(i128),
+    /// Represents a Bencoded dictionary (key-value pairs).
+    Dict(BTreeMap<String, BencodedValue>),
 
+    /// Represents a Bencoded list of values.
+    List(Vec<BencodedValue>),
+    
+    /// Represents a Bencoded integer.
+    Integer(i64),
+
+    /// Represents a Bencoded byte string.
+    ByteString(Vec<u8>),
+    
     /// Represents a Bencoded byte string as a list of SHA-1 hashes.
     ByteSha1Hashes(Vec<Sha1Hash>),
 
     /// Represents a Bencoded byte string as a list of SHA-1 hashes.
     ByteAddresses(Vec<PeerAddress>),
-
-    /// Represents a Bencoded list of values.
-    List(Vec<BencodedValue>),
-
-    /// Represents a Bencoded dictionary (key-value pairs).
-    Dict(BTreeMap<String, BencodedValue>),
-
-    /// Represents a Bencoded string.
-    String(String),
 }
 
 impl BencodedValue {
     pub fn try_into_dict(&self) -> Option<&BTreeMap<String, BencodedValue>> {
-        if let BencodedValue::Dict(d) = self {
-            Some(d)
-        }
-        else {
-            None
+        match self {
+            BencodedValue::Dict(d) => Some(d),
+            _ => None
         }
     }
 
-    pub fn try_into_integer(&self) -> Option<&i128> {
-        if let BencodedValue::Integer(i) = self {
-            Some(i)
+    pub fn try_into_integer(&self) -> Option<&i64> {
+        match self {
+            BencodedValue::Integer(i) => Some(i),
+            _ => None
         }
-        else {
-            None
+    }
+
+    pub fn try_into_list(&self) -> Option<&Vec<BencodedValue>> {
+        match self {
+            BencodedValue::List(l) => Some(l),
+            _ => None
         }
     }
 
@@ -57,78 +60,81 @@ impl BencodedValue {
         }
     }
 
-    // TODO: maybe return Result types for the getters
     pub fn get_from_dict(&self, key: &str) -> Option<BencodedValue> {
-        if let BencodedValue::Dict(d) = self {
-            if let Some(value) = d.get(key) {
-                return Some(value.clone());
-            }
-            None
-        }
-        else {
-            panic!("Trying to get a value from a non-bencoded dictionary");
+        let dict = match self.try_into_dict() {
+            Some(dict) => dict,
+            None => panic!("Trying to get a value from a non-bencoded dictionary")
+        };
+
+        match dict.get(key) {
+            Some(value) => Some(value.clone()),
+            None => None
         }
     }
 
     pub fn get_from_list(&self, index: usize) -> Option<BencodedValue> {
-        if let BencodedValue::List(l) = self {
-            if let Some(value) = l.get(index) {
-                return Some(value.clone());
-            }
-            None
-        }
-        else {
-            panic!("Trying to get a value from a non-benocoded list");
+        let list = match self.try_into_list() {
+            Some(list) => list,
+            None => panic!("Trying to get a value from a non-bencoded list")
+        };
+
+        match list.get(index) {
+            Some(value) => Some(value.clone()),
+            None => None
         }
     }
 
     pub fn torrent_file_is_valid(&self) -> bool {
-        if let BencodedValue::Dict(d) = self {
-            if ["announce", "info"].iter().any(|key| !d.contains_key(*key)) {
-                false
-            }
-            else {
-                if let BencodedValue::Dict(info) = d.get("info").unwrap() {
-                    if ["name", "piece length", "pieces"].iter().any(|key| !info.contains_key(*key)) {
-                        false
-                    }
-                    else {
-                        if ["files", "length"].iter().all(|key| !info.contains_key(*key)) {
-                            false
-                        }
-                        else if ["files", "length"].iter().all(|key| info.contains_key(*key)) {
-                            false
-                        }
-                        else {
-                            if info.contains_key("files") {
-                                if let BencodedValue::List(l) = info.get("files").unwrap() {
-                                    l.iter().all(|file| {
-                                        if let BencodedValue::Dict(d) = file {
-                                            ["length", "path"].iter().all(|key| d.contains_key(*key))
-                                        }
-                                        else {
-                                            panic!("Trying to validate a non-bencoded dictionary in \"files\"");
-                                        }
-                                    })
-                                }
-                                else {
-                                    panic!("Trying to validate a non-bencoded list named \"files\"")
-                                }
-                            }
-                            else {
-                                true
-                            }
-                        }
-                    }
-                }
-                else {
-                    panic!("Trying to validate a non-bencoded dictionary named \"info\"")
+        let dict = match self.try_into_dict() {
+            Some(dict) => dict,
+            None => panic!("Trying to validate a non-bencoded dictionary")
+        };
+
+        if ["announce", "info"].iter().any(|key| !dict.contains_key(*key)) {
+            return false;
+        }
+
+        let info = match dict.get("info") {
+            Some(info) => {
+                match info {
+                    BencodedValue::Dict(info) => info,
+                    _ => panic!("Trying to validate a non-bencoded dictionary named \"info\"")
                 }
             }
+            None => panic!("Trying to validate a non-bencoded dictionary named \"info\"")
+        };
+
+        if ["name", "piece length", "pieces"].iter().any(|key| !info.contains_key(*key)) {
+            return false;
         }
-        else {
-            panic!("Trying to validate a non-bencoded dictionary");
+
+        if  ["files", "length"].iter().all(|key| !info.contains_key(*key)) ||
+            ["files", "length"].iter().all(|key| info.contains_key(*key)) {
+            return false;
         }
+
+        if info.contains_key("files") {
+            let files = match info.get("files") {
+                Some(files) => {
+                    match files {
+                        BencodedValue::List(files) => files,
+                        _ => panic!("Trying to validate a non-bencoded list named \"files\"")
+                    }
+                }
+                None => panic!("Trying to validate a non-bencoded list named \"files\"")
+            };
+
+            return files
+            .iter()
+            .all(|file| {
+                match file {
+                    BencodedValue::Dict(d) => ["length", "path"].iter().all(|key| d.contains_key(*key)),
+                    _ => panic!("Trying to validate a non-bencoded dictionary in \"files\"")
+                }
+            });
+        }
+
+        true
     }
 }
 

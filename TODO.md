@@ -2,8 +2,7 @@
 - *String vs &str*
 
 # TODO:
-- enum for the messages passed through the channels
-- spawn_blocking for the parsing
+- spawn_blocking for the parsing maybe
 
 - use select for catching messages
 ```
@@ -19,4 +18,8 @@ loop {
 - use Streams when iterating
 - use tracing crate for logging
 
-- fix eof when messaging
+- use repr(C)
+
+- fix peer tcp connections
+
+- there are functions that return options but only return values or panic

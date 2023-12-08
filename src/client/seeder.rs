@@ -4,7 +4,7 @@ pub struct Seeder {
 }
 
 impl Seeder {
-    async fn new() -> Seeder {
+    pub fn new() -> Seeder {
         Seeder {}
     }
 
