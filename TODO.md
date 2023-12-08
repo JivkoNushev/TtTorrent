@@ -2,8 +2,7 @@
 - *String vs &str*
 
 # TODO:
-- enum for the messages passed through the channels
-- spawn_blocking for the parsing
+- spawn_blocking for the parsing maybe
 
 - use select for catching messages
 ```
@@ -19,16 +18,8 @@ loop {
 - use Streams when iterating
 - use tracing crate for logging
 
-- fix eof when messaging
-
-- better torrent_file_is_valid function
-
 - use repr(C)
 
 - fix peer tcp connections
-
-- show how many pieces have been downloaded as percentage
-
-- create a Message type for the messages between the processes
 
 - there are functions that return options but only return values or panic

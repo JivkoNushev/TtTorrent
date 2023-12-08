@@ -75,5 +75,4 @@ impl Message {
             payload,
         }
     }
-
 }

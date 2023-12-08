@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use crate::peer::Peer;
 use crate::torrent::Torrent;
+use crate::client::messager::{ InterProcessMessage, MessageType };
 
 pub mod peer_downloader;
 use peer_downloader::{ PeerDownloader, PeerDownloaderHandler};
@@ -17,7 +18,7 @@ lazy_static! {
 
 pub struct TorrentDownloader {
     pub torrent: Arc<Mutex<Torrent>>,
-    pub handler_rx: mpsc::Receiver<String>,
+    pub handler_rx: mpsc::Receiver<InterProcessMessage>,
     pub peer_downloaders: Vec<PeerDownloader>,
 }
 
@@ -36,7 +37,7 @@ impl TorrentDownloader {
 
 // TorrentDownloader methods
 impl TorrentDownloader {
-    pub async fn new(torrent_name: String, dest_path: String, handler_rx: mpsc::Receiver<String>) -> TorrentDownloader {
+    pub async fn new(torrent_name: String, dest_path: String, handler_rx: mpsc::Receiver<InterProcessMessage>) -> TorrentDownloader {
         let torrent = Torrent::new(torrent_name, dest_path).await;
         let torrent = Arc::new(Mutex::new(torrent));
         
@@ -46,30 +47,18 @@ impl TorrentDownloader {
             peer_downloaders: Vec::new()
         }
     }
-
-    pub async fn get_downloaded_percentage(&self) -> f32 {
-        let torrent = self.torrent.lock().await;
-
-        let pieces_left = torrent.pieces_left.len();
-        let total_pieces = torrent.get_pieces_count();
-
-        let downloaded_percentage = (total_pieces - pieces_left) as f32 / total_pieces as f32;
-        let downloaded_percentage = (downloaded_percentage * 100.0).round() / 100.0;
-
-        downloaded_percentage
-    }
 }
 
 pub struct TorrentDownloaderHandler {
     torrent: Arc<Mutex<Torrent>>,
-    _downloader_tx: mpsc::Sender<String>,
+    downloader_tx: mpsc::Sender<InterProcessMessage>,
 }
 
 impl TorrentDownloaderHandler {
-    pub fn new(torrent: Arc<Mutex<Torrent>>, _downloader_tx: mpsc::Sender<String>) -> TorrentDownloaderHandler {
+    pub fn new(torrent: Arc<Mutex<Torrent>>, downloader_tx: mpsc::Sender<InterProcessMessage>) -> TorrentDownloaderHandler {
         TorrentDownloaderHandler { 
             torrent,
-            _downloader_tx
+            downloader_tx
         }
     }
 
@@ -85,7 +74,7 @@ impl TorrentDownloaderHandler {
         let torrent_name = self.torrent.lock().await.torrent_name.clone();
 
         while let Some(peer) = stream_of_peers.next().await {
-            let (tx, rx) = mpsc::channel::<String>(100);
+            let (tx, rx) = mpsc::channel::<InterProcessMessage>(100);
             let peer_downloader = PeerDownloader::new(peer.id.clone(), rx);
             
             TorrentDownloader::peer_downloaders_push(torrent_name.clone(), peer_downloader).await;
@@ -111,7 +100,7 @@ impl TorrentDownloaderHandler {
     }
 
 
-    async fn peer_downloader_recv_msg() -> Option<(String, String)> {
+    async fn peer_downloader_recv_msg() -> Option<InterProcessMessage> {
         let mut guard = PEER_DOWNLOADERS.lock().await;
 
         let mut stream = tokio_stream::iter(guard.iter_mut());
@@ -119,7 +108,7 @@ impl TorrentDownloaderHandler {
         while let Some(v) = stream.next().await {
             for peer_downloader in v.1.iter_mut() {
                 if let Some(msg) = &peer_downloader.handler_rx.recv().await {
-                    return Some((v.0.clone(), msg.clone()));
+                    return Some(msg.clone());
                 }
             }
         }
@@ -128,13 +117,22 @@ impl TorrentDownloaderHandler {
     }
 
     pub async fn run(mut self) {
+        let downloader_tx_clone = self.downloader_tx.clone();
+
         let _ = tokio::join!(
             self.download_torrent(),
-
             tokio::spawn(async move {
                 loop {
-                    if let Some((torrent_name, msg)) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
-                        println!("For torrent file '{torrent_name}' Received peer message: {msg}");
+                    if let Some(msg) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
+                        match msg.message_type {
+                            MessageType::DownloadedPiecesCount => {
+                                // send to downloader
+                                if let Err(e) = downloader_tx_clone.send(msg).await {
+                                    println!("Error sending message to downloader: {}", e);
+                                }
+                            },
+                            _ => {}
+                        }
                     }
                 }
             }),

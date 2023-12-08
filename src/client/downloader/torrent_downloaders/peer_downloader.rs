@@ -8,7 +8,7 @@ use std::{sync::Arc, collections::BTreeMap};
 use crate::torrent::{Torrent, BencodedValue};
 use crate::peer::Peer;
 use crate::peer::peer_messages::{Message, MessageID, Handshake};
-use crate::client::Client;
+use crate::client::{Client, InterProcessMessage};
 use crate::utils::{sha1_hash, AsBytes};
 
 #[derive(Debug)]
@@ -23,11 +23,11 @@ pub struct DownloadableFile {
 
 pub struct PeerDownloader {
     pub peer_id: [u8;20],
-    pub handler_rx: mpsc::Receiver<String>
+    pub handler_rx: mpsc::Receiver<InterProcessMessage>
 }
 
 impl PeerDownloader {
-    pub fn new(peer_id: [u8;20], handler_rx: mpsc::Receiver<String>) -> PeerDownloader {
+    pub fn new(peer_id: [u8;20], handler_rx: mpsc::Receiver<InterProcessMessage>) -> PeerDownloader {
         PeerDownloader {
             peer_id,
             handler_rx
@@ -38,7 +38,7 @@ impl PeerDownloader {
 pub struct PeerDownloaderHandler {
     peer: Peer,
     torrent: Arc<Mutex<Torrent>>,
-    _downloader_tx: mpsc::Sender<String>,
+    downloader_tx: mpsc::Sender<InterProcessMessage>,
 }
 
 // getters
@@ -79,6 +79,26 @@ impl PeerDownloaderHandler {
         let piece = common_indexes[piece_index];
         
         torrent_guard.pieces_left.remove(piece_index);
+
+        // send a DownloadedPiecesCount message to the downloader
+        let pieces_count = torrent_guard.get_pieces_count();
+        let downloaded_pieces_count = pieces_count - torrent_guard.pieces_left.len();
+
+        // payload should be 4 be bytes for downloaded and 4 be bytes for total pieces count
+        let payload = [
+            (downloaded_pieces_count as u32).to_be_bytes().to_vec(),
+            (pieces_count as u32).to_be_bytes().to_vec()
+        ].concat();
+
+        let message = InterProcessMessage::new(
+            crate::client::messager::MessageType::DownloadedPiecesCount,
+            torrent_guard.torrent_name.clone(),
+            payload
+        );
+
+        if let Err(e) = self.downloader_tx.send(message).await {
+            panic!("Error: couldn't send DownloadedPiecesCount message to downloader: {}", e)
+        }
 
         piece.clone()
     }
@@ -319,11 +339,11 @@ impl PeerDownloaderHandler {
 }
 
 impl PeerDownloaderHandler {
-    pub fn new(peer: Peer, torrent: Arc<Mutex<Torrent>>, _downloader_tx: mpsc::Sender<String>) -> PeerDownloaderHandler {
+    pub fn new(peer: Peer, torrent: Arc<Mutex<Torrent>>, downloader_tx: mpsc::Sender<InterProcessMessage>) -> PeerDownloaderHandler {
         PeerDownloaderHandler {
             peer,
             torrent,
-            _downloader_tx
+            downloader_tx
         }
     }
 
