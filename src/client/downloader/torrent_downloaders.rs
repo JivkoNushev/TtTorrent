@@ -62,41 +62,69 @@ impl TorrentDownloaderHandler {
         }
     }
 
-    async fn download_torrent(&mut self) -> std::io::Result<()> {
-        let peers = Peer::get_from_torrent(&self.torrent).await;
+    async fn get_new_peers(&self, peers: &mut Vec<Peer>) {
+        let peer_ids = peers.iter()
+            .map(|peer| 
+                peer.id.clone()
+            ).collect::<Vec<[u8; 20]>>();
 
-        if peers.len() == 0 {
-            return std::io::Result::Err(std::io::Error::new(std::io::ErrorKind::Other, "No peers found"));
-        }
+        // stream of peers in peer_downloaders
+        let guard = PEER_DOWNLOADERS.lock().await;
+        let mut stream_of_peers = tokio_stream::iter(guard.iter());
 
-        let mut stream_of_peers = tokio_stream::iter(peers);
-
-        let torrent_name = self.torrent.lock().await.torrent_name.clone();
-
-        while let Some(peer) = stream_of_peers.next().await {
-            let (tx, rx) = mpsc::channel::<InterProcessMessage>(100);
-            let peer_downloader = PeerDownloader::new(peer.id.clone(), rx);
-            
-            TorrentDownloader::peer_downloaders_push(torrent_name.clone(), peer_downloader).await;
-
-            let tx_clone = tx.clone();
-            let torrent_clone = Arc::clone(&self.torrent);
-
-            tokio::spawn(async move {
-                let peer_downloader_handle = PeerDownloaderHandler::new(peer.clone(), torrent_clone, tx_clone);
-
-                match peer_downloader_handle.run().await {
-                    Ok(_) => {
-                        println!("Finished downloading from peer '{}'", peer);
-                    },
-                    Err(e) => {
-                        println!("Peer '{}' finished with error: {}", peer, e);
-                    }
+        while let Some(v) = stream_of_peers.next().await {
+            for peer_downloader in v.1.iter() {
+                if peer_ids.contains(&peer_downloader.peer_id) {
+                    peers.retain(|peer| 
+                        peer.id != peer_downloader.peer_id
+                    );
                 }
-            });
+            }
         }
+    }
 
-        Ok(())
+    async fn download_torrent(&mut self) -> std::io::Result<()> {
+        loop {
+            let mut peers = Peer::get_from_torrent(&self.torrent).await;
+
+            // get new peers
+            self.get_new_peers(&mut peers).await;
+
+            if peers.is_empty() {
+
+                tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+                continue;
+            }
+
+            let mut stream_of_peers = tokio_stream::iter(peers);
+
+            let torrent_name = self.torrent.lock().await.torrent_name.clone();
+
+            while let Some(peer) = stream_of_peers.next().await {
+                let (tx, rx) = mpsc::channel::<InterProcessMessage>(100);
+                let peer_downloader = PeerDownloader::new(peer.id.clone(), rx);
+                
+                TorrentDownloader::peer_downloaders_push(torrent_name.clone(), peer_downloader).await;
+
+                let tx_clone = tx.clone();
+                let torrent_clone = Arc::clone(&self.torrent);
+
+                tokio::spawn(async move {
+                    let peer_downloader_handle = PeerDownloaderHandler::new(peer.clone(), torrent_clone, tx_clone);
+
+                    match peer_downloader_handle.run().await {
+                        Ok(_) => {
+                            println!("Finished downloading from peer '{}'", peer);
+                        },
+                        Err(e) => {
+                            println!("Peer '{}' finished with error: {}", peer, e);
+                        }
+                    }
+                });
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+        }
     }
 
 
