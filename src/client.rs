@@ -19,7 +19,7 @@ pub struct Client {
     downloader: Downloader,
     downloader_tx: mpsc::Sender<InterProcessMessage>,
     seeder: Seeder,
-    seeder_tx: mpsc::Sender<InterProcessMessage>,
+    _seeder_tx: mpsc::Sender<InterProcessMessage>,
 
     rx: mpsc::Receiver<InterProcessMessage>,
 }
@@ -41,13 +41,13 @@ impl Client {
     pub fn new(tx: Sender<InterProcessMessage>, rx: Receiver<InterProcessMessage>) -> Client {
         // creating the channels for comunication between processes
         let (downloader_tx, downloader_rx) = mpsc::channel::<InterProcessMessage>(100);
-        let (seeder_tx, _seeder_rx) = mpsc::channel::<InterProcessMessage>(100);
+        let (_seeder_tx, _seeder_rx) = mpsc::channel::<InterProcessMessage>(100);
         
         Client { 
             downloader: Downloader::new(tx, downloader_rx),
             downloader_tx,
             seeder: Seeder {},
-            seeder_tx,
+            _seeder_tx,
 
             rx,
         }

@@ -66,7 +66,7 @@ impl PeerDownloaderHandler {
         torrent_guard.get_files()
     }
 
-    async fn get_random_not_downloaded_piece(&self, bitfield: Vec<usize>) -> usize {
+    async fn get_random_not_downloaded_piece(&self, bitfield: Vec<usize>) -> isize {
         let mut torrent_guard = self.torrent.lock().await;
         
         // piece indexes that are needed from the client and the peer has them
@@ -74,6 +74,10 @@ impl PeerDownloaderHandler {
             .iter()
             .filter(|&i| torrent_guard.pieces_left.contains(i))
             .collect::<Vec<&usize>>();
+
+        if common_indexes.is_empty() {
+            return -1;
+        }
 
         let piece_index = rand::thread_rng().gen_range(0..common_indexes.len());
         let piece = common_indexes[piece_index];
@@ -100,7 +104,7 @@ impl PeerDownloaderHandler {
             panic!("Error: couldn't send DownloadedPiecesCount message to downloader: {}", e)
         }
 
-        piece.clone()
+        piece.clone() as isize
     }
 
     async fn get_files_to_download(&self) -> Vec<DownloadableFile> {
@@ -473,13 +477,17 @@ impl PeerDownloaderHandler {
 
         while self.pieces_left().await {
             let piece_index = self.get_random_not_downloaded_piece(available_pieces.clone()).await;
+            if piece_index == -1 {
+                break;
+            }
+            let piece_index = piece_index as usize;
+
             let piece = self.request_piece(&mut stream, piece_index).await?;
             
-            // write to file
             self.write_to_file(piece, piece_index, &files).await;
         }
 
-        println!("Finished downloading from peer {}", self.peer);
+        println!("Peer '{}' doesn't have more pieces", self.peer);
 
         Ok(())
     }
