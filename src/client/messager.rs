@@ -4,6 +4,8 @@ use serde::{Serialize, Deserialize};
 pub enum MessageType {
     DownloadTorrent,
     DownloadedPiecesCount,
+    SaveState,
+    DownloaderFinished,
 }   
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

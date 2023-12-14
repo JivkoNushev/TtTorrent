@@ -1,3 +1,5 @@
+use serde::{Serialize, Deserialize};
+
 use std::collections::BTreeMap;
 
 use crate::peer::PeerAddress;
@@ -5,7 +7,7 @@ use crate::peer::PeerAddress;
 use super::Sha1Hash;
 
 /// Represents a value in the Bencode format.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BencodedValue {
     /// Represents a Bencoded dictionary (key-value pairs).
     Dict(BTreeMap<String, BencodedValue>),

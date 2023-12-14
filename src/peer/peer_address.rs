@@ -1,6 +1,8 @@
+use serde::{Serialize, Deserialize};
+
 use std::fmt::Display;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerAddress {
     pub address: String,
     pub port: String

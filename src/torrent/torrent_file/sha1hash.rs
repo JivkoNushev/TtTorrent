@@ -1,9 +1,10 @@
 use percent_encoding::percent_encode;
+use serde::{Serialize, Deserialize};
 
 use crate::utils::UrlEncodable;
 
 /// Represents a SHA-1 hash as an array of 20 bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sha1Hash(pub [u8; 20]);
 
 impl UrlEncodable for Sha1Hash {

@@ -63,11 +63,56 @@ impl Client {
         println!("{}: {}%", msg.torrent_name, percentage);
     }
 
+    pub fn setup_graceful_shutdown(client_tx: Sender<InterProcessMessage>) {
+        use tokio::signal::unix::SignalKind;
+
+        // Set up a Ctrl+C signal handler (SIGINT)
+        let ctrl_c = tokio::signal::ctrl_c();
+
+        // Set up a termination signal handler (SIGTERM)
+        let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate()).unwrap();
+        let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt()).unwrap();
+        let mut sigquit = tokio::signal::unix::signal(SignalKind::quit()).unwrap();
+
+        // Spawn an async task to handle the signals
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = ctrl_c => {
+                    // Handle Ctrl+C (SIGINT)
+                    println!("Ctrl+C received. Cleaning up...");
+                },
+                _ = sigterm.recv() => {
+                    // Handle SIGTERM
+                    println!("SIGTERM received. Cleaning up...");
+                },
+                _ = sigint.recv() => {
+                    // Handle SIGINT
+                    println!("SIGINT received. Cleaning up...");
+                },
+                _ = sigquit.recv() => {
+                    // Handle SIGQUIT
+                    println!("SIGQUIT received. Cleaning up...");
+                }
+            }
+
+            // Perform cleanup or graceful shutdown logic here
+            let _ = client_tx.send(
+                InterProcessMessage::new(
+                    MessageType::SaveState, 
+                    String::new(), 
+                    Vec::new())
+                ).await;
+        });
+    }
+
     pub async fn run(mut self) {
         let _ = tokio::join!(
             self.downloader.run(),
             self.seeder.run(),
             tokio::spawn(async move {
+                let mut downloader_finished = false;
+                let mut seeder_finished = true;
+
                 while let Some(msg) = self.rx.recv().await {
                     match msg.message_type {
                         MessageType::DownloadTorrent => {
@@ -78,9 +123,23 @@ impl Client {
                         MessageType::DownloadedPiecesCount => {
                             Client::print_downloaded_percentage(&msg);
                         },
+                        MessageType::SaveState => {
+                            self.downloader_tx.send(msg.clone()).await.unwrap();
+                            // self.seeder_tx.send(msg.clone()).await.unwrap();
+                        },
+                        MessageType::DownloaderFinished => {
+                            downloader_finished = true;
+                        },
+                        // MessageType::SeederFinished => {
+                        //     seeder_finished = true;
+                        // },
                         _ => {
                             println!("Unknown message type: {:?}", msg.message_type);
                         }
+                    }
+
+                    if downloader_finished && seeder_finished {
+                        std::process::exit(0);
                     }
                 }
             }),

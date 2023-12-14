@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 
 pub mod torrent_file;
+use serde::{Serialize, Deserialize};
 pub use torrent_file::{BencodedValue, TorrentFile, Sha1Hash};
 
 pub mod torrent_parser;
 pub use torrent_parser::TorrentParser;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Torrent {
     pub torrent_name: String,
     pub torrent_file: TorrentFile,

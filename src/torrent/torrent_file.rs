@@ -1,3 +1,5 @@
+use serde::{Serialize, Deserialize};
+
 use crate::utils::{read_file_as_bytes, sha1_hash};
 use super::TorrentParser;
 
@@ -7,7 +9,7 @@ pub use bencoded_value::BencodedValue;
 pub mod sha1hash;
 pub use sha1hash::Sha1Hash;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TorrentFile {
     bencoded_dict: BencodedValue,
 }

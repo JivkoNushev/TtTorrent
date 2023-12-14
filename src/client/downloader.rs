@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 
 use std::sync::Arc;
 
-use crate::torrent::{Torrent, self};
+use crate::torrent::Torrent;
 
 use super::messager::{ InterProcessMessage, MessageType };
 
@@ -16,7 +16,7 @@ lazy_static! {
 }
 
 pub struct Downloader {
-    _client_tx: mpsc::Sender<InterProcessMessage>,
+    client_tx: mpsc::Sender<InterProcessMessage>,
     client_rx: mpsc::Receiver<InterProcessMessage>,
 }
 
@@ -45,13 +45,93 @@ impl Downloader {
 impl Downloader {
     pub fn new(tx: mpsc::Sender<InterProcessMessage>, rx: mpsc::Receiver<InterProcessMessage>) -> Downloader {
         Downloader {
-            _client_tx: tx,
+            client_tx: tx,
             client_rx: rx,
         }
     }
 
+    async fn save_state() {
+        // if state file doesn't exist create it
+        if !tokio::fs::metadata("client_state.json").await.is_ok() {
+            let _ = tokio::fs::File::create("client_state.json").await;
+        }
+
+        let state_as_str = match tokio::fs::read_to_string("client_state.json").await {
+            Ok(state) => state,
+            Err(e) => {
+                println!("Failed to read state file: {}", e);
+                return;
+            }
+        };
+
+        let mut state = serde_json::json!({});
+        if !state_as_str.is_empty() {
+            state = match serde_json::from_str::<serde_json::Value>(&state_as_str) {
+                Ok(state) => state,
+                Err(e) => {
+                    println!("Failed to parse state file: {}", e);
+                    return;
+                }
+            }; 
+        }
+
+        state["downloading"] = serde_json::json!([]);
+
+        // save the state of the downloader
+        for torrent_downloader in TORRENT_DOWNLOADERS.lock().await.iter() {
+            let torrent = torrent_downloader.torrent.lock().await;
+
+            state["downloading"].as_array_mut().unwrap().push(serde_json::json!(*torrent));
+        }
+
+        // save to file
+        let state_as_str = serde_json::to_string_pretty(&state).unwrap();
+        if let Err(e) = tokio::fs::write("client_state.json", state_as_str).await {
+            println!("Failed to write state file: {}", e);
+        }
+    }
+
     async fn load_state(&mut self) {
-        todo!()
+        if !tokio::fs::metadata("client_state.json").await.is_ok() {
+            return;
+        }
+
+        let state = match tokio::fs::read_to_string("client_state.json").await {
+            Ok(state) => state,
+            Err(e) => {
+                println!("Failed to read state file: {}", e);
+                return;
+            }
+        };
+
+        if state.is_empty() {
+            return;
+        }
+
+        let state = match serde_json::from_str::<serde_json::Value>(&state) {
+            Ok(state) => state,
+            Err(e) => {
+                println!("Failed to parse state file: {}", e);
+                return;
+            }
+        };
+
+        // if state doesn't have "downloading" key return
+
+        if !state["downloading"].is_array() {
+            return;
+        }
+
+        state["downloading"].as_array().unwrap().iter().for_each(|torrent| {
+            let torrent = serde_json::from_value::<Torrent>(torrent.clone()).unwrap();
+
+            // download torrent
+            let _ = tokio::spawn(async move {
+                if let Err(e) = Downloader::download_torrent(Arc::new(Mutex::new(torrent))).await {
+                    println!("Failed to download torrent: {}", e);
+                }
+            });
+        });
     }
     
     async fn download_torrent(torrent: Arc<Mutex<Torrent>>) -> std::io::Result<()> {
@@ -91,7 +171,9 @@ impl Downloader {
 
     pub async fn run(mut self) {
         // get last state of the downloader
-        // self.load_state().await;
+        self.load_state().await;
+
+        let client_tx_clone = self.client_tx.clone();   
 
         let _ = tokio::join!(
             // Receive messages from client
@@ -114,6 +196,19 @@ impl Downloader {
                                     println!("Failed to download torrent: {}", e);
                                 }
                             },
+                            MessageType::SaveState => {
+                                Downloader::save_state().await;
+
+                                // send a message to the client that the downloader finished
+                                let finished_message = InterProcessMessage::new(
+                                    MessageType::DownloaderFinished,
+                                    String::new(),
+                                    Vec::new()
+                                );
+
+                                let _ = client_tx_clone.send(finished_message).await;
+
+                            },
                             _ => todo!("Received an unknown message from the client: {:?}", message)
                         }
                     }
@@ -125,7 +220,7 @@ impl Downloader {
                     if let Some(msg) = Downloader::torrent_downloader_recv_msg().await {
                         match msg.message_type {
                             MessageType::DownloadedPiecesCount => {
-                                let _ = self._client_tx.send(msg).await;
+                                let _ = self.client_tx.send(msg).await;
                             },
                             _ => todo!("Received an unknown message from the torrent downloader: {:?}", msg)
                         }
