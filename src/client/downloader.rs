@@ -80,8 +80,17 @@ impl Downloader {
         // save the state of the downloader
         for torrent_downloader in TORRENT_DOWNLOADERS.lock().await.iter() {
             let torrent = torrent_downloader.torrent.lock().await;
+            
+            if torrent.pieces_left.is_empty() {
+                if !state["downloaded"].is_array() {
+                    state["downloaded"] = serde_json::json!([]);
+                }
 
-            state["downloading"].as_array_mut().unwrap().push(serde_json::json!(*torrent));
+                state["downloaded"].as_array_mut().unwrap().push(serde_json::json!(*torrent));
+            }
+            else {
+                state["downloading"].as_array_mut().unwrap().push(serde_json::json!(*torrent));
+            }
         }
 
         // save to file
@@ -117,7 +126,6 @@ impl Downloader {
         };
 
         // if state doesn't have "downloading" key return
-
         if !state["downloading"].is_array() {
             return;
         }
@@ -148,8 +156,6 @@ impl Downloader {
             let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent, tx);
             torrent_downloader_handler.run().await;
 
-            // remove torrent downloader from TORRENT_DOWNLOADERS
-            Downloader::torrent_downloaders_remove(torrent_name).await;
         });
 
         Ok(())
@@ -157,6 +163,10 @@ impl Downloader {
 
     async fn torrent_downloader_recv_msg() -> Option<InterProcessMessage> {
         let mut guard = TORRENT_DOWNLOADERS.lock().await;
+
+        if guard.is_empty() {
+            return None;
+        }
 
         let mut stream = tokio_stream::iter(guard.iter_mut());
 
@@ -207,7 +217,6 @@ impl Downloader {
                                 );
 
                                 let _ = client_tx_clone.send(finished_message).await;
-
                             },
                             _ => todo!("Received an unknown message from the client: {:?}", message)
                         }
@@ -221,6 +230,11 @@ impl Downloader {
                         match msg.message_type {
                             MessageType::DownloadedPiecesCount => {
                                 let _ = self.client_tx.send(msg).await;
+                            },
+                            MessageType::DownloaderFinished => {
+                                let torrent_name = msg.torrent_name.clone();
+                                Downloader::save_state().await;
+                                Downloader::torrent_downloaders_remove(torrent_name.clone()).await;
                             },
                             _ => todo!("Received an unknown message from the torrent downloader: {:?}", msg)
                         }

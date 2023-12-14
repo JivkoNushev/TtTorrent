@@ -94,7 +94,16 @@ impl TorrentDownloaderHandler {
         loop {
             // if torrent is finished exit
             if self.torrent.lock().await.pieces_left.is_empty() {
-                println!("Torrent finished downloading.");
+                // send to the downloader that the torrent is finished
+
+                let msg = InterProcessMessage::new(
+                    MessageType::DownloaderFinished, 
+                    self.torrent.lock().await.torrent_name.clone(),
+                    Vec::new()
+                );
+
+                self.downloader_tx.send(msg).await.unwrap();
+
                 return Ok(());
             }
 
@@ -104,8 +113,7 @@ impl TorrentDownloaderHandler {
             self.get_new_peers(&mut peers).await;
 
             if peers.is_empty() {
-                println!("No peers found. Retrying in 15 seconds...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+                // tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
                 continue;
             }
 
@@ -138,14 +146,16 @@ impl TorrentDownloaderHandler {
                     TorrentDownloader::peer_downloaders_remove(torrent_name_clone, peer.id).await;
                 });
             }
-
-            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
         }
     }
 
 
     async fn peer_downloader_recv_msg() -> Option<InterProcessMessage> {
         let mut guard = PEER_DOWNLOADERS.lock().await;
+
+        if guard.is_empty() {
+            return None;
+        }
 
         let mut stream = tokio_stream::iter(guard.iter_mut());
 
@@ -166,17 +176,15 @@ impl TorrentDownloaderHandler {
         let _ = tokio::join!(
             self.download_torrent(),
             tokio::spawn(async move {
-                loop {
-                    if let Some(msg) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
-                        match msg.message_type {
-                            MessageType::DownloadedPiecesCount => {
-                                // send to downloader
-                                if let Err(e) = downloader_tx_clone.send(msg).await {
-                                    println!("Error sending message to downloader: {}", e);
-                                }
-                            },
-                            _ => {}
-                        }
+                while let Some(msg) = TorrentDownloaderHandler::peer_downloader_recv_msg().await {
+                    match msg.message_type {
+                        MessageType::DownloadedPiecesCount => {
+                            // send to downloader
+                            if let Err(e) = downloader_tx_clone.send(msg).await {
+                                println!("Error sending message to downloader: {}", e);
+                            }
+                        },
+                        _ => {}
                     }
                 }
             }),

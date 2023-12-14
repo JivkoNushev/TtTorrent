@@ -79,19 +79,19 @@ impl Client {
             tokio::select! {
                 _ = ctrl_c => {
                     // Handle Ctrl+C (SIGINT)
-                    println!("Ctrl+C received. Cleaning up...");
+                    // println!("Ctrl+C received. Cleaning up...");
                 },
                 _ = sigterm.recv() => {
                     // Handle SIGTERM
-                    println!("SIGTERM received. Cleaning up...");
+                    // println!("SIGTERM received. Cleaning up...");
                 },
                 _ = sigint.recv() => {
                     // Handle SIGINT
-                    println!("SIGINT received. Cleaning up...");
+                    // println!("SIGINT received. Cleaning up...");
                 },
                 _ = sigquit.recv() => {
                     // Handle SIGQUIT
-                    println!("SIGQUIT received. Cleaning up...");
+                    // println!("SIGQUIT received. Cleaning up...");
                 }
             }
 
@@ -128,6 +128,7 @@ impl Client {
                             // self.seeder_tx.send(msg.clone()).await.unwrap();
                         },
                         MessageType::DownloaderFinished => {
+
                             downloader_finished = true;
                         },
                         // MessageType::SeederFinished => {
@@ -139,6 +140,7 @@ impl Client {
                     }
 
                     if downloader_finished && seeder_finished {
+                        println!("Finished downloading and seeding. Exiting...");
                         std::process::exit(0);
                     }
                 }

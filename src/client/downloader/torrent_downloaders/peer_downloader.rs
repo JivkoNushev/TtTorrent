@@ -488,8 +488,6 @@ impl PeerDownloaderHandler {
             self.write_to_file(piece, piece_index, &files).await;
         }
 
-        println!("Peer '{}' doesn't have more pieces", self.peer);
-
         Ok(())
     }
     
