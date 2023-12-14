@@ -24,6 +24,19 @@ impl Downloader {
     async fn torrent_downloaders_push(torrent_downloader: TorrentDownloader) {
         TORRENT_DOWNLOADERS.lock().await.push(torrent_downloader);
     }
+
+    async fn torrent_downloaders_remove(torrent_name: String) {
+        let mut downloaders = TORRENT_DOWNLOADERS.lock().await;
+        
+        for (i, downloader) in downloaders.iter().enumerate() {
+            let torrent_name_ = downloader.torrent.lock().await.torrent_name.clone();
+
+            if torrent_name == torrent_name_ {
+                downloaders.remove(i);
+                break;
+            }
+        }
+    }
 }
 
 // Downloader methods
@@ -48,6 +61,9 @@ impl Downloader {
         tokio::spawn(async move {
             let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent, tx);
             torrent_downloader_handler.run().await;
+
+            // remove torrent downloader from TORRENT_DOWNLOADERS
+            Downloader::torrent_downloaders_remove(torrent_name).await;
         });
 
         Ok(())

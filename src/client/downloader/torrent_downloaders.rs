@@ -33,6 +33,16 @@ impl TorrentDownloader {
             guard.insert(torrent_name, vec![peer_downloader]);
         }
     }
+
+    async fn peer_downloaders_remove(torrent_name: String, peer_id: [u8; 20]) {
+        let mut guard = PEER_DOWNLOADERS.lock().await;
+
+        if let Some(peer_downloaders) = guard.get_mut(&torrent_name) {
+            peer_downloaders.retain(|peer_downloader| 
+                peer_downloader.peer_id != peer_id
+            );
+        }
+    }
 }
 
 // TorrentDownloader methods
@@ -85,13 +95,19 @@ impl TorrentDownloaderHandler {
 
     async fn download_torrent(&mut self) -> std::io::Result<()> {
         loop {
+            // if torrent is finished exit
+            if self.torrent.lock().await.pieces_left.is_empty() {
+                println!("Torrent finished downloading.");
+                return Ok(());
+            }
+
             let mut peers = Peer::get_from_torrent(&self.torrent).await;
 
             // get new peers
             self.get_new_peers(&mut peers).await;
 
             if peers.is_empty() {
-
+                println!("No peers found. Retrying in 15 seconds...");
                 tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
                 continue;
             }
@@ -108,6 +124,7 @@ impl TorrentDownloaderHandler {
 
                 let tx_clone = tx.clone();
                 let torrent_clone = Arc::clone(&self.torrent);
+                let torrent_name_clone = torrent_name.clone();
 
                 tokio::spawn(async move {
                     let peer_downloader_handle = PeerDownloaderHandler::new(peer.clone(), torrent_clone, tx_clone);
@@ -120,6 +137,8 @@ impl TorrentDownloaderHandler {
                             println!("Peer '{}' finished with error: {}", peer, e);
                         }
                     }
+
+                    TorrentDownloader::peer_downloaders_remove(torrent_name_clone, peer.id).await;
                 });
             }
 
