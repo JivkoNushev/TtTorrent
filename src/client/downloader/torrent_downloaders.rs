@@ -47,10 +47,7 @@ impl TorrentDownloader {
 
 // TorrentDownloader methods
 impl TorrentDownloader {
-    pub async fn new(torrent_name: String, dest_path: String, handler_rx: mpsc::Receiver<InterProcessMessage>) -> std::io::Result<TorrentDownloader> {
-        let torrent = Torrent::new(torrent_name, dest_path).await?;
-        let torrent = Arc::new(Mutex::new(torrent));
-        
+    pub async fn new(torrent: Arc<Mutex<Torrent>>, handler_rx: mpsc::Receiver<InterProcessMessage>) -> std::io::Result<TorrentDownloader> {
         Ok(TorrentDownloader {
             torrent,
             handler_rx,

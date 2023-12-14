@@ -4,6 +4,8 @@ use lazy_static::lazy_static;
 
 use std::sync::Arc;
 
+use crate::torrent::{Torrent, self};
+
 use super::messager::{ InterProcessMessage, MessageType };
 
 use torrent_downloaders::{ TorrentDownloader, TorrentDownloaderHandler };
@@ -47,14 +49,18 @@ impl Downloader {
             client_rx: rx,
         }
     }
+
+    async fn load_state(&mut self) {
+        todo!()
+    }
     
-    async fn download_torrent(torrent_name: String, dest_path: String) -> std::io::Result<()> {
+    async fn download_torrent(torrent: Arc<Mutex<Torrent>>) -> std::io::Result<()> {
         let (tx, rx) = mpsc::channel::<InterProcessMessage>(100);
 
-        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), dest_path, rx).await?;
-    
-        let torrent = Arc::clone(&torrent_downloader.torrent);
+        let torrent_name = torrent.lock().await.torrent_name.clone();
 
+        let torrent_downloader = TorrentDownloader::new(Arc::clone(&torrent), rx).await?;
+    
         Downloader::torrent_downloaders_push(torrent_downloader).await;
 
         println!("Downloading torrent file: {}", torrent_name);
@@ -84,6 +90,9 @@ impl Downloader {
     }
 
     pub async fn run(mut self) {
+        // get last state of the downloader
+        // self.load_state().await;
+
         let _ = tokio::join!(
             // Receive messages from client
             tokio::spawn(async move {
@@ -92,7 +101,16 @@ impl Downloader {
                         match message.message_type {
                             MessageType::DownloadTorrent => {
                                 let dest_path = String::from_utf8(message.payload).unwrap();
-                                if let Err(e) = Downloader::download_torrent(message.torrent_name, dest_path).await {
+
+                                let torrent = match Torrent::new(message.torrent_name, dest_path).await {
+                                    Ok(torrent) => Arc::new(Mutex::new(torrent)),
+                                    Err(e) => {
+                                        println!("Failed to create torrent: {}", e);
+                                        continue;
+                                    }
+                                };
+
+                                if let Err(e) = Downloader::download_torrent(torrent).await {
                                     println!("Failed to download torrent: {}", e);
                                 }
                             },

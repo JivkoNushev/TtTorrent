@@ -14,6 +14,7 @@ path = "src/terminal_utils.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ctrlc = "3.4.1"
 getrandom = "0.2.11"
 hex = "0.4.3"
 interprocess = "1.2.1"
