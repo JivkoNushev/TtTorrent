@@ -1,15 +1,13 @@
 use tokio::io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt};
 use tokio::sync::{mpsc, Mutex};
 use tokio::net::TcpStream;
-use rand::Rng;
-
 use std::{sync::Arc, collections::BTreeMap};
 
 use crate::torrent::{Torrent, BencodedValue};
 use crate::peer::Peer;
 use crate::peer::peer_messages::{Message, MessageID, Handshake};
 use crate::client::{Client, InterProcessMessage};
-use crate::utils::{sha1_hash, AsBytes};
+use crate::utils::{sha1_hash, AsBytes, rand_number_u32};
 
 #[derive(Debug)]
 pub struct DownloadableFile {
@@ -79,7 +77,10 @@ impl PeerDownloaderHandler {
             return -1;
         }
 
-        let piece_index = rand::thread_rng().gen_range(0..common_indexes.len());
+        // let piece_index = rand::thread_rng().gen_range(0..common_indexes.len());
+
+        let piece_index = rand_number_u32(0, common_indexes.len() as u32) as usize;
+
         let piece = common_indexes[piece_index];
         
         torrent_guard.pieces_left.remove(piece_index);

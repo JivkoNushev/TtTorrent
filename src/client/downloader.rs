@@ -35,10 +35,10 @@ impl Downloader {
         }
     }
     
-    async fn download_torrent(torrent_name: String, dest_path: String) {
+    async fn download_torrent(torrent_name: String, dest_path: String) -> std::io::Result<()> {
         let (tx, rx) = mpsc::channel::<InterProcessMessage>(100);
 
-        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), dest_path, rx).await;
+        let torrent_downloader = TorrentDownloader::new(torrent_name.clone(), dest_path, rx).await?;
     
         let torrent = Arc::clone(&torrent_downloader.torrent);
 
@@ -49,6 +49,8 @@ impl Downloader {
             let torrent_downloader_handler = TorrentDownloaderHandler::new(torrent, tx);
             torrent_downloader_handler.run().await;
         });
+
+        Ok(())
     }
 
     async fn torrent_downloader_recv_msg() -> Option<InterProcessMessage> {
@@ -74,7 +76,9 @@ impl Downloader {
                         match message.message_type {
                             MessageType::DownloadTorrent => {
                                 let dest_path = String::from_utf8(message.payload).unwrap();
-                                Downloader::download_torrent(message.torrent_name, dest_path).await;
+                                if let Err(e) = Downloader::download_torrent(message.torrent_name, dest_path).await {
+                                    println!("Failed to download torrent: {}", e);
+                                }
                             },
                             _ => todo!("Received an unknown message from the client: {:?}", message)
                         }

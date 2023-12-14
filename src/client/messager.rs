@@ -1,11 +1,12 @@
+use serde::{Serialize, Deserialize};    
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MessageType {
     DownloadTorrent,
     DownloadedPiecesCount,
 }   
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterProcessMessage {
     pub size: usize,
     pub message_type: MessageType,

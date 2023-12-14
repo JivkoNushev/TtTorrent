@@ -16,8 +16,8 @@ pub struct Torrent {
 }
 
 impl Torrent {
-    pub async fn new(torrent_name: String, dest_path: String) -> Torrent {
-        let torrent_file = TorrentFile::new(&torrent_name).await;
+    pub async fn new(torrent_name: String, dest_path: String) -> std::io::Result<Torrent> {
+        let torrent_file = TorrentFile::new(&torrent_name).await?;
 
         let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()) {
             Some(info_hash) => info_hash,
@@ -49,13 +49,13 @@ impl Torrent {
             pieces_left
         };
 
-        Torrent {
+        Ok(Torrent {
             torrent_name,
             torrent_file,
             info_hash,
             pieces_left,
             dest_path
-        }
+        })
     }
 
     pub fn get_info_hash_ref(&self) -> &Sha1Hash {

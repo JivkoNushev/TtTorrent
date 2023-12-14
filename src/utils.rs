@@ -1,5 +1,6 @@
 use sha1::{Sha1, Digest};
 use tokio::io::AsyncReadExt;
+use getrandom::getrandom;
 
 use crate::torrent::torrent_file::Sha1Hash;
 
@@ -34,4 +35,16 @@ pub async fn read_file_as_bytes(path: &str) -> std::io::Result<Vec<u8>> {
 
 pub fn print_as_string(char_vec: &Vec<u8>) {
     println!("{}", char_vec.iter().map(|&c| c as char).collect::<String>());
+}
+
+pub fn rand_number_u32(min: u32, max: u32) -> u32 {
+    let mut buffer = [0u8; 4]; // Assuming you want a u32 random number
+
+    // Use getrandom to fill the buffer with random bytes
+    if let Ok(_) = getrandom(&mut buffer) {
+        // Convert the buffer to a u32 and get a random number within the desired range
+        u32::from_ne_bytes(buffer) % (max - min) + min
+    } else {
+        panic!("Failed to generate random number");
+    }
 }

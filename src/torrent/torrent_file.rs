@@ -59,15 +59,12 @@ impl TorrentFile {
 
 // TorrentFile methods
 impl TorrentFile {
-    pub async fn new(torrent_file_name: &str) -> TorrentFile {
-        let torrent_file: Vec<u8> = match read_file_as_bytes(torrent_file_name).await {
-            Ok(data) => data,
-            Err(e) => panic!("Error reading torrent file: {:?}", e)
-        };
+    pub async fn new(torrent_file_name: &str) -> std::io::Result<TorrentFile> {
+        let torrent_file = read_file_as_bytes(torrent_file_name).await?;
 
         let bencoded_dict = TorrentParser::parse_torrent_file(&torrent_file);
 
-        TorrentFile { bencoded_dict }
+        Ok(TorrentFile { bencoded_dict })
     }
 }
 
