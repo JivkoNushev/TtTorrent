@@ -83,7 +83,7 @@ impl Torrent {
     async fn save_state(torrent_context: TorrentContext) -> Result<()> {
         let connection_type = torrent_context.connection_type.clone();
         let torrent_context = TorrentState::new(torrent_context).await;
-
+        
         let client_state = match tokio::fs::read_to_string("./client_state.state").await {
             std::result::Result::Ok(client_state) => client_state,
             Err(_) => String::new(),
@@ -95,14 +95,20 @@ impl Torrent {
         };
 
         let torrent_name = torrent_context.torrent_name.clone();
-        let connection_type = match connection_type {
-            ConnectionType::Incoming => "Seeding",
-            ConnectionType::Outgoing => "Downloading",
-        };
 
-        let torrent_context = serde_json::to_value(torrent_context).unwrap();
+        if torrent_context.pieces.len() == 0 {
+            let torrent_context = serde_json::to_value(torrent_context).unwrap();
+            client_state["Downloaded"][torrent_name] = torrent_context;
+        }
+        else {
+            let connection_type = match connection_type {
+                ConnectionType::Incoming => "Seeding",
+                ConnectionType::Outgoing => "Downloading",
+            };
 
-        client_state[connection_type][torrent_name] = torrent_context;
+            let torrent_context = serde_json::to_value(torrent_context).unwrap();
+            client_state[connection_type][torrent_name] = torrent_context;
+        }
 
         let client_state = serde_json::to_string_pretty(&client_state).unwrap();
 
@@ -256,6 +262,9 @@ impl Torrent {
                         ClientMessage::DownloadedPiece { piece_index, piece } => {
                             self.disk_writer_handle.downloaded_piece(piece_index, piece).await?;
                         },
+                        ClientMessage::FinishedDownloading => {
+                            break;
+                        }
                         _ => {}
                     }
                 },

@@ -26,7 +26,6 @@ impl Client {
     }
 
     async fn load_state(&mut self) -> Result<()> {
-        
         let client_state = match tokio::fs::read_to_string("./client_state.state").await {
             Ok(state) => state,
             Err(_) => {
