@@ -9,6 +9,7 @@ use crate::messager::ClientMessage;
 use crate::peer::{PeerHandle, PeerAddress, peer_address};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
+use crate::disk_writer::DiskWriterHandle;
 
 pub mod torrent_file;
 pub use torrent_file::{TorrentFile, Sha1Hash, BencodedValue};
@@ -20,6 +21,7 @@ struct Torrent {
     tx: mpsc::Sender<ClientMessage>,
     rx: mpsc::Receiver<ClientMessage>,
     peer_handles: Vec<PeerHandle>,
+    disk_writer_handle: DiskWriterHandle,
     
     pub src_path: String,
     pub dest_path: String,
@@ -70,14 +72,17 @@ impl Torrent {
 
             pieces_left
         };
+
+        let disk_writer_handle = DiskWriterHandle::new(dest.to_string(), torrent_name.to_string(), torrent_file.clone());
         
         Ok(Self {
             tx: sender,
             rx: receiver,
             peer_handles: Vec::new(),
+            disk_writer_handle,
+
             src_path: src.to_string(),
             dest_path: dest.to_string(),
-
             torrent_name: torrent_name.to_string(),
             torrent_file,
             info_hash,
@@ -117,21 +122,6 @@ impl Torrent {
         self.add_new_peers(peer_addresses)
     }
 
-    pub async fn recv_piece(rxs: &mut Vec<oneshot::Receiver<ClientMessage>>) -> Result<()> {
-        for rx in rxs.iter_mut() {
-            if let Ok(msg) = rx.try_recv() {
-                match msg {
-                    ClientMessage::DownloadedPiece { piece_index, piece } => {
-                        // todo!();
-                    },
-                    _ => {}
-                }
-            }
-        }
-
-        Ok(())
-    }
-    
     pub async fn run(mut self) -> Result<()> {
         let tracker_url = match Tracker::tracker_url_get(self.torrent_file.get_bencoded_dict_ref()) {
             Some(tracker_url) => tracker_url,
@@ -153,16 +143,21 @@ impl Torrent {
                             for peer_handle in &mut self.peer_handles {
                                 let _ = peer_handle.tx.send(ClientMessage::Shutdown).await;
                             }
+
+                            // send stop message to disk writer
+                            self.disk_writer_handle.shutdown().await?;
+
                             break;
                         }
                         ClientMessage::DownloadedPiece { piece_index, piece } => {
                             // todo!("send piece to disk_handle")
+                            self.disk_writer_handle.downloaded_piece(piece_index, piece).await?;
                         },
                         _ => {}
                     }
                 },
                 _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    // get more peers
+                    // TODO: get more peers
                     continue;
                     let tracker_response = todo!("Tracker response with updated params based on current state");
                     let rxs = self.download(tracker_response).await;
@@ -174,8 +169,11 @@ impl Torrent {
             let _ = peer_handle.join_handle.await;
         }
 
+        self.disk_writer_handle.join_handle.await?;
+
         Ok(())
     }
+    
 }
 
 pub struct TorrentHandle {

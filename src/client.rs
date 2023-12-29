@@ -1,7 +1,10 @@
+use std::io::Write;
+
+use interprocess::local_socket::LocalSocketStream;
 use tokio::task::JoinHandle;
 use tokio::sync::{oneshot, mpsc};
 
-use anyhow::Result;
+use anyhow::{Result, Context};
 
 use crate::torrent::TorrentHandle;
 use crate::messager::ClientMessage;
@@ -63,6 +66,8 @@ pub struct ClientHandle {
 
 impl ClientHandle {
     fn setup_graceful_shutdown(tx: mpsc::Sender<ClientMessage>) {
+        // TODO: is this the best way to handle this?; add more signals
+
         // Spawn an async task to handle the signals
         tokio::spawn(async move {
             tokio::select! {
@@ -72,8 +77,19 @@ impl ClientHandle {
                 },
             }
 
-            // Perform cleanup or graceful shutdown logic here
-            let _ = tx.send(ClientMessage::Shutdown).await;
+            let mut client_socket = match LocalSocketStream::connect("/tmp/TtTClient.sock") {
+                Ok(socket) => socket,
+                Err(_) => {
+                    println!("Failed to connect to the client");
+                    return;
+                }
+            };
+
+            let message = ClientMessage::Shutdown;
+
+            let serialized_data = serde_json::to_string(&message).expect("Serialization failed");
+
+            client_socket.write_all(serialized_data.as_bytes()).expect("Failed to send data");
         });
     }
 
@@ -98,9 +114,16 @@ impl ClientHandle {
         }
     }
 
-    pub async fn download_torrent(&mut self, src: String, dst: String) -> std::io::Result<()> {
+    pub async fn client_download_torrent(&mut self, src: String, dst: String) -> Result<()> {
         let msg = ClientMessage::DownloadTorrent{src, dst};
-        let _ = self.tx.send(msg).await;
+        self.tx.send(msg).await.context("couldn't send a download message to the client")?;
+
+        Ok(())
+    }
+
+    pub async fn client_shutdown(&mut self) -> Result<()> {
+        let msg = ClientMessage::Shutdown;
+        self.tx.send(msg).await.context("couldn't send a shutdown message to the client")?;
 
         Ok(())
     }

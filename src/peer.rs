@@ -31,7 +31,6 @@ struct Peer {
     pub choking: bool,
     pub bitfield: Vec<usize>,
 
-
     pub piece_length: usize,
     pub torrent_length: u64,
     pub pieces: Arc<Mutex<Vec<usize>>>,
@@ -127,70 +126,76 @@ impl Peer {
                         _ => {}
                     }
                 }
-                Ok(msg) = peer_session.recv() => {
-                    match msg {
-                        PeerMessage::Choke => {
-                            println!("Peer {self} choke");
-                            self.choking = true;
-                        },
-                        PeerMessage::Unchoke => {
-                            println!("Peer {self} unchoke");
-                            self.choking = false;
-                        },
-                        PeerMessage::Interested => {
-                            println!("Peer {self} interested");
-                            self.am_interested = true;
-                        },
-                        PeerMessage::NotInterested => {
-                            println!("Peer {self} not interested");
-                            self.am_interested = false;
-                        },
-                        PeerMessage::Have(index) => {
-                            println!("Peer {self} have {}", index);
-                            todo!();
-                        },
-                        PeerMessage::Bitfield(bitfield) => {
-                            println!("Peer {self} bitfield {:?}", bitfield);
+                msg = peer_session.recv() => {
+                    if let Err(e) = msg {
+                        println!("Peer {self} error: {:?}", e);
+                        break;
+                    }
+                    else if let Ok(msg) = msg {
+                        match msg {
+                            PeerMessage::Choke => {
+                                println!("Peer {self} choke");
+                                self.choking = true;
+                            },
+                            PeerMessage::Unchoke => {
+                                println!("Peer {self} unchoke");
+                                self.choking = false;
+                            },
+                            PeerMessage::Interested => {
+                                println!("Peer {self} interested");
+                                self.am_interested = true;
+                            },
+                            PeerMessage::NotInterested => {
+                                println!("Peer {self} not interested");
+                                self.am_interested = false;
+                            },
+                            PeerMessage::Have(index) => {
+                                println!("Peer {self} have {}", index);
+                                todo!();
+                            },
+                            PeerMessage::Bitfield(bitfield) => {
+                                println!("Peer {self} bitfield {:?}", bitfield);
 
-                            let mut available_pieces = Vec::new();
-                            for (i, byte) in bitfield.iter().enumerate() {
-                                for j in 0..8 {
-                                    if byte & (1 << (7 - j)) != 0 {
-                                        available_pieces.push(i * 8 + j);
+                                let mut available_pieces = Vec::new();
+                                for (i, byte) in bitfield.iter().enumerate() {
+                                    for j in 0..8 {
+                                        if byte & (1 << (7 - j)) != 0 {
+                                            available_pieces.push(i * 8 + j);
+                                        }
                                     }
                                 }
-                            }
 
-                            self.bitfield = available_pieces;
-                        },
-                        PeerMessage::Request(index, begin, length) => {
-                            println!("Peer {self} request {} {} {}", index, begin, length);
-                            todo!();
-                        },
-                        PeerMessage::Piece(index, begin, block) => {
-                            println!("Peer {self} piece {} {}", index, begin);
-
-                            if 0 == current_piece_size {
-                                println!("Peer {self} received piece when no piece was requested");
+                                self.bitfield = available_pieces;
+                            },
+                            PeerMessage::Request(index, begin, length) => {
+                                println!("Peer {self} request {} {} {}", index, begin, length);
                                 todo!();
-                            }
+                            },
+                            PeerMessage::Piece(index, begin, block) => {
+                                println!("Peer {self} piece {} {}", index, begin);
 
-                            if index as usize != current_piece_index || begin as usize != current_piece_offset - current_block_size {
-                                println!("Peer {self} sent wrong piece");
+                                if 0 == current_piece_size {
+                                    println!("Peer {self} received piece when no piece was requested");
+                                    todo!();
+                                }
+
+                                if index as usize != current_piece_index || begin as usize != current_piece_offset - current_block_size {
+                                    println!("Peer {self} sent wrong piece");
+                                    todo!();
+                                }
+                                current_piece.extend(block);
+                            },
+                            PeerMessage::Cancel(index, begin, length) => {
+                                println!("Peer {self} cancel {} {} {}", index, begin, length);
                                 todo!();
+                            },
+                            PeerMessage::Port(port) => {
+                                println!("Peer {self} port {}", port);
+                                todo!();
+                            },
+                            _ => {
+                                println!("Peer {self} sent unknown message: {msg:?}");
                             }
-                            current_piece.extend(block);
-                        },
-                        PeerMessage::Cancel(index, begin, length) => {
-                            println!("Peer {self} cancel {} {} {}", index, begin, length);
-                            todo!();
-                        },
-                        PeerMessage::Port(port) => {
-                            println!("Peer {self} port {}", port);
-                            todo!();
-                        },
-                        _ => {
-                            println!("Peer {self} sent unknown message: {msg:?}");
                         }
                     }
                 }
