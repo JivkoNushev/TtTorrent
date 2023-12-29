@@ -1,12 +1,12 @@
-use std::io::Write;
-
 use interprocess::local_socket::LocalSocketStream;
 use tokio::task::JoinHandle;
 use tokio::sync::{oneshot, mpsc};
-
 use anyhow::{Result, Context};
 
-use crate::torrent::TorrentHandle;
+use std::io::Write;
+
+use crate::peer::ConnectionType;
+use crate::torrent::{TorrentHandle, TorrentContext, TorrentState};
 use crate::messager::ClientMessage;
 
 struct Client {
@@ -25,12 +25,75 @@ impl Client {
         }
     }
 
-    async fn save_state(&self) -> Result<()> {
-    
+    async fn load_state(&mut self) -> Result<()> {
+        
+        let client_state = match tokio::fs::read_to_string("./client_state.state").await {
+            Ok(state) => state,
+            Err(_) => {
+                println!("No client state found");
+                return Ok(());
+            }
+        };
+        
+        let client_state = match serde_json::from_str::<serde_json::Value>(&client_state) {
+            Ok(state) => state,
+            Err(e) => {
+                println!("Failed to deserialize client state: {}", e);
+                return Ok(());
+            }
+        };
+        println!("Loading client state");
+
+        if let Some(downloading) = client_state.get("Downloading") {
+            for (key, val) in downloading.as_object().unwrap() {
+                let torrent = match serde_json::from_value::<TorrentState>(val.clone()) {
+                    Ok(torrent) => torrent,
+                    Err(e) => {
+                        println!("Failed to deserialize torrent state: {}", e);
+                        continue;
+                    }
+                };
+
+                println!("Loading torrent: {}", key);
+
+                let torrent_context = TorrentContext::from_state(torrent, ConnectionType::Outgoing);
+                let torrent_handle = TorrentHandle::from_context(self.client_id, torrent_context).await?;
+                self.torrent_handles.push(torrent_handle);
+            }
+        }
+        else {
+            println!("No Downloading key found in client state");
+        }
+
+        // TODO: seeding
+        if let Some(seeding) = client_state.get("Seeding") {
+            for (key, val) in seeding.as_object().unwrap() {
+                let torrent = match serde_json::from_value::<TorrentState>(val.clone()) {
+                    Ok(torrent) => torrent,
+                    Err(e) => {
+                        println!("Failed to deserialize torrent state: {}", e);
+                        continue;
+                    }
+                };
+
+                println!("Loading torrent: {}", key);
+
+                let torrent_context = TorrentContext::from_state(torrent, ConnectionType::Outgoing);
+                let torrent_handle = TorrentHandle::from_context(self.client_id, torrent_context).await?;
+                self.torrent_handles.push(torrent_handle);
+            }
+        }
+        else {
+            println!("No Seeding key found in client state");
+        }
+
         Ok(())
     }
 
     pub async fn run(mut self) -> Result<()> {
+        // load the client state
+        self.load_state().await?;
+
         loop {
             tokio::select! {
                 Some(msg) = self.rx.recv() => {
@@ -70,7 +133,7 @@ pub struct ClientHandle {
 }
 
 impl ClientHandle {
-    fn setup_graceful_shutdown(tx: mpsc::Sender<ClientMessage>) {
+    fn setup_graceful_shutdown() {
         // TODO: is this the best way to handle this?; add more signals
 
         // Spawn an async task to handle the signals
@@ -110,7 +173,7 @@ impl ClientHandle {
             }
         });
 
-        Self::setup_graceful_shutdown(sender.clone());
+        Self::setup_graceful_shutdown();
 
         Self {
             tx: sender,

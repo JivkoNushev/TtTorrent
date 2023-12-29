@@ -18,7 +18,7 @@ pub mod torrent_parser;
 pub use torrent_parser::TorrentParser;
 
 #[derive(Debug, Serialize, Deserialize)]
-struct TorrentState {
+pub struct TorrentState {
     pub src_path: String,
     pub dest_path: String,
     pub torrent_name: String,
@@ -41,7 +41,7 @@ impl TorrentState {
 }
 
 #[derive(Debug)]
-struct TorrentContext {
+pub struct TorrentContext {
     pub connection_type: ConnectionType,
 
     pub src_path: String,
@@ -50,6 +50,21 @@ struct TorrentContext {
     pub torrent_file: TorrentFile,
     pub info_hash: Sha1Hash,
     pub pieces: Arc<Mutex<Vec<usize>>>,
+}
+
+impl TorrentContext {
+    pub fn from_state(torrent_state: TorrentState, connection_type: ConnectionType) -> Self {
+        Self {
+            connection_type,
+
+            src_path: torrent_state.src_path,
+            dest_path: torrent_state.dest_path,
+            torrent_name: torrent_state.torrent_name,
+            torrent_file: torrent_state.torrent_file,
+            info_hash: torrent_state.info_hash,
+            pieces: Arc::new(Mutex::new(torrent_state.pieces)),
+        }
+    }
 }
 
 struct Torrent {
@@ -161,6 +176,24 @@ impl Torrent {
         })
     }
 
+    pub fn from_context(client_id: [u8; 20], sender: mpsc::Sender<ClientMessage>, receiver: mpsc::Receiver<ClientMessage>, torrent_context: TorrentContext) -> Result<Self> {
+        let dest_path = torrent_context.dest_path.clone();
+        let torrent_name = torrent_context.torrent_name.clone();
+        let torrent_file = torrent_context.torrent_file.clone();
+
+        let disk_writer_handle = DiskWriterHandle::new(dest_path, torrent_name, torrent_file);
+
+        Ok(Self {
+            tx: sender,
+            rx: receiver,
+            peer_handles: Vec::new(),
+            disk_writer_handle,
+
+            torrent_context,
+            client_id,
+        })
+    }
+
     fn add_new_peers(&mut self, mut peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) {
         let old_peer_addresses = self.peer_handles.iter().map(|peer_handle| peer_handle.peer_address.clone()).collect::<Vec<PeerAddress>>();
         
@@ -257,6 +290,22 @@ impl TorrentHandle {
     pub async fn new(client_id: [u8; 20], src: &str, dest: &str) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(100);
         let torrent = Torrent::new(client_id, sender.clone(), receiver, src, dest).await?;
+
+        let join_handle = tokio::spawn(async move {
+            if let Err(e) = torrent.run().await {
+                println!("Torrent error: {:?}", e);
+            }
+        });
+
+        Ok(Self {
+            tx: sender,
+            join_handle,
+        })
+    }
+
+    pub async fn from_context(client_id: [u8; 20], torrent_context: TorrentContext) -> Result<Self> {
+        let (sender, receiver) = mpsc::channel(100);
+        let torrent = Torrent::from_context(client_id, sender.clone(), receiver, torrent_context)?;
 
         let join_handle = tokio::spawn(async move {
             if let Err(e) = torrent.run().await {
