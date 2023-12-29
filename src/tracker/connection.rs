@@ -1,6 +1,6 @@
 use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash };
 
-use crate::client::Client;
+use crate::client::ClientHandle;
 use crate::utils::UrlEncodable;
 
 pub fn tracker_url_get(bencoded_dict: &BencodedValue) -> Option<String> {
@@ -22,8 +22,7 @@ pub fn tracker_url_get(bencoded_dict: &BencodedValue) -> Option<String> {
     Some(tracker_announce)
 }
 
-
-pub async fn tracker_params_default(hashed_info_dict: &Sha1Hash) -> String {
+pub async fn tracker_params_default(hashed_info_dict: &Sha1Hash, client_id: [u8; 20]) -> String {
     format!{
         "?info_hash={info_hash}\
         &peer_id={peer_id}\
@@ -34,6 +33,6 @@ pub async fn tracker_params_default(hashed_info_dict: &Sha1Hash) -> String {
         &compact=1\
         &event=started",
         info_hash = hashed_info_dict.as_url_encoded(),
-        peer_id = Client::get_client_id().await.as_url_encoded()
+        peer_id = ClientHandle::get_client_id().await.as_url_encoded()
     }
 }

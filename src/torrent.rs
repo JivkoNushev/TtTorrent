@@ -1,24 +1,45 @@
-use std::collections::BTreeMap;
+use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::task::JoinHandle;
+
+use anyhow::{Result, Context};
+
+use std::sync::Arc;
+
+use crate::messager::ClientMessage;
+use crate::peer::{PeerHandle, PeerAddress, peer_address};
+use crate::tracker::Tracker;
+use crate::peer::peer_message::ConnectionType;
 
 pub mod torrent_file;
-use serde::{Serialize, Deserialize};
-pub use torrent_file::{BencodedValue, TorrentFile, Sha1Hash};
+pub use torrent_file::{TorrentFile, Sha1Hash, BencodedValue};
 
 pub mod torrent_parser;
 pub use torrent_parser::TorrentParser;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Torrent {
+struct Torrent {
+    tx: mpsc::Sender<ClientMessage>,
+    rx: mpsc::Receiver<ClientMessage>,
+    peer_handles: Vec<PeerHandle>,
+    
+    pub src_path: String,
+    pub dest_path: String,
     pub torrent_name: String,
     pub torrent_file: TorrentFile,
     pub info_hash: Sha1Hash,
-    pub pieces_left: Vec<usize>,
-    pub dest_path: String,
+    pub pieces: Arc<Mutex<Vec<usize>>>,
+
+    pub client_id: [u8; 20],
 }
 
 impl Torrent {
-    pub async fn new(torrent_name: String, dest_path: String) -> std::io::Result<Torrent> {
-        let torrent_file = TorrentFile::new(&torrent_name).await?;
+    pub async fn new(client_id: [u8; 20], sender: mpsc::Sender<ClientMessage>, receiver: mpsc::Receiver<ClientMessage>, src: &str, dest: &str) -> Result<Self> {
+        let torrent_file = TorrentFile::new(&src).await.context("couldn't create TorrentFile")?;
+
+        let torrent_name = std::path::Path::new(src)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
 
         let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()) {
             Some(info_hash) => info_hash,
@@ -49,175 +70,133 @@ impl Torrent {
 
             pieces_left
         };
+        
+        Ok(Self {
+            tx: sender,
+            rx: receiver,
+            peer_handles: Vec::new(),
+            src_path: src.to_string(),
+            dest_path: dest.to_string(),
 
-        Ok(Torrent {
-            torrent_name,
+            torrent_name: torrent_name.to_string(),
             torrent_file,
             info_hash,
-            pieces_left,
-            dest_path
+            pieces: Arc::new(Mutex::new(pieces_left)),
+            client_id,
         })
     }
 
-    pub fn get_info_hash_ref(&self) -> &Sha1Hash {
-        &self.info_hash
+    fn add_new_peers(&mut self, mut peer_addresses: Vec<PeerAddress>) {
+        let old_peer_addresses = self.peer_handles.iter().map(|peer_handle| peer_handle.peer_address.clone()).collect::<Vec<PeerAddress>>();
+        
+        peer_addresses.retain(|peer_address| !old_peer_addresses.contains(peer_address));
+
+        let piece_length = self.torrent_file.get_piece_length();
+        let torrent_length = self.torrent_file.get_torrent_length();
+
+        for peer_address in peer_addresses {
+            let peer_handle = PeerHandle::new(self.client_id, ConnectionType::Outgoing, self.tx.clone(), piece_length, torrent_length,
+                 self.info_hash.clone(), Arc::clone(&self.pieces), peer_address);
+            self.peer_handles.push(peer_handle);
+        }
     }
 
-    pub fn get_dest_path(&self) -> &String {
-        &self.dest_path
-    }
-
-    pub fn get_piece_length(&self, piece_index: usize) -> u64 {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
-        };
-        let info_dict = match torrent_dict.get("info") {
-            Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
-        };
-
-        let piece_length = match info_dict.get_from_dict("piece length") {
-            Some(piece_length) => piece_length.try_into_integer().unwrap().clone() as u64,
-            None => panic!("Could not get piece length from info dict ref in torrent file: {}", self.torrent_name)
-        };
-
-        if piece_index == self.get_pieces_count() - 1 {
-            self.get_file_size() % piece_length
+    pub async fn download(&mut self, tracker_response: reqwest::Response) {
+        let peer_addresses;
+        
+        if crate::DEBUG_MODE {
+            // peer_addresses = vec![PeerAddress{address: "127.0.0.1".to_string(), port: "37051".to_string()}];
+            peer_addresses = vec![PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}];
         }
         else {
-            piece_length
+            // get peers from tracker response
+            peer_addresses = PeerHandle::peers_from_tracker_response(tracker_response).await;
         }
+
+        // add new peers
+        self.add_new_peers(peer_addresses)
     }
 
-    pub fn get_pieces_count(&self) -> usize {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
-        };
-        let info_dict = match torrent_dict.get("info") {
-            Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
-        };
-        let pieces = match info_dict.get_from_dict("pieces") {
-            Some(pieces) => pieces,
-            None => panic!("Could not get pieces from info dict ref in torrent file: {}", self.torrent_name)
-        };
-
-        if let BencodedValue::ByteSha1Hashes(pieces) = pieces {
-            pieces.len()
-        }
-        else {
-            panic!("Could not get pieces from info dict ref in torrent file: {}", self.torrent_name)
-        }
-    }
-
-    pub fn get_file_size(&self) -> u64 {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
-        };
-        let info_dict = match torrent_dict.get("info") {
-            Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
-        };
-
-        let mut total_size: u64 = 0;
-
-        if let Some(files_dict) = info_dict.get_from_dict("files") {
-            let files = match files_dict {
-                BencodedValue::List(files) => files,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-
-            for file in files {
-                let file = match file {
-                    BencodedValue::Dict(file) => file,
-                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-                };
-
-                let length = match file.get("length") {
-                    Some(length) => length,
-                    None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-                };
-
-                let length = match length {
-                    BencodedValue::Integer(length) => length,
-                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-                };
-
-                total_size += *length as u64;
+    pub async fn recv_piece(rxs: &mut Vec<oneshot::Receiver<ClientMessage>>) -> Result<()> {
+        for rx in rxs.iter_mut() {
+            if let Ok(msg) = rx.try_recv() {
+                match msg {
+                    ClientMessage::DownloadedPiece { piece_index, piece } => {
+                        // todo!();
+                    },
+                    _ => {}
+                }
             }
         }
-        else { 
-            let file_length = match info_dict.get_from_dict("length") {
-                Some(file_length) => file_length,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            }; 
-            let file_length = match file_length {
-                BencodedValue::Integer(file_length) => file_length,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
 
-            total_size = file_length as u64;
-        }
-        
-        total_size
+        Ok(())
     }
+    
+    pub async fn run(mut self) -> Result<()> {
+        let tracker_url = match Tracker::tracker_url_get(self.torrent_file.get_bencoded_dict_ref()) {
+            Some(tracker_url) => tracker_url,
+            None => panic!("Could not get tracker url from torrent file: {}", self.torrent_name)
+        };
 
-    pub fn get_files(&self) -> Vec<BTreeMap<String, BencodedValue>> {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
-        };
-        let info_dict = match torrent_dict.get("info") {
-            Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
-        };
+        let mut tracker = Tracker::new(&tracker_url).await;
         
-        let mut all_files = Vec::new();
+        // run tracker with default params
+        let tracker_response = tracker.default_params(&self.info_hash, self.client_id).await.context("couldn't get response with default parameters")?;
+        let mut peer_piece_rxs = self.download(tracker_response).await;
 
-        if let Some(files_dict) = info_dict.get_from_dict("files") {
-            let files = match files_dict {
-                BencodedValue::List(files) => files,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-
-            for file in files {
-                let file = match file {
-                    BencodedValue::Dict(file) => file,
-                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-                };
-
-                all_files.push(file.clone());
+        loop {
+            tokio::select! {
+                Some(msg) = self.rx.recv() => {
+                    match msg {
+                        ClientMessage::Shutdown => {
+                            // send stop message to all peers
+                            for peer_handle in &mut self.peer_handles {
+                                let _ = peer_handle.tx.send(ClientMessage::Shutdown).await;
+                            }
+                            break;
+                        }
+                        ClientMessage::DownloadedPiece { piece_index, piece } => {
+                            // todo!("send piece to disk_handle")
+                        },
+                        _ => {}
+                    }
+                },
+                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                    // get more peers
+                    continue;
+                    let tracker_response = todo!("Tracker response with updated params based on current state");
+                    let rxs = self.download(tracker_response).await;
+                }
             }
         }
-        else {
-            let file_name = match info_dict.get_from_dict("name") {
-                Some(file_name) => file_name,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-            let file_name = match file_name {
-                BencodedValue::ByteString(file_name) => file_name,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
 
-            let length = match info_dict.get_from_dict("length") {
-                Some(length) => length,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-            let length = match length {
-                BencodedValue::Integer(length) => length,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-
-            let mut file_dict = BTreeMap::new();
-            let path = BencodedValue::List(vec![BencodedValue::ByteString(file_name)]);
-            file_dict.insert("path".to_string(), path);
-            file_dict.insert("length".to_string(), BencodedValue::Integer(length.clone()));
-            all_files.push(file_dict);
+        for peer_handle in self.peer_handles {
+            let _ = peer_handle.join_handle.await;
         }
 
-        all_files
+        Ok(())
+    }
+}
+
+pub struct TorrentHandle {
+    pub tx: mpsc::Sender<ClientMessage>,
+    pub join_handle: JoinHandle<()>,
+}
+
+impl TorrentHandle {
+    pub async fn new(client_id: [u8; 20], src: &str, dest: &str) -> Result<Self> {
+        let (sender, receiver) = mpsc::channel(100);
+        let torrent = Torrent::new(client_id, sender.clone(), receiver, src, dest).await?;
+
+        let join_handle = tokio::spawn(async move {
+            if let Err(e) = torrent.run().await {
+                println!("Torrent error: {:?}", e);
+            }
+        });
+
+        Ok(Self {
+            tx: sender,
+            join_handle,
+        })
     }
 }

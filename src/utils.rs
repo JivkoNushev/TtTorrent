@@ -1,6 +1,9 @@
+use std::path::PathBuf;
+
 use sha1::{Sha1, Digest};
 use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
+use anyhow::{Result, Context};
 
 use crate::torrent::torrent_file::Sha1Hash;
 
@@ -24,11 +27,12 @@ pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     Sha1Hash::new(&hasher.finalize())
 }   
 
-pub async fn read_file_as_bytes(path: &str) -> std::io::Result<Vec<u8>> {
+pub async fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
+    // print current directory
     let mut buf = Vec::new();
-    let mut file = tokio::fs::File::open(path).await?;
+    let mut file = tokio::fs::File::open(path).await.context("couldn't open file")?;
 
-    file.read_to_end(&mut buf).await?;
+    file.read_to_end(&mut buf).await.context("couldn't read file")?;
 
     Ok(buf)
 }
