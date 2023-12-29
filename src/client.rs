@@ -25,6 +25,11 @@ impl Client {
         }
     }
 
+    async fn save_state(&self) -> Result<()> {
+    
+        Ok(())
+    }
+
     pub async fn run(mut self) -> Result<()> {
         loop {
             tokio::select! {

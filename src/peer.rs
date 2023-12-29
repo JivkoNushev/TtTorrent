@@ -121,6 +121,11 @@ impl Peer {
                     match msg {
                         ClientMessage::Shutdown => {
                             println!("Peer {self} stopping");
+
+                            // TODO: is it better to wait for the piece to be downloaded or just drop it? (maybe dropping it is better)
+                            if 0 != current_piece_size {
+                                self.pieces.lock().await.push(current_piece_index);
+                            }
                             break;
                         },
                         _ => {}
@@ -226,7 +231,7 @@ impl Peer {
                         current_piece_size = self.get_piece_size(piece_index);
                         current_piece_offset = 0;
                         current_block_count = 0;
-                        current_block_size = 0;
+                        current_block_size = BLOCK_SIZE;
 
                         current_piece.clear();
                     },
@@ -241,13 +246,12 @@ impl Peer {
                 }
             }
 
-            current_block_size = BLOCK_SIZE;
-
             if current_block_count * BLOCK_SIZE > current_piece_size {
                 current_block_size = current_piece_size % BLOCK_SIZE;
             }
             peer_session.send(PeerMessage::Request(current_piece_index as u32, current_piece_offset as u32, current_block_size as u32)).await?;
             println!("Peer {self} request {} {} {}", current_piece_index, current_piece_offset, current_block_size);
+            
             current_piece_offset += current_block_size;
             current_block_count += 1;
         }
