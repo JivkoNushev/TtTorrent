@@ -11,8 +11,8 @@ async fn main() -> Result<()> {
     // ------------------------ create socket for client ------------------------
 
     // remove socket if it exists and create new one
-    let _ = tokio::fs::remove_file("/tmp/TtTClient.sock").await;
-    let client_socket = match LocalSocketListener::bind("/tmp/TtTClient.sock") {
+    let _ = tokio::fs::remove_file(torrent_client::SOCKET_PATH).await;
+    let client_socket = match LocalSocketListener::bind(torrent_client::SOCKET_PATH) {
         Ok(socket) => socket,
         Err(e) => {
             println!("Failed to create socket: {}", e);
@@ -49,6 +49,12 @@ async fn main() -> Result<()> {
                     ClientMessage::Shutdown => {
                         client.client_shutdown().await?;
                         break;
+                    },
+                    ClientMessage::SendTorrentInfo => {
+                        client.client_send_torrent_info().await?;
+                    },
+                    ClientMessage::TerminalClientClosed => {
+                        client.client_terminal_closed().await?;
                     },
                     _ => {}
                 }

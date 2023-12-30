@@ -26,7 +26,7 @@ impl Client {
     }
 
     async fn load_state(&mut self) -> Result<()> {
-        let client_state = match tokio::fs::read_to_string("./client_state.state").await {
+        let client_state = match tokio::fs::read_to_string(crate::STATE_FILE_PATH).await {
             Ok(state) => state,
             Err(_) => {
                 println!("No client state found");
@@ -124,7 +124,7 @@ impl Client {
                         continue;
                     }
 
-                    // create torrent info to send to the terminal client
+                    // save state to file
                 }
             }
         }
@@ -158,7 +158,7 @@ impl ClientHandle {
                 },
             }
 
-            let mut client_socket = match LocalSocketStream::connect("/tmp/TtTClient.sock") {
+            let mut client_socket = match LocalSocketStream::connect(crate::SOCKET_PATH) {
                 Ok(socket) => socket,
                 Err(_) => {
                     println!("Failed to connect to the client");
@@ -212,6 +212,20 @@ impl ClientHandle {
     pub async fn client_shutdown(&mut self) -> Result<()> {
         let msg = ClientMessage::Shutdown;
         self.tx.send(msg).await.context("couldn't send a shutdown message to the client")?;
+
+        Ok(())
+    }
+
+    pub async fn client_send_torrent_info(&mut self) -> Result<()> {
+        let msg = ClientMessage::SendTorrentInfo;
+        self.tx.send(msg).await.context("couldn't send a send torrent info message to the client")?;
+
+        Ok(())
+    }
+
+    pub async fn client_terminal_closed(&mut self) -> Result<()> {
+        let msg = ClientMessage::TerminalClientClosed;
+        self.tx.send(msg).await.context("couldn't send a terminal client closed message to the client")?;
 
         Ok(())
     }

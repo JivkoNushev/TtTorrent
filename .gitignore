@@ -17,5 +17,4 @@ Cargo.lock
 .idea
 .vscode
 
-client_state.state
-*.torrent
+test_folder

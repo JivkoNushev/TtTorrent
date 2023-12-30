@@ -132,8 +132,6 @@ impl Peer {
 
         let mut current_piece = Vec::new();
         loop {
-            println!("Trying to select");
-
             tokio::select! {
                 Some(msg) = self.rx.recv() => {
                     match msg {

@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 
 use crate::messager::ClientMessage;
-use crate::peer::{PeerHandle, PeerAddress, PeerTorrentContext, self, peer_address};
+use crate::peer::{PeerHandle, PeerAddress, PeerTorrentContext};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
 use crate::disk_writer::{DiskWriterHandle, DiskWriterTorrentContext};
@@ -89,7 +89,7 @@ impl Torrent {
         let connection_type = torrent_context.connection_type.clone();
         let torrent_context = TorrentState::new(torrent_context).await;
         
-        let client_state = match tokio::fs::read_to_string("./client_state.state").await {
+        let client_state = match tokio::fs::read_to_string(crate::STATE_FILE_PATH).await {
             std::result::Result::Ok(client_state) => client_state,
             Err(_) => String::new(),
         };
@@ -117,7 +117,7 @@ impl Torrent {
 
         let client_state = serde_json::to_string_pretty(&client_state).unwrap();
 
-        tokio::fs::write("./client_state.state", client_state).await.context("couldn't write to client state file")?;
+        tokio::fs::write(crate::STATE_FILE_PATH, client_state).await.context("couldn't write to client state file")?;
 
         Ok(())
     }
@@ -226,15 +226,11 @@ impl Torrent {
         .map(|peer_handle| peer_handle.peer_address.clone())
         .collect::<Vec<PeerAddress>>();
 
-        println!("Old peer addresses: {:?}", old_peer_addresses);
-
         let peer_addresses = peer_addresses
         .iter()
         .filter(|peer_address| !old_peer_addresses.contains(peer_address))
         .cloned()
         .collect::<Vec<PeerAddress>>();
-
-        println!("New peer addresses: {:?}", peer_addresses);
 
         let piece_length = self.torrent_context.torrent_file.get_piece_length();
         let torrent_length = self.torrent_context.torrent_file.get_torrent_length();
@@ -356,6 +352,18 @@ pub struct TorrentHandle {
 
 impl TorrentHandle {
     pub async fn new(client_id: [u8; 20], src: &str, dest: &str) -> Result<Self> {
+        // copy torrent file to state folder
+        let src_path = std::path::Path::new(src);
+        let torrent_name = src_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        let dest_path = std::path::Path::new(crate::STATE_TORRENT_FILES_PATH).join(torrent_name);
+        tokio::fs::copy(src_path, dest_path.clone()).await?;
+        
+        let src = dest_path.to_str().unwrap();
         let (sender, receiver) = mpsc::channel(100);
 
         let pipe = CommunicationPipe {

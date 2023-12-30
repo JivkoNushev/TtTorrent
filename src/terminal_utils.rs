@@ -6,7 +6,7 @@ use std::env::args;
 use torrent_client::messager::ClientMessage;
 
 fn main() {
-    let mut client_socket = match LocalSocketStream::connect("/tmp/TtTClient.sock") {
+    let mut client_socket = match LocalSocketStream::connect(torrent_client::SOCKET_PATH) {
         Ok(socket) => socket,
         Err(_) => {
             println!("Failed to connect to the client");
