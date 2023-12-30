@@ -1,11 +1,11 @@
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use anyhow::Result;
 
 use std::sync::Arc;
 
 use crate::messager::ClientMessage;
-use crate::torrent::{Sha1Hash, self};
+use crate::torrent::Sha1Hash;
 use crate::torrent::torrent_parser::TorrentParser;
 use crate::torrent::torrent_file::BencodedValue;    
 use crate::utils::rand_number_u32;
@@ -19,66 +19,84 @@ pub use peer_message::{PeerMessage, PeerSession, ConnectionType};
 // TODO: change the block size based on the torrent file 
 const BLOCK_SIZE: usize = 1 << 14;
 
-struct Peer {
-    rx: mpsc::Receiver<ClientMessage>,
+struct PeerContext {
+    id: [u8;20],
+    ip: PeerAddress,
+    am_interested: bool,
+    choking: bool,
+    bitfield: Vec<usize>,
+}
+
+pub struct PeerTorrentContext {
     tx: mpsc::Sender<ClientMessage>,
 
-    pub id: [u8;20],
-    pub address: String,
-    pub port: String,
+    piece_length: usize,
+    torrent_length: u64,
+    info_hash: Sha1Hash,
+    pieces: Arc<Mutex<Vec<usize>>>,
+}
 
-    pub am_interested: bool,
-    pub choking: bool,
-    pub bitfield: Vec<usize>,
+impl PeerTorrentContext {
+    pub fn new(tx: mpsc::Sender<ClientMessage>, piece_length: usize, torrent_length: u64, info_hash: Sha1Hash, pieces: Arc<Mutex<Vec<usize>>>) -> Self {
+        Self {
+            tx,
 
-    pub piece_length: usize,
-    pub torrent_length: u64,
-    pub pieces: Arc<Mutex<Vec<usize>>>,
-    pub info_hash: Sha1Hash,
-    pub client_id: [u8; 20],
+            piece_length,
+            torrent_length,
+            info_hash,
+            pieces,
+        }
+    }
+}
+
+struct Peer {
+    rx: mpsc::Receiver<ClientMessage>,
+    peer_context: PeerContext,
+    torrent_context: PeerTorrentContext,
+
+    client_id: [u8; 20],
 }
 
 impl std::fmt::Display for Peer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.address, self.port)
+        write!(f, "{}", self.peer_context.ip)
     }
 }
 
 impl Peer {
-    pub fn new(client_id: [u8; 20], pieces: Arc<Mutex<Vec<usize>>>, info_hash: Sha1Hash, piece_length: usize, torrent_length: u64,
-        receiver: mpsc::Receiver<ClientMessage>, sender: mpsc::Sender<ClientMessage>, addr: PeerAddress) -> Self {
-        Self {
+    pub fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, addr: PeerAddress, rx: mpsc::Receiver<ClientMessage>, ) -> Self {
+        let peer_context = PeerContext {
             id: [0; 20],
-            address: addr.address,
-            port: addr.port,
+            ip: addr,
             am_interested: false,
             choking: true,
             bitfield: Vec::new(),
-            rx: receiver,
-            tx: sender,
-            piece_length,
-            torrent_length,
-            pieces,
-            info_hash,
+        };
+
+        Self {
+            rx,
+            peer_context,
+            torrent_context,
+
             client_id,
         }
     }
 
     fn get_piece_size(&self, piece_index: usize) -> usize {
-        let pieces_count = self.torrent_length.div_ceil(self.piece_length as u64) as usize;
+        let pieces_count = self.torrent_context.torrent_length.div_ceil(self.torrent_context.piece_length as u64) as usize;
 
         if piece_index == pieces_count - 1 {
-            (self.torrent_length % self.piece_length as u64) as usize
+            (self.torrent_context.torrent_length % self.torrent_context.piece_length as u64) as usize
         }
         else {
-            self.piece_length
+            self.torrent_context.piece_length
         }
     }
 
     async fn get_random_piece_index(&mut self) -> Option<usize> {
-        let mut pieces_guard = self.pieces.lock().await;
+        let mut pieces_guard = self.torrent_context.pieces.lock().await;
 
-        let common_indexes = self.bitfield
+        let common_indexes = self.peer_context.bitfield
             .iter()
             .filter(|&i| pieces_guard.contains(i))
             .collect::<Vec<&usize>>();
@@ -97,14 +115,14 @@ impl Peer {
     }
 
     pub async fn run(mut self, connection_type: ConnectionType) -> Result<()> {
-        let mut peer_session = PeerSession::new(connection_type, self.address.clone(), self.port.clone()).await?;
+        let mut peer_session = PeerSession::new(connection_type, self.peer_context.ip.address.clone(), self.peer_context.ip.port.clone()).await?;
         println!("Peer {self} running");
 
         // handshake with peer
-        self.id = peer_session.handshake(self.info_hash.clone(), self.client_id.clone()).await?;
+        self.peer_context.id = peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id.clone()).await?;
 
         // send interested message if outgoing connection
-        self.am_interested = peer_session.interest().await?;
+        self.peer_context.am_interested = peer_session.interest().await?;
 
         let mut current_piece_index = 0;
         let mut current_piece_size = 0;
@@ -124,7 +142,7 @@ impl Peer {
 
                             // TODO: is it better to wait for the piece to be downloaded or just drop it? (maybe dropping it is better)
                             if 0 != current_piece_size {
-                                self.pieces.lock().await.push(current_piece_index);
+                                self.torrent_context.pieces.lock().await.push(current_piece_index);
                             }
                             break;
                         },
@@ -140,19 +158,19 @@ impl Peer {
                         match msg {
                             PeerMessage::Choke => {
                                 println!("Peer {self} choke");
-                                self.choking = true;
+                                self.peer_context.choking = true;
                             },
                             PeerMessage::Unchoke => {
                                 println!("Peer {self} unchoke");
-                                self.choking = false;
+                                self.peer_context.choking = false;
                             },
                             PeerMessage::Interested => {
                                 println!("Peer {self} interested");
-                                self.am_interested = true;
+                                self.peer_context.am_interested = true;
                             },
                             PeerMessage::NotInterested => {
                                 println!("Peer {self} not interested");
-                                self.am_interested = false;
+                                self.peer_context.am_interested = false;
                             },
                             PeerMessage::Have(index) => {
                                 println!("Peer {self} have {}", index);
@@ -170,7 +188,7 @@ impl Peer {
                                     }
                                 }
 
-                                self.bitfield = available_pieces;
+                                self.peer_context.bitfield = available_pieces;
                             },
                             PeerMessage::Request(index, begin, length) => {
                                 println!("Peer {self} request {} {} {}", index, begin, length);
@@ -206,21 +224,21 @@ impl Peer {
                 }
             }
 
-            if !self.am_interested {
+            if !self.peer_context.am_interested {
                 todo!();
             }
 
-            if self.choking {
+            if self.peer_context.choking {
                 continue;
             }
 
             // make requests for pieces
-            if self.bitfield.is_empty() {
+            if self.peer_context.bitfield.is_empty() {
                 todo!();
             }
             
             if 0 != current_piece_size && current_piece_offset == current_piece_size {
-                self.tx.send(ClientMessage::DownloadedPiece{piece_index: current_piece_index, piece: current_piece.clone()}).await?;
+                self.torrent_context.tx.send(ClientMessage::DownloadedPiece{piece_index: current_piece_index, piece: current_piece.clone()}).await?;
                 current_piece_size = 0;
             }
 
@@ -237,15 +255,16 @@ impl Peer {
                     },
                     None => {
                         println!("Peer {self} has no more pieces to download right now");
-                        if !self.pieces.lock().await.is_empty() {
+                        if !self.torrent_context.pieces.lock().await.is_empty() {
                             todo!();
                         }
+
+                        self.torrent_context.tx.send(ClientMessage::FinishedDownloading).await?;
     
                         break;
                     }
                 }
             }
-
             
             if (current_block_count + 1) * BLOCK_SIZE > current_piece_size {
                 current_block_size = current_piece_size % BLOCK_SIZE;
@@ -265,20 +284,17 @@ impl Peer {
 }
 
 pub struct PeerHandle {
-    pub tx: mpsc::Sender<ClientMessage>,
-    pub join_handle: JoinHandle<()>,
+    tx: mpsc::Sender<ClientMessage>,
+    join_handle: JoinHandle<()>,
 
     pub peer_address: PeerAddress,
 }
 
 impl PeerHandle {
-    pub fn new(client_id: [u8; 20], connection_type: ConnectionType, torrent_tx: mpsc::Sender<ClientMessage>, piece_length: usize, torrent_length: u64,
-        info_hash: Sha1Hash, pieces: Arc<Mutex<Vec<usize>>>, addr: PeerAddress) -> Self {
+    pub fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, addr: PeerAddress, connection_type: ConnectionType) -> Self {
         let (sender, receiver) = mpsc::channel(100);
-
-        let peer = Peer::new(client_id, pieces, info_hash, piece_length, torrent_length,
-            receiver, torrent_tx, addr.clone());
-
+        
+        let peer = Peer::new(client_id, torrent_context, addr.clone(), receiver);
         let join_handle = tokio::spawn(async move {
             if let Err(e) = peer.run(connection_type).await {
                 println!("Peer error: {:?}", e);
@@ -291,24 +307,14 @@ impl PeerHandle {
             peer_address: addr,
         }
     }
-}
 
-impl PeerHandle {
-    pub async fn peers_from_tracker_response(resp: reqwest::Response) -> Vec<PeerAddress> {
-        let bencoded_response = resp.bytes().await.unwrap();
-        let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response);
-        
-        let bencoded_dict = match bencoded_response {
-            BencodedValue::Dict(dict) => dict,
-            _ => panic!("Error: Invalid parsed dictionary from tracker response")
-        };
+    pub async fn join(self) -> Result<()> {
+        self.join_handle.await?;
+        Ok(())
+    }
 
-        let bencoded_peers = match bencoded_dict.get("peers") {
-            Some(BencodedValue::ByteAddresses(byte_addresses)) => byte_addresses,
-            Some(BencodedValue::Dict(_peer_dict)) => todo!(),
-            _ => panic!("Error: Invalid peers key from tracker response")
-        };
-        
-        bencoded_peers.to_vec()
+    pub async fn shutdown(&mut self) -> Result<()> {
+        self.tx.send(ClientMessage::Shutdown).await?;
+        Ok(())
     }
 }

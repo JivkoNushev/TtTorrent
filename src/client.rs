@@ -1,19 +1,19 @@
 use interprocess::local_socket::LocalSocketStream;
 use tokio::task::JoinHandle;
-use tokio::sync::{oneshot, mpsc};
+use tokio::sync::mpsc;
 use anyhow::{Result, Context};
 
 use std::io::Write;
 
 use crate::peer::ConnectionType;
-use crate::torrent::{TorrentHandle, TorrentContext, TorrentState};
+use crate::torrent::{TorrentHandle, TorrentState};
 use crate::messager::ClientMessage;
 
 struct Client {
     rx: mpsc::Receiver<ClientMessage>,
     torrent_handles: Vec<TorrentHandle>,
 
-    pub client_id: [u8; 20],
+    client_id: [u8; 20],
 }
 
 impl Client {
@@ -45,8 +45,8 @@ impl Client {
 
         if let Some(downloading) = client_state.get("Downloading") {
             for (key, val) in downloading.as_object().unwrap() {
-                let torrent = match serde_json::from_value::<TorrentState>(val.clone()) {
-                    Ok(torrent) => torrent,
+                let torrent_state = match serde_json::from_value::<TorrentState>(val.clone()) {
+                    Ok(torrent_state) => torrent_state,
                     Err(e) => {
                         println!("Failed to deserialize torrent state: {}", e);
                         continue;
@@ -55,8 +55,7 @@ impl Client {
 
                 println!("Loading torrent: {}", key);
 
-                let torrent_context = TorrentContext::from_state(torrent, ConnectionType::Outgoing);
-                let torrent_handle = TorrentHandle::from_context(self.client_id, torrent_context).await?;
+                let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_state, ConnectionType::Outgoing).await?;
                 self.torrent_handles.push(torrent_handle);
             }
         }
@@ -67,8 +66,8 @@ impl Client {
         // TODO: seeding
         if let Some(seeding) = client_state.get("Seeding") {
             for (key, val) in seeding.as_object().unwrap() {
-                let torrent = match serde_json::from_value::<TorrentState>(val.clone()) {
-                    Ok(torrent) => torrent,
+                let torrent_context = match serde_json::from_value::<TorrentState>(val.clone()) {
+                    Ok(torrent_context) => torrent_context,
                     Err(e) => {
                         println!("Failed to deserialize torrent state: {}", e);
                         continue;
@@ -77,8 +76,7 @@ impl Client {
 
                 println!("Loading torrent: {}", key);
 
-                let torrent_context = TorrentContext::from_state(torrent, ConnectionType::Outgoing);
-                let torrent_handle = TorrentHandle::from_context(self.client_id, torrent_context).await?;
+                let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_context, ConnectionType::Incoming).await?;
                 self.torrent_handles.push(torrent_handle);
             }
         }
@@ -105,7 +103,7 @@ impl Client {
                         ClientMessage::Shutdown => {
                             println!("Client stopping");
                             for torrent_handle in &mut self.torrent_handles {
-                                let _ = torrent_handle.tx.send(ClientMessage::Shutdown).await;
+                                torrent_handle.shutdown().await?;
                             }
 
                             break;
@@ -117,7 +115,7 @@ impl Client {
         }
 
         for torrent_handle in self.torrent_handles {
-            let _ = torrent_handle.join_handle.await;
+            let _ = torrent_handle.join().await;
         }
 
         Ok(())
@@ -126,11 +124,12 @@ impl Client {
 
 pub struct ClientHandle {
     tx: mpsc::Sender<ClientMessage>,
+    join_handle: JoinHandle<()>,
 
-    pub join_handle: JoinHandle<()>,
-    pub id: [u8; 20],
+    id: [u8; 20],
 }
 
+// static function implementations
 impl ClientHandle {
     fn setup_graceful_shutdown() {
         // TODO: is this the best way to handle this?; add more signals
@@ -159,7 +158,9 @@ impl ClientHandle {
             client_socket.write_all(serialized_data.as_bytes()).expect("Failed to send data");
         });
     }
+}
 
+impl ClientHandle {
     pub fn new() -> Self {
         let id = "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap();
 
@@ -179,6 +180,11 @@ impl ClientHandle {
             join_handle,
             id,
         }
+    }
+
+    pub async fn join(self) -> Result<()> {
+        self.join_handle.await?;
+        Ok(())
     }
 
     pub async fn client_download_torrent(&mut self, src: String, dst: String) -> Result<()> {

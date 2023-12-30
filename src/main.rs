@@ -56,6 +56,6 @@ async fn main() -> Result<()> {
         }
     }
 
-    client.join_handle.await?;
+    client.join().await?;
     Ok(())
 }

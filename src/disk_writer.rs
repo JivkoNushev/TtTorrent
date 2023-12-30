@@ -3,7 +3,7 @@ use anyhow::{Result, Context};
 
 use std::collections::BTreeMap;
 
-use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
+use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile, self}};
 
 
 #[derive(Debug)]
@@ -22,16 +22,18 @@ struct DiskWriter {
     dest_path: String,
     torrent_name: String,
     torrent_file: TorrentFile,
+    torrent_pieces_count: usize,
 }
 
 impl DiskWriter {
-    pub fn new(rx: mpsc::Receiver<ClientMessage>, dest_path: String, torrent_name: String, torrent_file: TorrentFile) -> Self {
+    pub fn new(rx: mpsc::Receiver<ClientMessage>, dest_path: String, torrent_name: String, torrent_file: TorrentFile, torrent_pieces_count: usize) -> Self {
         Self {
             rx,
 
             dest_path,
             torrent_name,
             torrent_file,
+            torrent_pieces_count,
         }
     }
 
@@ -228,6 +230,14 @@ impl DiskWriter {
                             // using semaphores to limit the number of threads ?
 
                             self.write_to_file(piece_index, piece, &files_to_download).await;
+
+                            self.torrent_pieces_count -= 1;
+
+                            if self.torrent_pieces_count == 0 {
+                                println!("Finished writing to disk torrent: {}", self.torrent_name);
+
+                                break;
+                            }
                         },
                         _ => {}
                     }
@@ -249,10 +259,10 @@ pub struct DiskWriterHandle {
 }
 
 impl DiskWriterHandle {
-    pub fn new(dest_path: String, torrent_name: String, torrent_file: TorrentFile) -> Self {
+    pub fn new(dest_path: String, torrent_name: String, torrent_file: TorrentFile, torrent_pieces_count: usize) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
-        let disk_writer = DiskWriter::new(rx, dest_path, torrent_name.clone(), torrent_file);
+        let disk_writer = DiskWriter::new(rx, dest_path, torrent_name.clone(), torrent_file, torrent_pieces_count);
 
         let join_handle = tokio::spawn(async move {
             if let Err(e) = disk_writer.run().await {

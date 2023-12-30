@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 
 use sha1::{Sha1, Digest};
 use tokio::io::AsyncReadExt;
@@ -6,6 +5,11 @@ use getrandom::getrandom;
 use anyhow::{Result, Context};
 
 use crate::torrent::torrent_file::Sha1Hash;
+
+pub struct CommunicationPipe {
+    pub tx: tokio::sync::mpsc::Sender<crate::messager::ClientMessage>,
+    pub rx: tokio::sync::mpsc::Receiver<crate::messager::ClientMessage>,
+}
 
 pub trait UrlEncodable {
     fn as_url_encoded(&self) -> String;

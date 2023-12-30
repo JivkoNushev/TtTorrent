@@ -1,15 +1,16 @@
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use anyhow::{Result, Context, Ok};
-use serde::{Serialize, Deserialize, Serializer};
+use serde::{Serialize, Deserialize};
 
 use std::sync::Arc;
 
 use crate::messager::ClientMessage;
-use crate::peer::{PeerHandle, PeerAddress};
+use crate::peer::{PeerHandle, PeerAddress, PeerTorrentContext, self};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
 use crate::disk_writer::DiskWriterHandle;
+use crate::utils::CommunicationPipe;
 
 pub mod torrent_file;
 pub use torrent_file::{TorrentFile, Sha1Hash, BencodedValue};
@@ -19,12 +20,12 @@ pub use torrent_parser::TorrentParser;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TorrentState {
-    pub src_path: String,
-    pub dest_path: String,
-    pub torrent_name: String,
-    pub torrent_file: TorrentFile,
-    pub info_hash: Sha1Hash,
-    pub pieces: Vec<usize>,
+    src_path: String,
+    dest_path: String,
+    torrent_name: String,
+    torrent_file: TorrentFile,
+    info_hash: Sha1Hash,
+    pieces: Vec<usize>,
 }
 
 impl TorrentState {
@@ -42,14 +43,14 @@ impl TorrentState {
 
 #[derive(Debug)]
 pub struct TorrentContext {
-    pub connection_type: ConnectionType,
+    connection_type: ConnectionType,
 
-    pub src_path: String,
-    pub dest_path: String,
-    pub torrent_name: String,
-    pub torrent_file: TorrentFile,
-    pub info_hash: Sha1Hash,
-    pub pieces: Arc<Mutex<Vec<usize>>>,
+    src_path: String,
+    dest_path: String,
+    torrent_name: String,
+    torrent_file: TorrentFile,
+    info_hash: Sha1Hash,
+    pieces: Arc<Mutex<Vec<usize>>>,
 }
 
 impl TorrentContext {
@@ -68,14 +69,14 @@ impl TorrentContext {
 }
 
 struct Torrent {
-    tx: mpsc::Sender<ClientMessage>,
+    self_tx: mpsc::Sender<ClientMessage>,
+
     rx: mpsc::Receiver<ClientMessage>,
     peer_handles: Vec<PeerHandle>,
     disk_writer_handle: DiskWriterHandle,
     
-    pub torrent_context: TorrentContext,
-
-    pub client_id: [u8; 20],
+    torrent_context: TorrentContext,
+    client_id: [u8; 20],
 }
 
 // static functions for Torrent
@@ -119,7 +120,7 @@ impl Torrent {
 }
 
 impl Torrent {
-    pub async fn new(client_id: [u8; 20], sender: mpsc::Sender<ClientMessage>, receiver: mpsc::Receiver<ClientMessage>, src: &str, dest: &str) -> Result<Self> {
+    pub async fn new(client_id: [u8; 20], self_pipe: CommunicationPipe, src: &str, dest: &str) -> Result<Self> {
         let torrent_file = TorrentFile::new(&src).await.context("couldn't create TorrentFile")?;
 
         let torrent_name = std::path::Path::new(src)
@@ -158,7 +159,7 @@ impl Torrent {
             pieces_left
         };
 
-        let disk_writer_handle = DiskWriterHandle::new(dest.to_string(), torrent_name.to_string(), torrent_file.clone());
+        let disk_writer_handle = DiskWriterHandle::new(dest.to_string(), torrent_name.to_string(), torrent_file.clone(), pieces_left.len());
         
         let torrent_context = TorrentContext {
             connection_type: ConnectionType::Outgoing, // TODO: make this configurable
@@ -172,8 +173,9 @@ impl Torrent {
         };
 
         Ok(Self {
-            tx: sender,
-            rx: receiver,
+            self_tx: self_pipe.tx,
+            
+            rx: self_pipe.rx,
             peer_handles: Vec::new(),
             disk_writer_handle,
 
@@ -182,26 +184,33 @@ impl Torrent {
         })
     }
 
-    pub fn from_context(client_id: [u8; 20], sender: mpsc::Sender<ClientMessage>, receiver: mpsc::Receiver<ClientMessage>, torrent_context: TorrentContext) -> Result<Self> {
-        let dest_path = torrent_context.dest_path.clone();
-        let torrent_name = torrent_context.torrent_name.clone();
-        let torrent_file = torrent_context.torrent_file.clone();
-
-        let disk_writer_handle = DiskWriterHandle::new(dest_path, torrent_name, torrent_file);
+    pub fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentState, connection_type: ConnectionType) -> Result<Self> {
+        let dest_path = torrent_state.dest_path.clone();
+        let torrent_name = torrent_state.torrent_name.clone();
+        let torrent_file = torrent_state.torrent_file.clone();
+        let torrent_pieces_count = torrent_state.pieces.len();
+        
+        let disk_writer_handle = DiskWriterHandle::new(dest_path, torrent_name, torrent_file, torrent_pieces_count);
+        
+        let torrent_context = TorrentContext::from_state(torrent_state, connection_type);
 
         Ok(Self {
-            tx: sender,
-            rx: receiver,
+            self_tx: self_pipe.tx,
+
+            rx: self_pipe.rx,
             peer_handles: Vec::new(),
             disk_writer_handle,
 
             torrent_context,
             client_id,
         })
-    }
+    }   
 
     fn add_new_peers(&mut self, mut peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) {
-        let old_peer_addresses = self.peer_handles.iter().map(|peer_handle| peer_handle.peer_address.clone()).collect::<Vec<PeerAddress>>();
+        let old_peer_addresses = self.peer_handles
+        .iter()
+        .map(|peer_handle| peer_handle.peer_address.clone())
+        .collect::<Vec<PeerAddress>>();
         
         peer_addresses.retain(|peer_address| !old_peer_addresses.contains(peer_address));
 
@@ -209,8 +218,21 @@ impl Torrent {
         let torrent_length = self.torrent_context.torrent_file.get_torrent_length();
 
         for peer_address in peer_addresses {
-            let peer_handle = PeerHandle::new(self.client_id, connection_type.clone(), self.tx.clone(), piece_length, torrent_length,
-                 self.torrent_context.info_hash.clone(), Arc::clone(&self.torrent_context.pieces), peer_address);
+            let torrent_context = PeerTorrentContext::new(
+                self.self_tx.clone(),
+                piece_length,
+                torrent_length,
+                self.torrent_context.info_hash.clone(),
+                Arc::clone(&self.torrent_context.pieces),
+            );
+
+            let peer_handle = PeerHandle::new(
+                self.client_id,
+                torrent_context,
+                peer_address,
+                connection_type.clone(),
+            );
+
             self.peer_handles.push(peer_handle);
         }
     }
@@ -224,7 +246,7 @@ impl Torrent {
         }
         else {
             // get peers from tracker response
-            peer_addresses = PeerHandle::peers_from_tracker_response(tracker_response).await;
+            peer_addresses = PeerAddress::from_tracker_response(tracker_response).await;
         }
 
         // add new peers
@@ -251,7 +273,7 @@ impl Torrent {
                         ClientMessage::Shutdown => {
                             // send stop message to all peers
                             for peer_handle in &mut self.peer_handles {
-                                let _ = peer_handle.tx.send(ClientMessage::Shutdown).await;
+                                peer_handle.shutdown().await?;
                             }
 
                             // send stop message to disk writer
@@ -278,10 +300,12 @@ impl Torrent {
         }
 
         for peer_handle in self.peer_handles {
-            let _ = peer_handle.join_handle.await;
+            let _ = peer_handle.join().await;
         }
 
         self.disk_writer_handle.join_handle.await?;
+
+        println!("Torrent '{}' finished, now saving state", self.torrent_context.torrent_name);
 
         Torrent::save_state(self.torrent_context).await?;
 
@@ -291,14 +315,23 @@ impl Torrent {
 }
 
 pub struct TorrentHandle {
-    pub tx: mpsc::Sender<ClientMessage>,
-    pub join_handle: JoinHandle<()>,
+    tx: mpsc::Sender<ClientMessage>,
+    join_handle: JoinHandle<()>,
+
+    torrent_name: String,
 }
 
 impl TorrentHandle {
     pub async fn new(client_id: [u8; 20], src: &str, dest: &str) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(100);
-        let torrent = Torrent::new(client_id, sender.clone(), receiver, src, dest).await?;
+
+        let pipe = CommunicationPipe {
+            tx: sender.clone(),
+            rx: receiver,
+        };
+        let torrent = Torrent::new(client_id, pipe, src, dest).await?;
+
+        let torrent_name = torrent.torrent_context.torrent_name.clone();
 
         let join_handle = tokio::spawn(async move {
             if let Err(e) = torrent.run().await {
@@ -309,12 +342,21 @@ impl TorrentHandle {
         Ok(Self {
             tx: sender,
             join_handle,
+
+            torrent_name,
         })
     }
 
-    pub async fn from_context(client_id: [u8; 20], torrent_context: TorrentContext) -> Result<Self> {
+    pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentState, connection_type: ConnectionType) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(100);
-        let torrent = Torrent::from_context(client_id, sender.clone(), receiver, torrent_context)?;
+
+        let pipe = CommunicationPipe {
+            tx: sender.clone(),
+            rx: receiver,
+        };
+        let torrent = Torrent::from_state(client_id, pipe, torrent_state, connection_type)?;
+
+        let torrent_name = torrent.torrent_context.torrent_name.clone();
 
         let join_handle = tokio::spawn(async move {
             if let Err(e) = torrent.run().await {
@@ -325,6 +367,18 @@ impl TorrentHandle {
         Ok(Self {
             tx: sender,
             join_handle,
+
+            torrent_name,
         })
+    }
+
+    pub async fn join(self) -> Result<()> {
+        self.join_handle.await?;
+        Ok(())
+    }
+
+    pub async fn shutdown(&mut self) -> Result<()> {
+        self.tx.send(ClientMessage::Shutdown).await?;
+        Ok(())
     }
 }
