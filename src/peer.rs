@@ -2,6 +2,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use anyhow::Result;
 
+use std::net::TcpListener;
 use std::sync::Arc;
 
 use crate::messager::ClientMessage;
@@ -19,10 +20,55 @@ pub use peer_message::{PeerMessage, PeerSession, ConnectionType};
 // TODO: change the block size based on the torrent file 
 const BLOCK_SIZE: usize = 1 << 14;
 
+struct PeerPiece {
+    reseived: bool,
+
+    index: usize,
+    size: usize,
+    offset: usize,
+    block_count: usize,
+    block_size: usize,
+
+    data: Vec<u8>,
+}
+
+impl PeerPiece {
+    fn new(index: usize, size: usize) -> Self {
+        println!("new piece: {} {}", index, size);
+        Self {
+            reseived: false,
+
+            index,
+            size,
+            offset: 0,
+            block_count: 0,
+            block_size: BLOCK_SIZE,
+
+            data: Vec::new(),
+        }
+    }
+
+    fn default() -> Self {
+        Self {
+            reseived: false,
+
+            index: 0,
+            size: 0,
+            offset: 0,
+            block_count: 0,
+            block_size: BLOCK_SIZE,
+
+            data: Vec::new(),
+        }
+    }
+}
+
 struct PeerContext {
     id: [u8;20],
     ip: PeerAddress,
     am_interested: bool,
+    am_choking: bool,
+    interested: bool,
     choking: bool,
     bitfield: Vec<usize>,
 }
@@ -69,6 +115,8 @@ impl Peer {
             id: [0; 20],
             ip: addr,
             am_interested: false,
+            am_choking: true,
+            interested: false,
             choking: true,
             bitfield: Vec::new(),
         };
@@ -85,8 +133,16 @@ impl Peer {
     fn get_piece_size(&self, piece_index: usize) -> usize {
         let pieces_count = self.torrent_context.torrent_length.div_ceil(self.torrent_context.piece_length as u64) as usize;
 
+        println!("pieces count: {}", pieces_count);
+
         if piece_index == pieces_count - 1 {
-            (self.torrent_context.torrent_length % self.torrent_context.piece_length as u64) as usize
+            let size = (self.torrent_context.torrent_length % self.torrent_context.piece_length as u64) as usize;
+            if 0 == size {
+                self.torrent_context.piece_length
+            }
+            else {
+                size
+            }
         }
         else {
             self.torrent_context.piece_length
@@ -114,33 +170,89 @@ impl Peer {
         Some(*piece)
     }
 
-    pub async fn run(mut self, connection_type: ConnectionType) -> Result<()> {
-        let mut peer_session = PeerSession::new(connection_type, self.peer_context.ip.address.clone(), self.peer_context.ip.port.clone()).await?;
+    async fn interested(&mut self, peer_session: &mut PeerSession) -> Result<()> {
+        peer_session.interested().await?;
+        self.peer_context.am_interested = true;
+        Ok(())
+    }
+
+    async fn not_interested(&mut self, peer_session: &mut PeerSession) -> Result<()> {
+        peer_session.not_interested().await?;
+        self.peer_context.am_interested = false;
+        Ok(())
+    }
+
+    async fn choke(&mut self, peer_session: &mut PeerSession) -> Result<()> {
+        peer_session.choke().await?;
+        self.peer_context.am_choking = true;
+        Ok(())
+    }
+
+    async fn request(&mut self, peer_session: &mut PeerSession, piece: &mut PeerPiece) -> Result<()> {
+        // if the piece is initialized
+        if 0 != piece.size {
+            // if piece is fully downloaded send it to the client
+            if !piece.reseived {
+                return Ok(());
+            }
+
+            // if the piece is requested but not resived yet
+            if piece.offset == piece.size {
+                self.torrent_context.tx.send(ClientMessage::DownloadedPiece{piece_index: piece.index, piece: piece.data.clone()}).await?;
+                piece.size = 0;
+            }
+        }
+        
+        // if piece is not initialized or if the piece is fully downloaded
+        if 0 == piece.size {
+            match self.get_random_piece_index().await {
+                Some(piece_index) => {
+                    *piece = PeerPiece::new(piece_index, self.get_piece_size(piece_index));
+                },
+                None => {
+                    if self.torrent_context.pieces.lock().await.is_empty() {
+                        self.not_interested(peer_session).await?;                            
+                    }
+                    return Ok(());
+                }
+            }
+        }
+
+        println!("piece size: {}", piece.size);
+
+        if (piece.block_count + 1) * BLOCK_SIZE > piece.size {
+            piece.block_size = piece.size % BLOCK_SIZE;
+        }
+
+        peer_session.send(PeerMessage::Request(piece.index as u32, piece.offset as u32, piece.block_size as u32)).await?;
+        println!("Peer {self} requested {} {} {}", piece.index, piece.offset, piece.block_size);
+
+        piece.offset += piece.block_size;
+        piece.block_count += 1;
+
+        Ok(())
+    }
+
+    pub async fn run(mut self, mut peer_session: PeerSession) -> Result<()> {
         println!("Peer {self} running");
 
         // handshake with peer
         self.peer_context.id = peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id.clone()).await?;
 
-        // send interested message if outgoing connection
-        self.peer_context.am_interested = peer_session.interest().await?;
+        if !self.torrent_context.pieces.lock().await.is_empty() {
+            self.interested(&mut peer_session).await?;
+        }
 
-        let mut current_piece_index = 0;
-        let mut current_piece_size = 0;
-        let mut current_piece_offset = 0;
-        let mut current_block_count = 0;
-        let mut current_block_size = 0;
-
-        let mut current_piece = Vec::new();
+        let mut piece = PeerPiece::default();
         loop {
             tokio::select! {
                 Some(msg) = self.rx.recv() => {
                     match msg {
                         ClientMessage::Shutdown => {
                             println!("Peer {self} stopping");
-
                             // TODO: is it better to wait for the piece to be downloaded or just drop it? (maybe dropping it is better)
-                            if 0 != current_piece_size {
-                                self.torrent_context.pieces.lock().await.push(current_piece_index);
+                            if 0 != piece.size {
+                                self.torrent_context.pieces.lock().await.push(piece.index);
                             }
                             break;
                         },
@@ -148,134 +260,89 @@ impl Peer {
                     }
                 }
                 msg = peer_session.recv() => {
-                    if let Err(e) = msg {
-                        println!("Peer {self} error: {:?}", e);
-                        break;
-                    }
-                    else if let Ok(msg) = msg {
-                        match msg {
-                            PeerMessage::Choke => {
-                                println!("Peer {self} choke");
-                                self.peer_context.choking = true;
-                            },
-                            PeerMessage::Unchoke => {
-                                println!("Peer {self} unchoke");
-                                self.peer_context.choking = false;
-                            },
-                            PeerMessage::Interested => {
-                                println!("Peer {self} interested");
-                                self.peer_context.am_interested = true;
-                            },
-                            PeerMessage::NotInterested => {
-                                println!("Peer {self} not interested");
-                                self.peer_context.am_interested = false;
-                            },
-                            PeerMessage::Have(index) => {
-                                println!("Peer {self} have {}", index);
-                                todo!();
-                            },
-                            PeerMessage::Bitfield(bitfield) => {
-                                println!("Peer {self} bitfield {:?}", bitfield);
+                    let msg = msg.map_err(|e| anyhow::anyhow!("Peer {self} errored: {:?}", e))?;
+                    match msg {
+                        PeerMessage::Choke => {
+                            println!("Peer {self} choke");
+                            self.peer_context.choking = true;
+                            todo!();
+                        },
+                        PeerMessage::Unchoke => {
+                            println!("Peer {self} unchoke");
+                            self.peer_context.choking = false;
+                        },
+                        PeerMessage::Interested => {
+                            println!("Peer {self} interested");
+                            self.peer_context.interested = true;
+                            todo!();
+                        },
+                        PeerMessage::NotInterested => {
+                            println!("Peer {self} not interested");
+                            self.peer_context.interested = false;
+                            self.choke(&mut peer_session).await?;
+                        },
+                        PeerMessage::Have(index) => {
+                            println!("Peer {self} have {}", index);
+                            if !self.peer_context.bitfield.contains(&(index as usize)) {
+                                self.peer_context.bitfield.push(index as usize);
+                            }
+                        },
+                        PeerMessage::Bitfield(bitfield) => {
+                            println!("Peer {self} bitfield {:?}", bitfield);
 
-                                let mut available_pieces = Vec::new();
-                                for (i, byte) in bitfield.iter().enumerate() {
-                                    for j in 0..8 {
-                                        if byte & (1 << (7 - j)) != 0 {
-                                            available_pieces.push(i * 8 + j);
-                                        }
+                            let mut available_pieces = Vec::new();
+                            for (i, byte) in bitfield.iter().enumerate() {
+                                for j in 0..8 {
+                                    if byte & (1 << (7 - j)) != 0 {
+                                        available_pieces.push(i * 8 + j);
                                     }
                                 }
-
-                                self.peer_context.bitfield = available_pieces;
-                            },
-                            PeerMessage::Request(index, begin, length) => {
-                                println!("Peer {self} request {} {} {}", index, begin, length);
-                                todo!();
-                            },
-                            PeerMessage::Piece(index, begin, block) => {
-                                println!("Peer {self} piece {} {}", index, begin);
-
-                                if 0 == current_piece_size {
-                                    println!("Peer {self} received piece when no piece was requested");
-                                    todo!();
-                                }
-
-                                if index as usize != current_piece_index || begin as usize != current_piece_offset - current_block_size {
-                                    println!("Peer {self} sent wrong piece");
-                                    todo!();
-                                }
-                                current_piece.extend(block);
-                            },
-                            PeerMessage::Cancel(index, begin, length) => {
-                                println!("Peer {self} cancel {} {} {}", index, begin, length);
-                                todo!();
-                            },
-                            PeerMessage::Port(port) => {
-                                println!("Peer {self} port {}", port);
-                                todo!();
-                            },
-                            _ => {
-                                println!("Peer {self} sent unknown message: {msg:?}");
                             }
+
+                            self.peer_context.bitfield = available_pieces;
+                        },
+                        PeerMessage::Request(index, begin, length) => {
+                            println!("Peer {self} request {} {} {}", index, begin, length);
+                            todo!();
+                        },
+                        PeerMessage::Piece(index, begin, block) => {
+                            println!("Peer {self} piece {} {}", index, begin);
+
+                            if 0 == piece.size {
+                                eprintln!("Peer {self} received piece when no piece was requested");
+                                continue;
+                            }
+                            
+                            if index as usize != piece.index || begin as usize != piece.offset - piece.block_size {
+                                eprintln!("Peer {self} sent wrong piece");
+                                continue;
+                            }
+                            piece.data.extend(block);
+                            piece.reseived = true;
+                        },
+                        PeerMessage::Cancel(index, begin, length) => {
+                            println!("Peer {self} cancel {} {} {}", index, begin, length);
+                            todo!();
+                        },
+                        PeerMessage::Port(port) => {
+                            println!("Peer {self} port {}", port);
+                            todo!();
+                        },
+                        _ => {
+                            println!("Peer {self} sent unknown message: {msg:?}");
                         }
                     }
                 }
             }
 
-            if !self.peer_context.am_interested {
-                todo!();
-            }
-
-            if self.peer_context.choking {
+            // if bitfield is empty then the peer has no pieces to download
+            if self.peer_context.bitfield.is_empty() {
                 continue;
             }
 
-            // make requests for pieces
-            if self.peer_context.bitfield.is_empty() {
-                todo!();
+            if !self.peer_context.choking && self.peer_context.am_interested {
+                self.request(&mut peer_session, &mut piece).await?;
             }
-            
-            if 0 != current_piece_size && current_piece_offset == current_piece_size {
-                self.torrent_context.tx.send(ClientMessage::DownloadedPiece{piece_index: current_piece_index, piece: current_piece.clone()}).await?;
-                current_piece_size = 0;
-            }
-
-            if 0 == current_piece_size {
-                match self.get_random_piece_index().await {
-                    Some(piece_index) => {
-                        current_piece_index = piece_index;
-                        current_piece_size = self.get_piece_size(piece_index);
-                        current_piece_offset = 0;
-                        current_block_count = 0;
-                        current_block_size = BLOCK_SIZE;
-
-                        current_piece.clear();
-                    },
-                    None => {
-                        println!("Peer {self} has no more pieces to download right now");
-                        if !self.torrent_context.pieces.lock().await.is_empty() {
-                            todo!();
-                        }
-
-                        // wait for incoming messages for seeding 
-                        todo!();
-    
-                        break;
-                    }
-                }
-            }
-            
-            if (current_block_count + 1) * BLOCK_SIZE > current_piece_size {
-                current_block_size = current_piece_size % BLOCK_SIZE;
-            }
-            println!("Piece size: {}", current_piece_size);
-            println!("Block size: {}", current_block_size);
-
-            peer_session.send(PeerMessage::Request(current_piece_index as u32, current_piece_offset as u32, current_block_size as u32)).await?;
-            println!("Peer {self} request {} {} {}", current_piece_index, current_piece_offset, current_block_size);
-            
-            current_piece_offset += current_block_size;
-            current_block_count += 1;
         }
 
         Ok(())  
@@ -290,21 +357,29 @@ pub struct PeerHandle {
 }
 
 impl PeerHandle {
-    pub fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, addr: PeerAddress, connection_type: ConnectionType) -> Self {
+    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, stream: tokio::net::TcpStream, connection_type: ConnectionType) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(100);
-        
-        let peer = Peer::new(client_id, torrent_context, addr.clone(), receiver);
+
+        let addr = stream.peer_addr()?;
+        let peer_address = PeerAddress{
+            address: addr.ip().to_string(),
+            port: addr.port().to_string(),
+        };
+
+        let peer = Peer::new(client_id, torrent_context, peer_address.clone(), receiver);
+
+        let peer_session = PeerSession::new(stream, connection_type).await?;
         let join_handle = tokio::spawn(async move {
-            if let Err(e) = peer.run(connection_type).await {
+            if let Err(e) = peer.run(peer_session).await {
                 println!("Peer error: {:?}", e);
             }
         });
 
-        Self {
+        Ok(Self {
             tx: sender,
             join_handle,
-            peer_address: addr,
-        }
+            peer_address,
+        })
     }
 
     pub async fn join(self) -> Result<()> {

@@ -43,7 +43,7 @@ impl TorrentState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TorrentContext {
     connection_type: ConnectionType,
 
@@ -86,7 +86,6 @@ struct Torrent {
 // static functions for Torrent
 impl Torrent {
     async fn save_state(torrent_context: TorrentContext) -> Result<()> {
-        let connection_type = torrent_context.connection_type.clone();
         let torrent_context = TorrentState::new(torrent_context).await;
         
         let client_state = match tokio::fs::read_to_string(crate::STATE_FILE_PATH).await {
@@ -96,26 +95,14 @@ impl Torrent {
 
         let mut client_state: serde_json::Value = match client_state.len() {
             0 => serde_json::json!({}),
-            _ => serde_json::from_str(&client_state).unwrap(),
+            _ => serde_json::from_str(&client_state).unwrap(), // client state is always valid json
         };
 
-        let torrent_name = torrent_context.torrent_name.clone();
+        let torrent_info_hash = torrent_context.info_hash.clone();
+        let torrent_context = serde_json::to_value(torrent_context).unwrap(); // torrent context is always valid json
+        client_state[torrent_info_hash.as_hex()] = torrent_context;
 
-        if torrent_context.pieces.len() == 0 {
-            let torrent_context = serde_json::to_value(torrent_context).unwrap();
-            client_state["Downloaded"][torrent_name] = torrent_context;
-        }
-        else {
-            let connection_type = match connection_type {
-                ConnectionType::Incoming => "Seeding",
-                ConnectionType::Outgoing => "Downloading",
-            };
-
-            let torrent_context = serde_json::to_value(torrent_context).unwrap();
-            client_state[connection_type][torrent_name] = torrent_context;
-        }
-
-        let client_state = serde_json::to_string_pretty(&client_state).unwrap();
+        let client_state = serde_json::to_string_pretty(&client_state).unwrap(); // client state is always valid json
 
         tokio::fs::write(crate::STATE_FILE_PATH, client_state).await.context("couldn't write to client state file")?;
 
@@ -155,6 +142,7 @@ impl Torrent {
         };
 
         let torrent_context = DiskWriterTorrentContext::new(
+            self_pipe.tx.clone(),
             dest.to_string(),
             torrent_name.to_string(),
             torrent_file.clone()
@@ -188,6 +176,7 @@ impl Torrent {
 
     pub fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentState, connection_type: ConnectionType) -> Result<Self> {
         let torrent_context = DiskWriterTorrentContext::new(
+            self_pipe.tx.clone(),
             torrent_state.dest_path.clone(),
             torrent_state.torrent_name.clone(),
             torrent_state.torrent_file.clone()
@@ -211,7 +200,7 @@ impl Torrent {
         })
     }   
 
-    fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) -> Result<()>{
+    async fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) -> Result<()>{
         let old_peer_addresses = self.peer_handles
         .iter()
         .map(|peer_handle| peer_handle.peer_address.clone())
@@ -240,12 +229,14 @@ impl Torrent {
                 Arc::clone(&self.torrent_context.pieces),
             );
 
+            let stream = tokio::net::TcpStream::connect(format!("{}:{}", peer_address.address, peer_address.port)).await?;
+
             let peer_handle = PeerHandle::new(
                 self.client_id,
                 torrent_context,
-                peer_address,
+                stream,
                 connection_type.clone(),
-            );
+            ).await?;
 
             self.peer_handles.push(peer_handle);
         }
@@ -253,8 +244,8 @@ impl Torrent {
         Ok(())
     }
 
-    pub fn load_state(&mut self) -> Result<()> {
-        self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone())
+    pub async fn load_state(&mut self) -> Result<()> {
+        self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone()).await
     }
 
     async fn get_tracker(&self) -> Result<Tracker> {
@@ -270,19 +261,21 @@ impl Torrent {
             false => PeerAddress::from_tracker_response(tracker_response).await
         };
 
-        self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone())?;
+        self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone()).await?;
 
         Ok(())
     }
 
     pub async fn run(mut self) -> Result<()> {
-        self.load_state()?;
+        self.load_state().await?;
 
         // initialize tracker
         let mut tracker = self.get_tracker().await?;
 
         // if torrent needs more pieces
         if self.torrent_context.pieces.lock().await.len() > 0 {
+            println!("Starting download of torrent '{}'", self.torrent_context.torrent_name);
+
             // connect to peers that may have the pieces
             self.connect_to_peers(&mut tracker).await?;
         }
@@ -296,15 +289,17 @@ impl Torrent {
                             for peer_handle in &mut self.peer_handles {
                                 peer_handle.shutdown().await?;
                             }
-
                             // send stop message to disk writer
                             self.disk_writer_handle.shutdown().await?;
-
                             break;
                         }
                         ClientMessage::DownloadedPiece { piece_index, piece } => {
                             self.disk_writer_handle.downloaded_piece(piece_index, piece).await?;
                         },
+                        ClientMessage::FinishedDownloading => {
+                            println!("Torrent '{}' downloaded", self.torrent_context.torrent_name);
+                            Torrent::save_state(self.torrent_context.clone()).await?;
+                        }
                         _ => {}
                     }
                 },
@@ -324,8 +319,6 @@ impl Torrent {
         }
 
         self.disk_writer_handle.join().await?;
-
-        println!("Torrent '{}' finished, now saving state", self.torrent_context.torrent_name);
 
         Torrent::save_state(self.torrent_context).await?;
 

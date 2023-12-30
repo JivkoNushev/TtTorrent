@@ -158,13 +158,26 @@ pub struct PeerSession {
 }
 
 impl PeerSession {
-    pub async fn new(connection_type: ConnectionType, address: String, port: String) -> Result<Self> {
-        let stream = tokio::net::TcpStream::connect(format!("{}:{}", address, port)).await.context("couldn't connect to peer")?;
-
+    pub async fn new(stream: tokio::net::TcpStream, connection_type: ConnectionType) -> Result<Self> {
         Ok(Self {
             stream,
             connection_type,
         })
+    }
+
+    pub async fn interested(&mut self) -> Result<()> {
+        self.send(PeerMessage::Interested).await?;
+        Ok(())
+    }
+
+    pub async fn not_interested(&mut self) -> Result<()> {
+        self.send(PeerMessage::NotInterested).await?;
+        Ok(())
+    }
+
+    pub async fn choke(&mut self) -> Result<()> {
+        self.send(PeerMessage::Choke).await?;
+        Ok(())
     }
 
     pub async fn handshake(&mut self, info_hash: Sha1Hash, client_id: [u8; 20]) -> Result<[u8; 20]> {
@@ -196,17 +209,6 @@ impl PeerSession {
             }
         }
 
-    }
-
-    pub async fn interest(&mut self) -> Result<bool> {
-        if self.connection_type == ConnectionType::Outgoing {
-            self.send(PeerMessage::Interested).await?;
-
-            Ok(true)
-        }
-        else {
-            Ok(false)
-        }
     }
 
     pub async fn send(&mut self, peer_message: PeerMessage) -> Result<()> {

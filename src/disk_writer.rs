@@ -20,14 +20,18 @@ struct DownloadableFile {
 
 #[derive(Debug, Clone)]
 pub struct DiskWriterTorrentContext {
+    tx: mpsc::Sender<ClientMessage>,
+
     dest_path: String,
     torrent_name: String,
     torrent_file: TorrentFile,
 }
 
 impl DiskWriterTorrentContext {
-    pub fn new(dest_path: String, torrent_name: String, torrent_file: TorrentFile) -> Self {
+    pub fn new(tx: mpsc::Sender<ClientMessage>, dest_path: String, torrent_name: String, torrent_file: TorrentFile) -> Self {
         Self {
+            tx,
+
             dest_path,
             torrent_name,
             torrent_file,
@@ -250,7 +254,9 @@ impl DiskWriter {
                                     println!("Semaphore Error: {}", e);
                                     return;
                                 }
-                                DiskWriter::write_to_file(torrent_context, piece_index, piece).await;
+                                if let Err(e) = DiskWriter::write_to_file(torrent_context, piece_index, piece).await {
+                                    println!("Disk writer error: {:?}", e);
+                                }
                             });
 
                             writer_handles.push(handle);
@@ -269,6 +275,9 @@ impl DiskWriter {
         for handle in writer_handles {
             handle.await?;
         }
+
+        // send to torrent FinishedDownloading message
+        self.torrent_context.tx.send(ClientMessage::FinishedDownloading).await?;
 
         Ok(())
     }
@@ -304,6 +313,10 @@ impl DiskWriterHandle {
     pub async fn join(self) -> Result<()> {
         self.join_handle.await?;
         Ok(())
+    }
+
+    pub async fn is_finished(&mut self) -> bool {
+        self.join_handle.is_finished()
     }
 
     pub async fn shutdown(&mut self) -> Result<()> {

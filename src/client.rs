@@ -29,59 +29,18 @@ impl Client {
         let client_state = match tokio::fs::read_to_string(crate::STATE_FILE_PATH).await {
             Ok(state) => state,
             Err(_) => {
-                println!("No client state found");
+                println!("No available client state");
                 return Ok(());
             }
         };
-        
-        let client_state = match serde_json::from_str::<serde_json::Value>(&client_state) {
-            Ok(state) => state,
-            Err(e) => {
-                println!("Failed to deserialize client state: {}", e);
-                return Ok(());
-            }
-        };
+        let client_state = serde_json::from_str::<serde_json::Value>(&client_state)?;
         println!("Loading client state");
 
-        if let Some(downloading) = client_state.get("Downloading") {
-            for (key, val) in downloading.as_object().unwrap() {
-                let torrent_state = match serde_json::from_value::<TorrentState>(val.clone()) {
-                    Ok(torrent_state) => torrent_state,
-                    Err(e) => {
-                        println!("Failed to deserialize torrent state: {}", e);
-                        continue;
-                    }
-                };
+        for (_, val) in client_state.as_object().unwrap() { // client_state is always a valid json object
+            let torrent_state = serde_json::from_value::<TorrentState>(val.clone())?;
 
-                println!("Loading torrent: {}", key);
-
-                let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_state, ConnectionType::Outgoing).await?;
-                self.torrent_handles.push(torrent_handle);
-            }
-        }
-        else {
-            println!("No Downloading key found in client state");
-        }
-
-        // TODO: seeding
-        if let Some(seeding) = client_state.get("Seeding") {
-            for (key, val) in seeding.as_object().unwrap() {
-                let torrent_context = match serde_json::from_value::<TorrentState>(val.clone()) {
-                    Ok(torrent_context) => torrent_context,
-                    Err(e) => {
-                        println!("Failed to deserialize torrent state: {}", e);
-                        continue;
-                    }
-                };
-
-                println!("Loading torrent: {}", key);
-
-                let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_context, ConnectionType::Incoming).await?;
-                self.torrent_handles.push(torrent_handle);
-            }
-        }
-        else {
-            println!("No Seeding key found in client state");
+            let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_state, ConnectionType::Outgoing).await?;
+            self.torrent_handles.push(torrent_handle);
         }
 
         Ok(())
