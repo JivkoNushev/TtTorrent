@@ -1,9 +1,7 @@
-use anyhow::{Result, Context};
+use anyhow::{Result, Context, anyhow};
 
 use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash };
 
-use crate::client::ClientHandle;
-use crate::peer::PeerHandle;
 use crate::utils::UrlEncodable;
 
 #[derive(Debug, Clone)]
@@ -25,33 +23,27 @@ impl Tracker {
     pub async fn default_params(&mut self, hashed_info_dict: &Sha1Hash, client_id: [u8; 20]) -> Result<reqwest::Response> {
         let tracker_request = self.get_url(&Tracker::tracker_params_default(hashed_info_dict, client_id));
         
-        let mut response = reqwest::get("https://1.1.1.1").await.context("error with debug request")?;
-        if !crate::DEBUG_MODE {
-            response = reqwest::get(&tracker_request).await.context("invalid tracker url")?;
-        }
+        let response = match crate::DEBUG_MODE {
+            true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
+            false => reqwest::get(&tracker_request).await.context("invalid tracker url")?
+        };
 
         Ok(response)
     }
 }
 
 impl Tracker {
-    pub fn tracker_url_get(bencoded_dict: &BencodedValue) -> Option<String> {
-        let tracker_announce = match bencoded_dict.get_from_dict("announce") {
-            Some(tracker_announce) => tracker_announce,
-            None => panic!("No tracker announce key found")
-        };
+    pub fn tracker_url_get(bencoded_dict: &BencodedValue) -> Result<String> {
+        let tracker_announce = bencoded_dict.get_from_dict("announce")?;
     
         let tracker_announce = match tracker_announce {
             BencodedValue::ByteString(tracker_announce) => tracker_announce,
-            _ => panic!("No tracker announce key found")
+            _ => return Err(anyhow!("No tracker announce key found"))
         };
     
-        let tracker_announce = match String::from_utf8(tracker_announce.clone()) {
-            Ok(tracker_announce) => tracker_announce,
-            Err(_) => panic!("Tracker announce key is not a valid utf8 string")
-        };
+        let tracker_announce = String::from_utf8(tracker_announce.clone())?;
     
-        Some(tracker_announce)
+        Ok(tracker_announce)
     }
     
     pub fn tracker_params_default(hashed_info_dict: &Sha1Hash, client_id: [u8; 20]) -> String {

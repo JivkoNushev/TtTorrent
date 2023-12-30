@@ -1,6 +1,6 @@
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
-use anyhow::{Result, Context, Ok};
+use anyhow::{Result, Context, Ok, anyhow};
 use serde::{Serialize, Deserialize};
 
 use std::sync::Arc;
@@ -133,29 +133,20 @@ impl Torrent {
             .to_str()
             .unwrap();
 
-        let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()) {
-            Some(info_hash) => info_hash,
-            None => panic!("Could not get info hash from torrent file: {}", torrent_name)
-        };
+        let info_hash = TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref())?;
 
         // not downloaded piece indexes
         let pieces_left = {
-            let torrent_dict = match torrent_file.get_bencoded_dict_ref().try_into_dict() {
-                Some(torrent_dict) => torrent_dict,
-                None => panic!("Could not get torrent dict ref from torrent file: {}", torrent_name)
-            };
+            let torrent_dict = torrent_file.get_bencoded_dict_ref().try_into_dict()?;
             let info_dict = match torrent_dict.get("info") {
                 Some(info_dict) => info_dict,
-                None => panic!("Could not get info dict from torrent file ref: {}", torrent_name)
+                None => return Err(anyhow!("Could not get info dict from torrent file ref: {}", torrent_name))
             };
-            let pieces = match info_dict.get_from_dict("pieces") {
-                Some(pieces) => pieces,
-                None => panic!("Could not get pieces from info dict ref in torrent file: {}", torrent_name)
-            };
+            let pieces = info_dict.get_from_dict("pieces")?;
 
             let pieces = match pieces {
                 BencodedValue::ByteSha1Hashes(pieces) => pieces,
-                _ => panic!("Could not get pieces from info dict ref in torrent file: {}", torrent_name)
+                _ => return Err(anyhow!("Could not get pieces from info dict ref in torrent file: {}", torrent_name))
             };
 
             let pieces_left = (0..pieces.len()).collect::<Vec<usize>>();
@@ -220,7 +211,7 @@ impl Torrent {
         })
     }   
 
-    fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) {
+    fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) -> Result<()>{
         let old_peer_addresses = self.peer_handles
         .iter()
         .map(|peer_handle| peer_handle.peer_address.clone())
@@ -232,8 +223,8 @@ impl Torrent {
         .cloned()
         .collect::<Vec<PeerAddress>>();
 
-        let piece_length = self.torrent_context.torrent_file.get_piece_length();
-        let torrent_length = self.torrent_context.torrent_file.get_torrent_length();
+        let piece_length = self.torrent_context.torrent_file.get_piece_length()?;
+        let torrent_length = self.torrent_context.torrent_file.get_torrent_length()?;
 
         for peer_address in peer_addresses {
             let peer_address_clone = peer_address.clone();
@@ -258,43 +249,44 @@ impl Torrent {
 
             self.peer_handles.push(peer_handle);
         }
+
+        Ok(())
     }
 
-    async fn download(&mut self, tracker_response: reqwest::Response) {
-        let peer_addresses;
-        
-        if crate::DEBUG_MODE {
-            // peer_addresses = vec![PeerAddress{address: "127.0.0.1".to_string(), port: "37051".to_string()}];
-            peer_addresses = vec![PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}];
-        }
-        else {
-            // get peers from tracker response
-            peer_addresses = PeerAddress::from_tracker_response(tracker_response).await;
-        }
-
-        // add new peers
-        self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone());
+    pub fn load_state(&mut self) -> Result<()> {
+        self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone())
     }
 
-    pub fn load_state(&mut self) {
-        self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone());
+    async fn get_tracker(&self) -> Result<Tracker> {
+        let tracker_url = Tracker::tracker_url_get(self.torrent_context.torrent_file.get_bencoded_dict_ref())?;
+        Ok(Tracker::new(&tracker_url).await)
+    }
+
+    async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
+        // TODO: create a tracker request based on the missing pieces
+        let tracker_response = tracker.default_params(&self.torrent_context.info_hash, self.client_id).await.context("couldn't get response with default parameters")?;
+        let peer_addresses = match crate::DEBUG_MODE {
+            true => vec![PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
+            false => PeerAddress::from_tracker_response(tracker_response).await
+        };
+
+        self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone())?;
+
+        Ok(())
     }
 
     pub async fn run(mut self) -> Result<()> {
-        self.load_state();
+        self.load_state()?;
 
-        let tracker_url = match Tracker::tracker_url_get(self.torrent_context.torrent_file.get_bencoded_dict_ref()) {
-            Some(tracker_url) => tracker_url,
-            None => panic!("Could not get tracker url from torrent file: {}", self.torrent_context.torrent_name)
-        };
+        // initialize tracker
+        let mut tracker = self.get_tracker().await?;
 
-        let mut tracker = Tracker::new(&tracker_url).await;
-        
-        // run tracker with default params
-        let tracker_response = tracker.default_params(&self.torrent_context.info_hash, self.client_id).await.context("couldn't get response with default parameters")?;
-        self.download(tracker_response).await;
+        // if torrent needs more pieces
+        if self.torrent_context.pieces.lock().await.len() > 0 {
+            // connect to peers that may have the pieces
+            self.connect_to_peers(&mut tracker).await?;
+        }
 
-        // TODO: exit when torrent is finished
         loop {
             tokio::select! {
                 Some(msg) = self.rx.recv() => {
@@ -313,18 +305,17 @@ impl Torrent {
                         ClientMessage::DownloadedPiece { piece_index, piece } => {
                             self.disk_writer_handle.downloaded_piece(piece_index, piece).await?;
                         },
-                        ClientMessage::FinishedDownloading => {
-                            break;
-                        }
                         _ => {}
                     }
                 },
                 _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    // TODO: get more peers
-                    continue;
-                    let tracker_response = todo!("Tracker response with updated params based on current state");
-                    let rxs = self.download(tracker_response).await;
+                    // connect to more peers with better tracker request
+                    if self.torrent_context.pieces.lock().await.len() > 0 {
+                        // connect to peers that may have the pieces
+                        self.connect_to_peers(&mut tracker).await?;
+                    }
                 }
+                // TODO: listen to an open socket for seeding
             }
         }
 

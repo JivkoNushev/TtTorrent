@@ -1,14 +1,12 @@
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
 use tokio::sync::{mpsc, Semaphore};
-use anyhow::{Result, Context};
+use anyhow::{Result, anyhow};
 
-use std::arch::x86_64::_mm_shuffle_epi32;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
-
 
 #[derive(Debug, Clone)]
 struct DownloadableFile {
@@ -54,35 +52,33 @@ impl DiskWriter {
         }
     }
 
-    fn get_piece_size(torrent_context: &DiskWriterTorrentContext, piece_index: usize) -> usize {
+    fn get_piece_size(torrent_context: &DiskWriterTorrentContext, piece_index: usize) -> Result<usize> {
         // TODO: fix ? dont use get functions in here
 
-        let torrent_length = torrent_context.torrent_file.get_torrent_length();
-        let piece_length = torrent_context.torrent_file.get_piece_length();
+        let torrent_length = torrent_context.torrent_file.get_torrent_length()?;
+        let piece_length = torrent_context.torrent_file.get_piece_length()?;
 
         let pieces_count = torrent_length.div_ceil(piece_length as u64) as usize;
 
-        if piece_index == pieces_count - 1 {
+        let piece_size = if piece_index == pieces_count - 1 {
             (torrent_length % piece_length as u64) as usize
-        }
-        else {
+        } else {
             piece_length
-        }
+        };
+
+        Ok(piece_size)
     }
 
-    fn get_files(torrent_context: &DiskWriterTorrentContext) -> Vec<BTreeMap<String, BencodedValue>> {
-        let torrent_dict = match torrent_context.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", torrent_context.torrent_name)
-        };
+    fn get_files(torrent_context: &DiskWriterTorrentContext) -> Result<Vec<BTreeMap<String, BencodedValue>>> {
+        let torrent_dict = torrent_context.torrent_file.get_bencoded_dict_ref().try_into_dict()?;
         let info_dict = match torrent_dict.get("info") {
             Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", torrent_context.torrent_name)
+            None => return Err(anyhow!("Could not get info dict from torrent file ref: {}", torrent_context.torrent_name))
         };
         
         let mut all_files = Vec::new();
 
-        if let Some(files_dict) = info_dict.get_from_dict("files") {
+        if let Ok(files_dict) = info_dict.get_from_dict("files") {
             let files = match files_dict {
                 BencodedValue::List(files) => files,
                 _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
@@ -98,22 +94,16 @@ impl DiskWriter {
             }
         }
         else {
-            let file_name = match info_dict.get_from_dict("name") {
-                Some(file_name) => file_name,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
-            };
+            let file_name = info_dict.get_from_dict("name")?;
             let file_name = match file_name {
                 BencodedValue::ByteString(file_name) => file_name,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
+                _ => return Err(anyhow!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name))
             };
 
-            let length = match info_dict.get_from_dict("length") {
-                Some(length) => length,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
-            };
+            let length = info_dict.get_from_dict("length")?;
             let length = match length {
                 BencodedValue::Integer(length) => length,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
+                _ => return Err(anyhow!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name))
             };
 
             let mut file_dict = BTreeMap::new();
@@ -123,18 +113,18 @@ impl DiskWriter {
             all_files.push(file_dict);
         }
 
-        all_files
+        Ok(all_files)
     }
 
-    async fn get_files_to_download(torrent_context: &DiskWriterTorrentContext) -> Vec<DownloadableFile> {
-        let files_to_download = DiskWriter::get_files(torrent_context);
+    async fn get_files_to_download(torrent_context: &DiskWriterTorrentContext) -> Result<Vec<DownloadableFile>> {
+        let files_to_download = DiskWriter::get_files(torrent_context)?;
 
         let mut files_to_download = files_to_download
             .iter()
             .map(|file| {
                 let size = match file.get("length") {
                     Some(BencodedValue::Integer(size)) => *size as u64,
-                    _ => panic!("Error: couldn't get file size")
+                    _ => return Err(anyhow!("Error: couldn't get file size"))
                 };
 
                 let path = match file.get("path") {
@@ -159,28 +149,28 @@ impl DiskWriter {
                     _ => None
                 };
 
-                DownloadableFile {
+                Ok(DownloadableFile {
                     start: 0,
                     size,
                     path,
                     _md5sum
-                }
+                })
             })
-            .collect::<Vec<DownloadableFile>>();
-
+            .collect::<Result<Vec<DownloadableFile>>>()?;
+        
         // start of file is the size of the previous file
         for i in 1..files_to_download.len() {
             files_to_download[i].start = files_to_download[i - 1].start + files_to_download[i - 1].size;
         }
         
-        files_to_download
+        Ok(files_to_download)
     }
 
-    async fn write_to_file(torrent_context: Arc<DiskWriterTorrentContext>, piece_index: usize, piece: Vec<u8>) {
-        let files = DiskWriter::get_files_to_download(&torrent_context).await;
+    async fn write_to_file(torrent_context: Arc<DiskWriterTorrentContext>, piece_index: usize, piece: Vec<u8>) -> Result<()> {
+        let files = DiskWriter::get_files_to_download(&torrent_context).await?;
 
-        let piece_length = DiskWriter::get_piece_size(&torrent_context, piece_index) as u64;
-        let mut piece_start_offset = (DiskWriter::get_piece_size(&torrent_context, 0) * piece_index) as u64;
+        let piece_length = DiskWriter::get_piece_size(&torrent_context, piece_index)? as u64;
+        let mut piece_start_offset = (DiskWriter::get_piece_size(&torrent_context, 0)? * piece_index) as u64;
 
         let mut file_index= 0;
         let mut file_offset = 0;
@@ -231,6 +221,8 @@ impl DiskWriter {
             bytes_left -= bytes_to_write;
             file_index += 1;
         }
+
+        Ok(())
     }
 
     async fn run(mut self) -> Result<()> {

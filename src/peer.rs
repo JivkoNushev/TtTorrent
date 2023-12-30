@@ -257,7 +257,8 @@ impl Peer {
                             todo!();
                         }
 
-                        self.torrent_context.tx.send(ClientMessage::FinishedDownloading).await?;
+                        // wait for incoming messages for seeding 
+                        todo!();
     
                         break;
                     }

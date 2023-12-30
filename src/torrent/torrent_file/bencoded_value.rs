@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use anyhow::{Result, anyhow};
 
 use std::collections::BTreeMap;
 
@@ -29,10 +30,10 @@ pub enum BencodedValue {
 }
 
 impl BencodedValue {
-    pub fn try_into_dict(&self) -> Option<&BTreeMap<String, BencodedValue>> {
+    pub fn try_into_dict(&self) -> Result<&BTreeMap<String, BencodedValue>> {
         match self {
-            BencodedValue::Dict(d) => Some(d),
-            _ => None
+            BencodedValue::Dict(d) => Ok(d),
+            _ => Err(anyhow!("Trying to convert a non-bencoded dictionary"))
         }
     }
 
@@ -62,15 +63,12 @@ impl BencodedValue {
         }
     }
 
-    pub fn get_from_dict(&self, key: &str) -> Option<BencodedValue> {
-        let dict = match self.try_into_dict() {
-            Some(dict) => dict,
-            None => panic!("Trying to get a value from a non-bencoded dictionary")
-        };
+    pub fn get_from_dict(&self, key: &str) -> Result<BencodedValue> {
+        let dict = self.try_into_dict()?;
 
         match dict.get(key) {
-            Some(value) => Some(value.clone()),
-            None => None
+            Some(value) => Ok(value.clone()),
+            None => Err(anyhow!("Key not found in dictionary"))
         }
     }
 
@@ -88,8 +86,8 @@ impl BencodedValue {
 
     pub fn torrent_file_is_valid(&self) -> bool {
         let dict = match self.try_into_dict() {
-            Some(dict) => dict,
-            None => panic!("Trying to validate a non-bencoded dictionary")
+            Ok(dict) => dict,
+            Err(_) => return false
         };
 
         if ["announce", "info"].iter().any(|key| !dict.contains_key(*key)) {
