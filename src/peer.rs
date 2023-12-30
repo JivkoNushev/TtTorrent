@@ -246,9 +246,13 @@ impl Peer {
                 }
             }
 
-            if current_block_count * BLOCK_SIZE > current_piece_size {
+            
+            if (current_block_count + 1) * BLOCK_SIZE > current_piece_size {
                 current_block_size = current_piece_size % BLOCK_SIZE;
             }
+            println!("Piece size: {}", current_piece_size);
+            println!("Block size: {}", current_block_size);
+
             peer_session.send(PeerMessage::Request(current_piece_index as u32, current_piece_offset as u32, current_block_size as u32)).await?;
             println!("Peer {self} request {} {} {}", current_piece_index, current_piece_offset, current_block_size);
             
