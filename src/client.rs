@@ -91,6 +91,8 @@ impl Client {
         // load the client state
         self.load_state().await?;
 
+        let mut sending_to_terminal_client = false;
+
         loop {
             tokio::select! {
                 Some(msg) = self.rx.recv() => {
@@ -108,8 +110,21 @@ impl Client {
 
                             break;
                         },
+                        ClientMessage::SendTorrentInfo => {
+                            sending_to_terminal_client = true;
+                        },
+                        ClientMessage::TerminalClientClosed => {
+                            sending_to_terminal_client = false;
+                        },
                         _ => {}
                     }
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+                    if !sending_to_terminal_client {
+                        continue;
+                    }
+
+                    // create torrent info to send to the terminal client
                 }
             }
         }

@@ -1,13 +1,17 @@
-use tokio::{io::{AsyncSeekExt, AsyncWriteExt}, sync::mpsc, task::JoinHandle};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, Semaphore};
 use anyhow::{Result, Context};
 
+use std::arch::x86_64::_mm_shuffle_epi32;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile, self}};
+use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
 
 
-#[derive(Debug)]
-pub struct DownloadableFile {
+#[derive(Debug, Clone)]
+struct DownloadableFile {
     start: u64,
     size: u64,
     path: String,
@@ -16,32 +20,45 @@ pub struct DownloadableFile {
     _md5sum: Option<Vec<u8>>
 }
 
-struct DiskWriter {
-    rx: mpsc::Receiver<ClientMessage>,
-
+#[derive(Debug, Clone)]
+pub struct DiskWriterTorrentContext {
     dest_path: String,
     torrent_name: String,
     torrent_file: TorrentFile,
-    torrent_pieces_count: usize,
 }
 
-impl DiskWriter {
-    pub fn new(rx: mpsc::Receiver<ClientMessage>, dest_path: String, torrent_name: String, torrent_file: TorrentFile, torrent_pieces_count: usize) -> Self {
+impl DiskWriterTorrentContext {
+    pub fn new(dest_path: String, torrent_name: String, torrent_file: TorrentFile) -> Self {
         Self {
-            rx,
-
             dest_path,
             torrent_name,
             torrent_file,
+        }
+    }
+}
+
+struct DiskWriter {
+    rx: mpsc::Receiver<ClientMessage>,
+    torrent_pieces_count: usize,
+
+    torrent_context: Arc<DiskWriterTorrentContext>,
+}
+
+impl DiskWriter {
+    pub fn new(rx: mpsc::Receiver<ClientMessage>, torrent_context: DiskWriterTorrentContext, torrent_pieces_count: usize) -> Self {
+        Self {
+            rx,
             torrent_pieces_count,
+
+            torrent_context: Arc::new(torrent_context),
         }
     }
 
-    fn get_piece_size(&self, piece_index: usize) -> usize {
+    fn get_piece_size(torrent_context: &DiskWriterTorrentContext, piece_index: usize) -> usize {
         // TODO: fix ? dont use get functions in here
 
-        let torrent_length = self.torrent_file.get_torrent_length();
-        let piece_length = self.torrent_file.get_piece_length();
+        let torrent_length = torrent_context.torrent_file.get_torrent_length();
+        let piece_length = torrent_context.torrent_file.get_piece_length();
 
         let pieces_count = torrent_length.div_ceil(piece_length as u64) as usize;
 
@@ -53,14 +70,14 @@ impl DiskWriter {
         }
     }
 
-    fn get_files(&self) -> Vec<BTreeMap<String, BencodedValue>> {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
+    fn get_files(torrent_context: &DiskWriterTorrentContext) -> Vec<BTreeMap<String, BencodedValue>> {
+        let torrent_dict = match torrent_context.torrent_file.get_bencoded_dict_ref().try_into_dict() {
             Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
+            None => panic!("Could not get torrent dict ref from torrent file: {}", torrent_context.torrent_name)
         };
         let info_dict = match torrent_dict.get("info") {
             Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
+            None => panic!("Could not get info dict from torrent file ref: {}", torrent_context.torrent_name)
         };
         
         let mut all_files = Vec::new();
@@ -68,13 +85,13 @@ impl DiskWriter {
         if let Some(files_dict) = info_dict.get_from_dict("files") {
             let files = match files_dict {
                 BencodedValue::List(files) => files,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
+                _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
             };
 
             for file in files {
                 let file = match file {
                     BencodedValue::Dict(file) => file,
-                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
+                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
                 };
 
                 all_files.push(file.clone());
@@ -83,20 +100,20 @@ impl DiskWriter {
         else {
             let file_name = match info_dict.get_from_dict("name") {
                 Some(file_name) => file_name,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
+                None => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
             };
             let file_name = match file_name {
                 BencodedValue::ByteString(file_name) => file_name,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
+                _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
             };
 
             let length = match info_dict.get_from_dict("length") {
                 Some(length) => length,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
+                None => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
             };
             let length = match length {
                 BencodedValue::Integer(length) => length,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
+                _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
             };
 
             let mut file_dict = BTreeMap::new();
@@ -109,8 +126,8 @@ impl DiskWriter {
         all_files
     }
 
-    async fn get_files_to_download(&self) -> Vec<DownloadableFile> {
-        let files_to_download = self.get_files();
+    async fn get_files_to_download(torrent_context: &DiskWriterTorrentContext) -> Vec<DownloadableFile> {
+        let files_to_download = DiskWriter::get_files(torrent_context);
 
         let mut files_to_download = files_to_download
             .iter()
@@ -159,9 +176,11 @@ impl DiskWriter {
         files_to_download
     }
 
-    async fn write_to_file(&self, piece_index: usize, piece: Vec<u8>, files: &Vec<DownloadableFile>) {
-        let piece_length = self.get_piece_size(piece_index) as u64;
-        let mut piece_start_offset = (self.get_piece_size(0) * piece_index) as u64;
+    async fn write_to_file(torrent_context: Arc<DiskWriterTorrentContext>, piece_index: usize, piece: Vec<u8>) {
+        let files = DiskWriter::get_files_to_download(&torrent_context).await;
+
+        let piece_length = DiskWriter::get_piece_size(&torrent_context, piece_index) as u64;
+        let mut piece_start_offset = (DiskWriter::get_piece_size(&torrent_context, 0) * piece_index) as u64;
 
         let mut file_index= 0;
         let mut file_offset = 0;
@@ -180,7 +199,7 @@ impl DiskWriter {
             
             let file = &files[file_index];
 
-            let file_path = std::path::PathBuf::from(format!("{}/{}", self.dest_path, file.path));
+            let file_path = std::path::PathBuf::from(format!("{}/{}", torrent_context.dest_path, file.path));
             
             // create the directories if they don't exist
             let file_dir = file_path.parent().unwrap();
@@ -215,7 +234,10 @@ impl DiskWriter {
     }
 
     async fn run(mut self) -> Result<()> {
-        let files_to_download = self.get_files_to_download().await;
+        let max_threads = 4; // TODO: make this based on the number of cores
+        let semaphore = Arc::new(Semaphore::new(max_threads));
+
+        let mut writer_handles = Vec::new();
 
         loop {
             tokio::select! {
@@ -226,16 +248,23 @@ impl DiskWriter {
                             break;
                         },
                         ClientMessage::DownloadedPiece{piece_index, piece} => {
-                            // TODO: use multithreading to write to multiple files at once
-                            // using semaphores to limit the number of threads ?
+                            // TODO: maybe save the pieces and if the client crashes, it can resume from where it left off
 
-                            self.write_to_file(piece_index, piece, &files_to_download).await;
+                            let semaphore_clone = Arc::clone(&semaphore);
+                            let torrent_context = Arc::clone(&self.torrent_context);
+
+                            let handle = tokio::spawn(async move {
+                                if let Err(e) = semaphore_clone.acquire().await {
+                                    println!("Semaphore Error: {}", e);
+                                    return;
+                                }
+                                DiskWriter::write_to_file(torrent_context, piece_index, piece).await;
+                            });
+
+                            writer_handles.push(handle);
 
                             self.torrent_pieces_count -= 1;
-
                             if self.torrent_pieces_count == 0 {
-                                println!("Finished writing to disk torrent: {}", self.torrent_name);
-
                                 break;
                             }
                         },
@@ -245,25 +274,28 @@ impl DiskWriter {
             }
         }
 
-        // TODO: wait for all writing tasks to finish
-        
+        for handle in writer_handles {
+            handle.await?;
+        }
+
         Ok(())
     }
 }
 
 pub struct DiskWriterHandle {
     tx: mpsc::Sender<ClientMessage>,
-    pub join_handle: JoinHandle<()>,
+    join_handle: JoinHandle<()>,
 
     torrent_name: String,
 }
 
 impl DiskWriterHandle {
-    pub fn new(dest_path: String, torrent_name: String, torrent_file: TorrentFile, torrent_pieces_count: usize) -> Self {
+    pub fn new(torrent_context: DiskWriterTorrentContext, torrent_pieces_count: usize) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
-        let disk_writer = DiskWriter::new(rx, dest_path, torrent_name.clone(), torrent_file, torrent_pieces_count);
+        let torrent_name = torrent_context.torrent_name.clone();
 
+        let disk_writer = DiskWriter::new(rx, torrent_context, torrent_pieces_count);
         let join_handle = tokio::spawn(async move {
             if let Err(e) = disk_writer.run().await {
                 println!("Disk writer error: {:?}", e);
@@ -275,6 +307,11 @@ impl DiskWriterHandle {
             join_handle,
             torrent_name,
         }
+    }
+
+    pub async fn join(self) -> Result<()> {
+        self.join_handle.await?;
+        Ok(())
     }
 
     pub async fn shutdown(&mut self) -> Result<()> {

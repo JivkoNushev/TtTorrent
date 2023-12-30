@@ -6,4 +6,6 @@ pub enum ClientMessage {
     Shutdown,
     DownloadedPiece{piece_index: usize, piece: Vec<u8>},
     FinishedDownloading,
+    SendTorrentInfo,
+    TerminalClientClosed,
 }

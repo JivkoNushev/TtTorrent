@@ -6,10 +6,10 @@ use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 
 use crate::messager::ClientMessage;
-use crate::peer::{PeerHandle, PeerAddress, PeerTorrentContext, self};
+use crate::peer::{PeerHandle, PeerAddress, PeerTorrentContext, self, peer_address};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
-use crate::disk_writer::DiskWriterHandle;
+use crate::disk_writer::{DiskWriterHandle, DiskWriterTorrentContext};
 use crate::utils::CommunicationPipe;
 
 pub mod torrent_file;
@@ -26,6 +26,7 @@ pub struct TorrentState {
     torrent_file: TorrentFile,
     info_hash: Sha1Hash,
     pieces: Vec<usize>,
+    peers: Vec<PeerAddress>,
 }
 
 impl TorrentState {
@@ -37,6 +38,7 @@ impl TorrentState {
             torrent_file: torrent_context.torrent_file,
             info_hash: torrent_context.info_hash,
             pieces: torrent_context.pieces.lock().await.clone(),
+            peers: torrent_context.peers,
         }
     }
 }
@@ -51,6 +53,7 @@ pub struct TorrentContext {
     torrent_file: TorrentFile,
     info_hash: Sha1Hash,
     pieces: Arc<Mutex<Vec<usize>>>,
+    peers: Vec<PeerAddress>,
 }
 
 impl TorrentContext {
@@ -64,6 +67,7 @@ impl TorrentContext {
             torrent_file: torrent_state.torrent_file,
             info_hash: torrent_state.info_hash,
             pieces: Arc::new(Mutex::new(torrent_state.pieces)),
+            peers: torrent_state.peers,
         }
     }
 }
@@ -159,7 +163,13 @@ impl Torrent {
             pieces_left
         };
 
-        let disk_writer_handle = DiskWriterHandle::new(dest.to_string(), torrent_name.to_string(), torrent_file.clone(), pieces_left.len());
+        let torrent_context = DiskWriterTorrentContext::new(
+            dest.to_string(),
+            torrent_name.to_string(),
+            torrent_file.clone()
+        );
+
+        let disk_writer_handle = DiskWriterHandle::new(torrent_context, pieces_left.len());
         
         let torrent_context = TorrentContext {
             connection_type: ConnectionType::Outgoing, // TODO: make this configurable
@@ -170,6 +180,7 @@ impl Torrent {
             torrent_file,
             info_hash,
             pieces: Arc::new(Mutex::new(pieces_left)),
+            peers: Vec::new(),
         };
 
         Ok(Self {
@@ -185,12 +196,15 @@ impl Torrent {
     }
 
     pub fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentState, connection_type: ConnectionType) -> Result<Self> {
-        let dest_path = torrent_state.dest_path.clone();
-        let torrent_name = torrent_state.torrent_name.clone();
-        let torrent_file = torrent_state.torrent_file.clone();
+        let torrent_context = DiskWriterTorrentContext::new(
+            torrent_state.dest_path.clone(),
+            torrent_state.torrent_name.clone(),
+            torrent_state.torrent_file.clone()
+        );
+
         let torrent_pieces_count = torrent_state.pieces.len();
         
-        let disk_writer_handle = DiskWriterHandle::new(dest_path, torrent_name, torrent_file, torrent_pieces_count);
+        let disk_writer_handle = DiskWriterHandle::new(torrent_context, torrent_pieces_count);
         
         let torrent_context = TorrentContext::from_state(torrent_state, connection_type);
 
@@ -206,18 +220,31 @@ impl Torrent {
         })
     }   
 
-    fn add_new_peers(&mut self, mut peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) {
+    fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) {
         let old_peer_addresses = self.peer_handles
         .iter()
         .map(|peer_handle| peer_handle.peer_address.clone())
         .collect::<Vec<PeerAddress>>();
-        
-        peer_addresses.retain(|peer_address| !old_peer_addresses.contains(peer_address));
+
+        println!("Old peer addresses: {:?}", old_peer_addresses);
+
+        let peer_addresses = peer_addresses
+        .iter()
+        .filter(|peer_address| !old_peer_addresses.contains(peer_address))
+        .cloned()
+        .collect::<Vec<PeerAddress>>();
+
+        println!("New peer addresses: {:?}", peer_addresses);
 
         let piece_length = self.torrent_context.torrent_file.get_piece_length();
         let torrent_length = self.torrent_context.torrent_file.get_torrent_length();
 
         for peer_address in peer_addresses {
+            let peer_address_clone = peer_address.clone();
+            if !self.torrent_context.peers.contains(&peer_address_clone) {
+                self.torrent_context.peers.push(peer_address_clone);
+            }
+
             let torrent_context = PeerTorrentContext::new(
                 self.self_tx.clone(),
                 piece_length,
@@ -253,7 +280,13 @@ impl Torrent {
         self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone());
     }
 
+    pub fn load_state(&mut self) {
+        self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone());
+    }
+
     pub async fn run(mut self) -> Result<()> {
+        self.load_state();
+
         let tracker_url = match Tracker::tracker_url_get(self.torrent_context.torrent_file.get_bencoded_dict_ref()) {
             Some(tracker_url) => tracker_url,
             None => panic!("Could not get tracker url from torrent file: {}", self.torrent_context.torrent_name)
@@ -303,7 +336,7 @@ impl Torrent {
             let _ = peer_handle.join().await;
         }
 
-        self.disk_writer_handle.join_handle.await?;
+        self.disk_writer_handle.join().await?;
 
         println!("Torrent '{}' finished, now saving state", self.torrent_context.torrent_name);
 
@@ -354,7 +387,7 @@ impl TorrentHandle {
             tx: sender.clone(),
             rx: receiver,
         };
-        let torrent = Torrent::from_state(client_id, pipe, torrent_state, connection_type)?;
+        let torrent = Torrent::from_state(client_id, pipe, torrent_state, connection_type.clone())?;
 
         let torrent_name = torrent.torrent_context.torrent_name.clone();
 
