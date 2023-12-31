@@ -1,3 +1,4 @@
+use futures::future::Join;
 use interprocess::local_socket::LocalSocketStream;
 use tokio::task::JoinHandle;
 use tokio::sync::mpsc;
@@ -9,6 +10,109 @@ use crate::peer::ConnectionType;
 use crate::torrent::{TorrentHandle, TorrentState};
 use crate::messager::ClientMessage;
 
+pub struct ClientHandle {
+    tx: mpsc::Sender<ClientMessage>,
+    join_handle: JoinHandle<()>,
+
+    id: [u8; 20],
+}
+
+// static function implementations
+impl ClientHandle {
+    fn setup_graceful_shutdown() {
+        // TODO: is this the best way to handle this?; add more signals
+
+        // Spawn an async task to handle the signals
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    // Handle Ctrl+C (SIGINT)
+                    println!("Ctrl+C received. Cleaning up...");
+                },
+            }
+
+            let mut client_socket = match LocalSocketStream::connect(crate::SOCKET_PATH) {
+                Ok(socket) => socket,
+                Err(e) => {
+                    eprintln!("Failed to connect to the server socket: {:?}", e);
+                    return
+                }
+            };
+
+            let message = ClientMessage::Shutdown;
+
+            let serialized_data = serde_json::to_string(&message).expect("Serialization failed");
+
+            client_socket.write_all(serialized_data.as_bytes()).expect("Failed to send data");
+        });
+    }
+}
+
+impl ClientHandle {
+    pub fn new() -> Self {
+        // TODO: generate a random id
+        let id = "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap();
+
+        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+        let client = Client::new(id, receiver);
+
+        let join_handle = tokio::spawn(async move {
+            if let Err(e) = client.run().await {
+                eprintln!("Client error: {:?}", e);
+            }
+        });
+
+        Self::setup_graceful_shutdown();
+
+        Self {
+            tx: sender,
+            join_handle,
+            id,
+        }
+    }
+
+    pub async fn join(self) -> Result<()> {
+        self.join_handle.await?;
+        Ok(())
+    }
+
+    pub async fn client_download_torrent(&mut self, src: String, dst: String) -> Result<()> {
+        self.tx
+        .send(ClientMessage::DownloadTorrent{src, dst})
+        .await
+        .context("couldn't send a download message to the client")?;
+
+        Ok(())
+    }
+
+    pub async fn client_shutdown(&mut self) -> Result<()> {
+        self.tx
+        .send(ClientMessage::Shutdown)
+        .await
+        .context("couldn't send a shutdown message to the client")?;
+
+        Ok(())
+    }
+
+    pub async fn client_send_torrent_info(&mut self) -> Result<()> {
+        self.tx
+        .send(ClientMessage::SendTorrentInfo)
+        .await
+        .context("couldn't send a send torrent info message to the client")?;
+
+        Ok(())
+    }
+
+    pub async fn client_terminal_closed(&mut self) -> Result<()> {
+        self.tx
+        .send(ClientMessage::TerminalClientClosed)
+        .await
+        .context("couldn't send a terminal client closed message to the client")?;
+
+        Ok(())
+    }
+}
+    
 struct Client {
     rx: mpsc::Receiver<ClientMessage>,
     torrent_handles: Vec<TorrentHandle>,
@@ -47,26 +151,23 @@ impl Client {
     }
 
     pub async fn run(mut self) -> Result<()> {
+        let mut sending_to_terminal_client = false;
+
         // load the client state
         self.load_state().await?;
-
-        let mut sending_to_terminal_client = false;
 
         loop {
             tokio::select! {
                 Some(msg) = self.rx.recv() => {
                     match msg {
                         ClientMessage::DownloadTorrent{src, dst} => {
-                            println!("Creating a new torrent handle for {} -> {}", src, dst);
                             let torrent_handle = TorrentHandle::new(self.client_id, &src, &dst).await?;
                             self.torrent_handles.push(torrent_handle);
                         },
                         ClientMessage::Shutdown => {
-                            println!("Client stopping");
                             for torrent_handle in &mut self.torrent_handles {
                                 torrent_handle.shutdown().await?;
                             }
-
                             break;
                         },
                         ClientMessage::SendTorrentInfo => {
@@ -83,112 +184,20 @@ impl Client {
                         continue;
                     }
 
-                    // save state to file
+                    // TODO: save state to file
+                    // self.save_state().await?;
                 }
             }
         }
 
         for torrent_handle in self.torrent_handles {
-            let _ = torrent_handle.join().await;
+            if let Err(e) = torrent_handle.join().await {
+                eprintln!("Failed to join torrent handle: {:?}", e);
+            }
         }
 
-        Ok(())
-    }
-}
-
-pub struct ClientHandle {
-    tx: mpsc::Sender<ClientMessage>,
-    join_handle: JoinHandle<()>,
-
-    id: [u8; 20],
-}
-
-// static function implementations
-impl ClientHandle {
-    fn setup_graceful_shutdown() {
-        // TODO: is this the best way to handle this?; add more signals
-
-        // Spawn an async task to handle the signals
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    // Handle Ctrl+C (SIGINT)
-                    println!("Ctrl+C received. Cleaning up...");
-                },
-            }
-
-            let mut client_socket = match LocalSocketStream::connect(crate::SOCKET_PATH) {
-                Ok(socket) => socket,
-                Err(_) => {
-                    println!("Failed to connect to the client");
-                    return;
-                }
-            };
-
-            let message = ClientMessage::Shutdown;
-
-            let serialized_data = serde_json::to_string(&message).expect("Serialization failed");
-
-            client_socket.write_all(serialized_data.as_bytes()).expect("Failed to send data");
-        });
-    }
-}
-
-impl ClientHandle {
-    pub fn new() -> Self {
-        let id = "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap();
-
-        let (sender, receiver) = mpsc::channel(100);
-        let client = Client::new(id, receiver);
-
-        let join_handle = tokio::spawn(async move {
-            if let Err(e) = client.run().await {
-                println!("Client error: {:?}", e);
-            }
-        });
-
-        Self::setup_graceful_shutdown();
-
-        Self {
-            tx: sender,
-            join_handle,
-            id,
-        }
-    }
-
-    pub async fn join(self) -> Result<()> {
-        self.join_handle.await?;
-        Ok(())
-    }
-
-    pub async fn client_download_torrent(&mut self, src: String, dst: String) -> Result<()> {
-        let msg = ClientMessage::DownloadTorrent{src, dst};
-        self.tx.send(msg).await.context("couldn't send a download message to the client")?;
-
-        Ok(())
-    }
-
-    pub async fn client_shutdown(&mut self) -> Result<()> {
-        let msg = ClientMessage::Shutdown;
-        self.tx.send(msg).await.context("couldn't send a shutdown message to the client")?;
-
-        Ok(())
-    }
-
-    pub async fn client_send_torrent_info(&mut self) -> Result<()> {
-        let msg = ClientMessage::SendTorrentInfo;
-        self.tx.send(msg).await.context("couldn't send a send torrent info message to the client")?;
-
-        Ok(())
-    }
-
-    pub async fn client_terminal_closed(&mut self) -> Result<()> {
-        let msg = ClientMessage::TerminalClientClosed;
-        self.tx.send(msg).await.context("couldn't send a terminal client closed message to the client")?;
+        println!("Client stopping");
 
         Ok(())
     }
 }
-    
-    
-    

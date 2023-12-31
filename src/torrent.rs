@@ -72,6 +72,90 @@ impl TorrentContext {
     }
 }
 
+pub struct TorrentHandle {
+    tx: mpsc::Sender<ClientMessage>,
+    join_handle: JoinHandle<()>,
+
+    torrent_name: String,
+}
+
+impl TorrentHandle {
+    pub async fn new(client_id: [u8; 20], src: &str, dest: &str) -> Result<Self> {
+        // if src or dest are not valid paths return error
+
+
+        // copy torrent file to state folder for redundancy
+        let src_path = std::path::Path::new(src);
+        let torrent_name = src_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        let dest_path = std::path::Path::new(crate::STATE_TORRENT_FILES_PATH).join(torrent_name);
+        tokio::fs::copy(src_path, dest_path.clone()).await?;
+
+        // create torrent handle
+        let src = dest_path.to_str().unwrap();
+        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+
+        let pipe = CommunicationPipe {
+            tx: sender.clone(),
+            rx: receiver,
+        };
+        let torrent = Torrent::new(client_id, pipe, src, dest).await?;
+        let torrent_name = torrent.torrent_context.torrent_name.clone();
+
+        let join_handle = tokio::spawn(async move {
+            if let Err(e) = torrent.run().await {
+                eprintln!("Torrent error: {:?}", e);
+            }
+        });
+
+        Ok(Self {
+            tx: sender,
+            join_handle,
+
+            torrent_name,
+        })
+    }
+
+    pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentState, connection_type: ConnectionType) -> Result<Self> {
+        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+
+        let pipe = CommunicationPipe {
+            tx: sender.clone(),
+            rx: receiver,
+        };
+        let torrent = Torrent::from_state(client_id, pipe, torrent_state, connection_type.clone())?;
+
+        let torrent_name = torrent.torrent_context.torrent_name.clone();
+
+        let join_handle = tokio::spawn(async move {
+            if let Err(e) = torrent.run().await {
+                eprintln!("Torrent error: {:?}", e);
+            }
+        });
+
+        Ok(Self {
+            tx: sender,
+            join_handle,
+
+            torrent_name,
+        })
+    }
+
+    pub async fn join(self) -> Result<()> {
+        self.join_handle.await?;
+        Ok(())
+    }
+
+    pub async fn shutdown(&mut self) -> Result<()> {
+        self.tx.send(ClientMessage::Shutdown).await?;
+        Ok(())
+    }
+}
+
 struct Torrent {
     self_tx: mpsc::Sender<ClientMessage>,
 
@@ -274,7 +358,7 @@ impl Torrent {
 
         // if torrent needs more pieces
         if self.torrent_context.pieces.lock().await.len() > 0 {
-            println!("Starting download of torrent '{}'", self.torrent_context.torrent_name);
+            println!("Torrent '{}' is starting to download", self.torrent_context.torrent_name);
 
             // connect to peers that may have the pieces
             self.connect_to_peers(&mut tracker).await?;
@@ -325,85 +409,4 @@ impl Torrent {
         Ok(())
     }
     
-}
-
-pub struct TorrentHandle {
-    tx: mpsc::Sender<ClientMessage>,
-    join_handle: JoinHandle<()>,
-
-    torrent_name: String,
-}
-
-impl TorrentHandle {
-    pub async fn new(client_id: [u8; 20], src: &str, dest: &str) -> Result<Self> {
-        // copy torrent file to state folder
-        let src_path = std::path::Path::new(src);
-        let torrent_name = src_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
-
-        let dest_path = std::path::Path::new(crate::STATE_TORRENT_FILES_PATH).join(torrent_name);
-        tokio::fs::copy(src_path, dest_path.clone()).await?;
-        
-        let src = dest_path.to_str().unwrap();
-        let (sender, receiver) = mpsc::channel(100);
-
-        let pipe = CommunicationPipe {
-            tx: sender.clone(),
-            rx: receiver,
-        };
-        let torrent = Torrent::new(client_id, pipe, src, dest).await?;
-
-        let torrent_name = torrent.torrent_context.torrent_name.clone();
-
-        let join_handle = tokio::spawn(async move {
-            if let Err(e) = torrent.run().await {
-                println!("Torrent error: {:?}", e);
-            }
-        });
-
-        Ok(Self {
-            tx: sender,
-            join_handle,
-
-            torrent_name,
-        })
-    }
-
-    pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentState, connection_type: ConnectionType) -> Result<Self> {
-        let (sender, receiver) = mpsc::channel(100);
-
-        let pipe = CommunicationPipe {
-            tx: sender.clone(),
-            rx: receiver,
-        };
-        let torrent = Torrent::from_state(client_id, pipe, torrent_state, connection_type.clone())?;
-
-        let torrent_name = torrent.torrent_context.torrent_name.clone();
-
-        let join_handle = tokio::spawn(async move {
-            if let Err(e) = torrent.run().await {
-                println!("Torrent error: {:?}", e);
-            }
-        });
-
-        Ok(Self {
-            tx: sender,
-            join_handle,
-
-            torrent_name,
-        })
-    }
-
-    pub async fn join(self) -> Result<()> {
-        self.join_handle.await?;
-        Ok(())
-    }
-
-    pub async fn shutdown(&mut self) -> Result<()> {
-        self.tx.send(ClientMessage::Shutdown).await?;
-        Ok(())
-    }
 }

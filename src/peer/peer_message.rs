@@ -1,9 +1,8 @@
-use anyhow::{Result, Context};
+use anyhow::{Result, anyhow};
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
-use crate::{torrent::Sha1Hash, utils::AsBytes};
-
-use super::Peer;
+use crate::torrent::Sha1Hash;
+use crate::utils::AsBytes;
 
 #[derive(Debug)]
 pub struct Handshake {
@@ -22,6 +21,13 @@ impl Handshake {
             reserved: [0; 8],
             info_hash: info_hash.0,
             peer_id,
+        }
+    }
+
+    fn from_peer_message(message: PeerMessage) -> Result<Self> {
+        match message {
+            PeerMessage::Handshake(handshake) => Ok(handshake),
+            _ => Err(anyhow!("Invalid handshake")),
         }
     }
 }
@@ -106,8 +112,8 @@ impl AsBytes for PeerMessage {
 }
 
 impl PeerMessage {
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        match bytes[0] {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let message = match bytes[0] {
             0 => Self::Choke,
             1 => Self::Unchoke,
             2 => Self::Interested,
@@ -137,8 +143,9 @@ impl PeerMessage {
                 info_hash: bytes[28..48].try_into().unwrap(),
                 peer_id: bytes[48..68].try_into().unwrap(),
             }),
-            _ => panic!("Unknown peer message type"),
-        }
+            _ => return Err(anyhow::anyhow!("Invalid Peer message")),
+        };
+        Ok(message)
     } 
 
     pub fn new_handshake(info_hash: Sha1Hash, peer_id: [u8; 20]) -> Self {
@@ -165,6 +172,52 @@ impl PeerSession {
         })
     }
 
+    pub async fn handshake(&mut self, info_hash: Sha1Hash, client_id: [u8; 20], bitfield: Vec<u8>) -> Result<[u8; 20]> {
+        let peer_id = match self.connection_type {
+            ConnectionType::Outgoing => {
+                // send handshake
+                let handshake = PeerMessage::new_handshake(info_hash.clone(), client_id);
+                self.send(handshake).await?;
+                println!("Sent handshake");
+
+                // recv handshake
+                let handshake_response = self.recv_handshake().await?;
+                let handshake = Handshake::from_peer_message(handshake_response)?;
+                if handshake.info_hash != info_hash.0 {
+                    return Err(anyhow!("Invalid info hash"));
+                }
+                println!("Received handshake");  
+
+                handshake.peer_id
+            }
+            ConnectionType::Incoming => {
+                let handshake = self.recv_handshake().await?;
+                let handshake = Handshake::from_peer_message(handshake)?;
+                if handshake.info_hash != info_hash.0 {
+                    return Err(anyhow!("Invalid info hash"));
+                }
+                println!("Received handshake");
+
+                // send handshake
+                let handshake_response = PeerMessage::new_handshake(info_hash.clone(), client_id);
+                self.send(handshake_response).await?;
+                println!("Sent handshake");
+
+                handshake.peer_id
+            }
+        };
+
+        // send bitfield
+        self.bitfield(bitfield).await?;
+
+        Ok(peer_id)
+    }
+
+    pub async fn bitfield(&mut self, bitfield: Vec<u8>) -> Result<()> {
+        self.send(PeerMessage::Bitfield(bitfield)).await?;
+        Ok(())
+    }
+
     pub async fn interested(&mut self) -> Result<()> {
         self.send(PeerMessage::Interested).await?;
         Ok(())
@@ -180,35 +233,9 @@ impl PeerSession {
         Ok(())
     }
 
-    pub async fn handshake(&mut self, info_hash: Sha1Hash, client_id: [u8; 20]) -> Result<[u8; 20]> {
-        match self.connection_type {
-            ConnectionType::Outgoing => {
-                // send handshake
-                let handshake = PeerMessage::new_handshake(info_hash.clone(), client_id);
-                self.send(handshake).await?;
-                println!("Sent handshake");
-
-                // recv handshake
-                let handshake_response = self.recv_handshake().await?;
-
-                match handshake_response {
-                    PeerMessage::Handshake(handshake_response) => {
-                        if handshake_response.info_hash != info_hash.0 {
-                            todo!("return an error: invalid info hash")
-                        }
-
-                        Ok(handshake_response.peer_id)
-                    },
-                    _ => todo!("return an error: invalid handshake response"),
-                }
-            }
-            ConnectionType::Incoming => {
-                todo!()
-                // recv handshake
-                // send handshake
-            }
-        }
-
+    pub async fn unchoke(&mut self) -> Result<()> {
+        self.send(PeerMessage::Unchoke).await?;
+        Ok(())
     }
 
     pub async fn send(&mut self, peer_message: PeerMessage) -> Result<()> {
@@ -232,20 +259,21 @@ impl PeerSession {
         let mut message = vec![0; message_size];
         self.stream.read_exact(&mut message).await?;
 
-        Ok(PeerMessage::from_bytes(&message))
+        PeerMessage::from_bytes(&message)
     }
 
     pub async fn recv_handshake(&mut self) -> Result<PeerMessage> {
         let mut message = vec![0; 68];
         self.stream.read_exact(&mut message).await?;
 
-        println!("Received handshake");  
-
-
         if message[0] != 19 {
-            panic!("Wrong protocol length");
+            return Err(anyhow!("Invalid protocol length"));
         }
 
-        Ok(PeerMessage::from_bytes(&message))
+        if message[1..20] != *b"BitTorrent protocol" {
+            return Err(anyhow!("Invalid protocol"));
+        }
+
+        PeerMessage::from_bytes(&message)
     }
 }

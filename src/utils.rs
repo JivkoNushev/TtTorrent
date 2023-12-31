@@ -56,3 +56,19 @@ pub fn rand_number_u32(min: u32, max: u32) -> u32 {
         panic!("Failed to generate random number");
     }
 }
+
+pub fn valid_src_and_dst(src: &str, dst: &str) -> bool {
+    let torrent_file = std::path::Path::new(src);
+    let directory = std::path::Path::new(dst);
+    if  !torrent_file.exists()                          || 
+        !torrent_file.is_file()                         || 
+        torrent_file.extension().is_none()              ||
+        "torrent" != torrent_file.extension().unwrap()  || 
+        !directory.exists()                             || 
+        !directory.is_dir()                                 
+    {
+        return false;
+    }
+
+    true
+}

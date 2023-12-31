@@ -1,54 +1,55 @@
-use anyhow::Result;
+use anyhow::{Result, Context};
 use interprocess::local_socket::LocalSocketListener;
 use tokio_stream::StreamExt;
 
 use std::io::Read;
 
-use torrent_client::{client::ClientHandle, messager::ClientMessage};
+use torrent_client::client::ClientHandle;
+use torrent_client::messager::ClientMessage;
+use torrent_client::utils::valid_src_and_dst;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // ------------------------ create socket for client ------------------------
 
     // remove socket if it exists and create new one
-    let _ = tokio::fs::remove_file(torrent_client::SOCKET_PATH).await;
-    let client_socket = match LocalSocketListener::bind(torrent_client::SOCKET_PATH) {
-        Ok(socket) => socket,
-        Err(e) => {
-            println!("Failed to create socket: {}", e);
-            return Ok(());
-        }
-    };
-    let mut stream = tokio_stream::iter(client_socket.incoming());
+    let _ = tokio::fs::remove_file(torrent_client::SOCKET_PATH).await.context("couldn't remove old socket")?;
+    let client_socket = LocalSocketListener::bind(torrent_client::SOCKET_PATH).context("couldn't bind to local socket")?;
+    let mut socket_stream = tokio_stream::iter(client_socket.incoming());
 
     // ------------------------ create client ------------------------
     let mut client = ClientHandle::new();
     
-    println!("Trying to select");
     loop {
         tokio::select! {
-            Some(Ok(mut bytes)) = stream.next() => {
-                println!("Received a message");
-
+            Some(Ok(mut bytes)) = socket_stream.next() => {
                 let mut message = Vec::new();
-                let _ = bytes.read_to_end(&mut message).unwrap();
+                if let Err(e) = bytes.read_to_end(&mut message) {
+                    eprintln!("Failed to read message from local socket: {}", e);
+                    continue;
+                }
 
                 let message = match serde_json::from_slice::<ClientMessage>(&message) {
                     Ok(message) => message,
                     Err(e) => {
-                        println!("Failed to deserialize message: {}", e);
+                        eprintln!("Failed to deserialize message from local socket: {}", e);
                         continue;
                     }
                 };
-                println!("Received message: {:?}", message);
 
                 match message {
-                    ClientMessage::DownloadTorrent{src, dst} => {
-                        client.client_download_torrent(src, dst).await?;
-                    },
                     ClientMessage::Shutdown => {
                         client.client_shutdown().await?;
                         break;
+                    },
+                    ClientMessage::DownloadTorrent{src, dst} => {
+                        // check src and dst
+                        if !valid_src_and_dst(&src, &dst) {
+                            eprintln!("Invalid src or dst");
+                            continue;
+                        }
+
+                        client.client_download_torrent(src, dst).await?;
                     },
                     ClientMessage::SendTorrentInfo => {
                         client.client_send_torrent_info().await?;
