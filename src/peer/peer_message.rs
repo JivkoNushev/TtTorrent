@@ -174,41 +174,42 @@ impl PeerSession {
         })
     }
 
+    async fn incoming_handshake(&mut self, info_hash: Sha1Hash) -> Result<Handshake> {
+        let handshake = self.recv_handshake().await?;
+        let handshake = Handshake::from_peer_message(handshake)?;
+        if handshake.info_hash != info_hash.0 {
+            return Err(anyhow!("Invalid info hash"));
+        }
+
+        Ok(handshake)
+    }
+
+    async fn outgoing_handshake(&mut self, info_hash: Sha1Hash, client_id: [u8; 20]) -> Result<()> {
+        let handshake = PeerMessage::new_handshake(info_hash.clone(), client_id);
+        self.send(handshake).await?;
+
+        Ok(())
+    }
+
     pub async fn handshake(&mut self, info_hash: Sha1Hash, client_id: [u8; 20], bitfield: Vec<u8>) -> Result<[u8; 20]> {
         let peer_id = match self.connection_type {
             ConnectionType::Outgoing => {
-                // send handshake
-                let handshake = PeerMessage::new_handshake(info_hash.clone(), client_id);
-                self.send(handshake).await?;
+                self.outgoing_handshake(info_hash.clone(), client_id).await?;
+                let incoming_handshake = self.incoming_handshake(info_hash).await?;
 
-                // recv handshake
-                let handshake_response = self.recv_handshake().await?;
-                let handshake = Handshake::from_peer_message(handshake_response)?;
-                if handshake.info_hash != info_hash.0 {
-                    return Err(anyhow!("Invalid info hash"));
-                }
-
-                handshake.peer_id
+                incoming_handshake.peer_id
             }
             ConnectionType::Incoming => {
-                let handshake = self.recv_handshake().await?;
-                let handshake = Handshake::from_peer_message(handshake)?;
-                if handshake.info_hash != info_hash.0 {
-                    return Err(anyhow!("Invalid info hash"));
-                }
+                let incoming_handshake = self.incoming_handshake(info_hash.clone()).await?;
+                self.outgoing_handshake(info_hash, client_id).await?;
 
-                // send handshake
-                let handshake_response = PeerMessage::new_handshake(info_hash.clone(), client_id);
-                self.send(handshake_response).await?;
-
-                handshake.peer_id
+                incoming_handshake.peer_id
             }
         };
 
         // send bitfield
         if !bitfield.is_empty() {
             self.bitfield(bitfield).await?;
-            println!("Sent bitfield");
         }
 
         Ok(peer_id)
