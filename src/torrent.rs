@@ -27,6 +27,9 @@ pub struct TorrentState {
     info_hash: Sha1Hash,
     pieces: Vec<usize>,
     peers: Vec<PeerAddress>,
+
+    downloaded: u64,
+    uploaded: u64,
 }
 
 impl TorrentState {
@@ -39,6 +42,9 @@ impl TorrentState {
             info_hash: torrent_context.info_hash,
             pieces: torrent_context.pieces.lock().await.clone(),
             peers: torrent_context.peers,
+
+            downloaded: torrent_context.downloaded,
+            uploaded: torrent_context.uploaded.lock().await.clone(),
         }
     }
 }
@@ -50,10 +56,13 @@ pub struct TorrentContext {
     src_path: String,
     dest_path: String,
     torrent_name: String,
-    torrent_file: TorrentFile,
-    info_hash: Sha1Hash,
-    pieces: Arc<Mutex<Vec<usize>>>,
+    pub torrent_file: TorrentFile,
+    pub info_hash: Sha1Hash,
+    pub pieces: Arc<Mutex<Vec<usize>>>,
     peers: Vec<PeerAddress>,
+
+    pub downloaded: u64,
+    pub uploaded: Arc<Mutex<u64>>,
 }
 
 impl TorrentContext {
@@ -68,6 +77,9 @@ impl TorrentContext {
             info_hash: torrent_state.info_hash,
             pieces: Arc::new(Mutex::new(torrent_state.pieces)),
             peers: torrent_state.peers,
+
+            downloaded: torrent_state.downloaded,
+            uploaded: Arc::new(Mutex::new(torrent_state.uploaded)),
         }
     }
 }
@@ -235,7 +247,7 @@ impl Torrent {
         let disk_writer_handle = DiskWriterHandle::new(torrent_context, pieces_left.len());
         
         let torrent_context = TorrentContext {
-            connection_type: ConnectionType::Outgoing, // TODO: make this configurable
+            connection_type: ConnectionType::Outgoing,
 
             src_path: src.to_string(),
             dest_path: dest.to_string(),
@@ -244,6 +256,9 @@ impl Torrent {
             info_hash,
             pieces: Arc::new(Mutex::new(pieces_left)),
             peers: Vec::new(),
+
+            downloaded: 0,
+            uploaded: Arc::new(Mutex::new(0)),
         };
 
         Ok(Self {
@@ -311,6 +326,7 @@ impl Torrent {
                 torrent_length,
                 self.torrent_context.info_hash.clone(),
                 Arc::clone(&self.torrent_context.pieces),
+                Arc::clone(&self.torrent_context.uploaded),
             );
 
             let stream = tokio::net::TcpStream::connect(format!("{}:{}", peer_address.address, peer_address.port)).await?;
@@ -332,17 +348,14 @@ impl Torrent {
         self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone()).await
     }
 
-    async fn get_tracker(&self) -> Result<Tracker> {
-        let tracker_url = Tracker::tracker_url_get(self.torrent_context.torrent_file.get_bencoded_dict_ref())?;
-        Ok(Tracker::new(&tracker_url).await)
-    }
-
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
         // TODO: create a tracker request based on the missing pieces
-        let tracker_response = tracker.default_params(&self.torrent_context.info_hash, self.client_id).await.context("couldn't get response with default parameters")?;
+        let tracker_response = tracker.response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
+
         let peer_addresses = match crate::DEBUG_MODE {
-            true => vec![PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
-            false => PeerAddress::from_tracker_response(tracker_response).await
+            // true => vec![PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
+            true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}],
+            false => PeerAddress::from_tracker_response(tracker_response).await?
         };
 
         self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone()).await?;
@@ -354,15 +367,10 @@ impl Torrent {
         self.load_state().await?;
 
         // initialize tracker
-        let mut tracker = self.get_tracker().await?;
+        let mut tracker = Tracker::from_torrent_file(&self.torrent_context.torrent_file)?;
 
-        // if torrent needs more pieces
-        if self.torrent_context.pieces.lock().await.len() > 0 {
-            println!("Torrent '{}' is starting to download", self.torrent_context.torrent_name);
-
-            // connect to peers that may have the pieces
-            self.connect_to_peers(&mut tracker).await?;
-        }
+        // connect to peers from tracker response
+        self.connect_to_peers(&mut tracker).await?;
 
         loop {
             tokio::select! {
@@ -371,14 +379,16 @@ impl Torrent {
                         ClientMessage::Shutdown => {
                             // send stop message to all peers
                             for peer_handle in &mut self.peer_handles {
-                                peer_handle.shutdown().await?;
+                                let _ = peer_handle.shutdown().await;
                             }
                             // send stop message to disk writer
-                            self.disk_writer_handle.shutdown().await?;
+                            let _ = self.disk_writer_handle.shutdown().await;
                             break;
                         }
                         ClientMessage::DownloadedPiece { piece_index, piece } => {
+                            let piece_size = piece.len();
                             self.disk_writer_handle.downloaded_piece(piece_index, piece).await?;
+                            self.torrent_context.downloaded += piece_size as u64;
                         },
                         ClientMessage::FinishedDownloading => {
                             println!("Torrent '{}' downloaded", self.torrent_context.torrent_name);
@@ -390,16 +400,42 @@ impl Torrent {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
                     // connect to more peers with better tracker request
                     if self.torrent_context.pieces.lock().await.len() > 0 {
-                        // connect to peers that may have the pieces
+                        // connect to new peers
                         self.connect_to_peers(&mut tracker).await?;
                     }
                 }
                 // TODO: listen to an open socket for seeding
+                else => {
+                    break;
+                }
             }
         }
 
         for peer_handle in self.peer_handles {
-            let _ = peer_handle.join().await;
+            let peer_addr = peer_handle.peer_address.clone();
+            if let Err(err) = peer_handle.join().await {
+                if let Some(err) = err.downcast_ref::<tokio::io::Error>() {
+                    match err.kind() {
+                        tokio::io::ErrorKind::UnexpectedEof => {
+                            println!("Peer '{peer_addr}' closed the connection");
+                            self.torrent_context.peers.retain(|peer| peer != &peer_addr);
+                        }
+                        tokio::io::ErrorKind::ConnectionReset => {
+                            println!("Peer '{peer_addr}' disconnected");
+                            self.torrent_context.peers.retain(|peer| peer != &peer_addr);
+
+                        }
+                        tokio::io::ErrorKind::ConnectionAborted => {
+                            println!("Peer '{peer_addr}' disconnected");
+                            self.torrent_context.peers.retain(|peer| peer != &peer_addr);
+
+                        }
+                        _ => {
+                            eprintln!("Peer '{peer_addr}' errored: {err:?}");
+                        }
+                    }
+                }
+            }
         }
 
         self.disk_writer_handle.join().await?;

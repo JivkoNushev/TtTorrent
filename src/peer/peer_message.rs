@@ -46,6 +46,7 @@ pub enum PeerMessage {
     Port(u16),
 
     Handshake(Handshake),
+    KeepAlive,
 }
 
 impl AsBytes for PeerMessage {
@@ -107,6 +108,7 @@ impl AsBytes for PeerMessage {
 
                 data
             },
+            PeerMessage::KeepAlive => vec![0, 0, 0, 0],
         }
     }
 }
@@ -204,7 +206,10 @@ impl PeerSession {
         };
 
         // send bitfield
-        self.bitfield(bitfield).await?;
+        if !bitfield.is_empty() {
+            self.bitfield(bitfield).await?;
+            println!("Sent bitfield");
+        }
 
         Ok(peer_id)
     }
@@ -240,20 +245,12 @@ impl PeerSession {
     }
 
     pub async fn recv(&mut self) -> Result<PeerMessage> {
-        struct Helper {
+        let mut message_size_bytes = [0; 4];
+        self.stream.read_exact(&mut message_size_bytes).await?;
 
-        }
-
-        let mut message_size;
-        loop {
-            let mut message_size_bytes = [0; 4];
-            self.stream.read_exact(&mut message_size_bytes).await?;
-
-            message_size = u32::from_be_bytes(message_size_bytes) as usize;
-
-            if message_size > 0 {
-                break;
-            } // else TODO: KeepAlive message
+        let message_size = u32::from_be_bytes(message_size_bytes) as usize;
+        if message_size == 0 {
+            return Ok(PeerMessage::KeepAlive);
         }
 
         let mut message = vec![0; message_size];

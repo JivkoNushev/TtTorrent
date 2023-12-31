@@ -1,63 +1,212 @@
-use anyhow::{Result, Context, anyhow};
+use anyhow::{Result, Context, anyhow, Ok};
 
-use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash };
+use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash, self, TorrentFile };
+use crate::torrent::TorrentContext;
 
 use crate::utils::UrlEncodable;
 
 #[derive(Debug, Clone)]
-pub struct Tracker {
-    url: String,
+pub enum TrackerEvent {
+    Started,
+    Stopped,
+    Completed,
+    None,
 }
 
-impl Tracker {
-    pub async fn new(url: &str) -> Tracker {
-        Tracker {
-            url: url.to_string(),
-        }
+impl UrlEncodable for TrackerEvent {
+    fn as_url_encoded(&self) -> String {
+        match self {
+            TrackerEvent::Started => "started",
+            TrackerEvent::Stopped => "stopped",
+            TrackerEvent::Completed => "completed",
+            TrackerEvent::None => "",
+        }.to_string()
     }
+}
 
-    pub fn get_url(&self, parameters: &str) -> String {
-        format!("{}{}", self.url, parameters)
-    }
 
-    pub async fn default_params(&mut self, hashed_info_dict: &Sha1Hash, client_id: [u8; 20]) -> Result<reqwest::Response> {
-        let tracker_request = self.get_url(&Tracker::tracker_params_default(hashed_info_dict, client_id));
-        
-        let response = match crate::DEBUG_MODE {
-            true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
-            false => reqwest::get(&tracker_request).await.context("invalid tracker url")?
+#[derive(Debug, Clone)]
+pub struct TrackerRequest {
+    announce: String,
+    info_hash: Sha1Hash,
+    peer_id: [u8; 20],
+    port: u16,
+    uploaded: u64,
+    downloaded: u64,
+    left: u64,
+    compact: u8,
+    no_peer_id: u8,
+    event: TrackerEvent,
+    ip: Option<String>,
+    numwant: Option<u32>,
+    key: Option<String>,
+    trackerid: Option<String>,
+}
+
+impl TrackerRequest {
+    fn as_url(self) -> Result<reqwest::Url> {
+        let mut url = format!{
+            "{announce}?info_hash={info_hash}\
+            &peer_id={peer_id}\
+            &port={port}\
+            &uploaded={uploaded}\
+            &downloaded={downloaded}\
+            &left={left}\
+            &compact={compact}\
+            &no_peer_id={no_peer_id}\
+            &event={event}",    
+            announce = self.announce,
+            info_hash = self.info_hash.as_url_encoded(),
+            peer_id = self.peer_id.as_url_encoded(),
+            port = self.port,
+            uploaded = self.uploaded,
+            downloaded = self.downloaded,
+            left = self.left,
+            compact = self.compact,
+            no_peer_id = self.no_peer_id,
+            event = self.event.as_url_encoded(),
         };
 
-        Ok(response)
+        if let Some(ip) = self.ip {
+            url.push_str(&format!("&ip={}", ip));
+        }
+
+        if let Some(numwant) = self.numwant {
+            url.push_str(&format!("&numwant={}", numwant));
+        }
+
+        if let Some(key) = self.key {
+            url.push_str(&format!("&key={}", key));
+        }
+
+        if let Some(trackerid) = self.trackerid {
+            url.push_str(&format!("&trackerid={}", trackerid));
+        }
+
+        let url = reqwest::Url::parse(&url)?;
+
+        Ok(url)
+    }
+
+    fn start(announce: String, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<TrackerRequest> {
+        let info_hash = torrent_context.info_hash.clone();
+        let peer_id = client_id;
+        let port = 6881;
+        let uploaded = 0;
+        let downloaded = 0;
+        let left = torrent_context.torrent_file.get_torrent_length()?;
+        let compact = 1;
+        let no_peer_id = 0;
+        let event = TrackerEvent::Started;
+        let ip = None;
+        let numwant = None;
+        let key = None;
+        let trackerid = None;
+
+        Ok(TrackerRequest {
+            announce,
+            info_hash,
+            peer_id,
+            port,
+            uploaded,
+            downloaded,
+            left,
+            compact,
+            no_peer_id,
+            event,
+            ip,
+            numwant,
+            key,
+            trackerid,
+        })
+    }
+
+    async fn regular(announce: String, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<TrackerRequest> {
+        let info_hash = torrent_context.info_hash.clone();
+        let peer_id = client_id;
+        let port = 6881;
+
+        // calculate uploaded, downloaded, and left
+        let uploaded = torrent_context.uploaded.lock().await.clone();
+        let downloaded = torrent_context.downloaded;
+        let left = torrent_context.torrent_file.get_torrent_length()? - downloaded;
+        let compact = 1;
+        let no_peer_id = 0;
+        let event = TrackerEvent::None;
+        let ip = None;
+        let numwant = None;
+        let key = None;
+        let trackerid = None;
+
+        Ok(TrackerRequest {
+            announce,
+            info_hash,
+            peer_id,
+            port,
+            uploaded,
+            downloaded,
+            left,
+            compact,
+            no_peer_id,
+            event,
+            ip,
+            numwant,
+            key,
+            trackerid,
+        })
     }
 }
 
+
+
+#[derive(Debug, Clone)]
+pub struct Tracker {
+    announce: String,
+}
+
 impl Tracker {
-    pub fn tracker_url_get(bencoded_dict: &BencodedValue) -> Result<String> {
-        let tracker_announce = bencoded_dict.get_from_dict("announce")?;
+    pub fn from_torrent_file(torrent_file: &TorrentFile) -> Result<Tracker> {
+        let tracker_announce = torrent_file.get_bencoded_dict_ref().get_from_dict("announce")?;
     
         let tracker_announce = match tracker_announce {
             BencodedValue::ByteString(tracker_announce) => tracker_announce,
             _ => return Err(anyhow!("No tracker announce key found"))
         };
     
-        let tracker_announce = String::from_utf8(tracker_announce.clone())?;
+        let announce = String::from_utf8(tracker_announce.clone())?;
     
-        Ok(tracker_announce)
+        Ok(Tracker {
+            announce,
+        })
     }
-    
-    pub fn tracker_params_default(hashed_info_dict: &Sha1Hash, client_id: [u8; 20]) -> String {
-        format!{
-            "?info_hash={info_hash}\
-            &peer_id={peer_id}\
-            &port=6881\
-            &uploaded=0\
-            &downloaded=0\
-            &left=0\
-            &compact=1\
-            &event=started",
-            info_hash = hashed_info_dict.as_url_encoded(),
-            peer_id = client_id.as_url_encoded()
+
+    fn started_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Url> {
+        let request = TrackerRequest::start(self.announce.clone(), client_id, torrent_context)?;
+        request.as_url()
+    }
+
+    async fn regular_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Url> {
+        let request = TrackerRequest::regular(self.announce.clone(), client_id, torrent_context).await?;
+        request.as_url()
+    }
+
+    pub async fn response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
+        let request;
+        // if no pieces have been downloaded, send a started request
+        if torrent_context.pieces.lock().await.len() == 0 {
+            request = self.started_request(client_id, torrent_context)?;
         }
+        else {
+            request = self.regular_request(client_id, torrent_context).await?;
+        };
+
+        println!("request: {:?}", request);
+
+        let response = match crate::DEBUG_MODE {
+            true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
+            false => reqwest::get(request).await.context("invalid tracker url")?
+        };
+
+        Ok(response)
     }
 }

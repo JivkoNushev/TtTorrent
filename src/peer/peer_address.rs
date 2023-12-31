@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use anyhow::{Result, anyhow};
 
 use std::fmt::Display;
 
@@ -29,22 +30,18 @@ impl PeerAddress {
         PeerAddress { address, port }
     }
 
-    pub async fn from_tracker_response(resp: reqwest::Response) -> Vec<PeerAddress> {
-        let bencoded_response = resp.bytes().await.unwrap();
-        let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response);
-        
-        let bencoded_dict = match bencoded_response {
-            BencodedValue::Dict(dict) => dict,
-            _ => panic!("Error: Invalid parsed dictionary from tracker response")
-        };
+    pub async fn from_tracker_response(resp: reqwest::Response) -> Result<Vec<PeerAddress>> {
+        let bencoded_response = resp.bytes().await?;
 
-        let peer_addresses = match bencoded_dict.get("peers") {
-            Some(BencodedValue::ByteAddresses(byte_addresses)) => byte_addresses,
+        // TODO: Handle errors
+        let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response);
+        let bencoded_dict = bencoded_response.try_into_dict()?;
+
+        match bencoded_dict.get("peers") {
+            Some(BencodedValue::ByteAddresses(byte_addresses)) => Ok(byte_addresses.to_vec()),
             Some(BencodedValue::Dict(_peer_dict)) => todo!(),
-            _ => panic!("Error: Invalid peers key from tracker response")
-        };
-        
-        peer_addresses.to_vec()
+            _ => Err(anyhow!("Invalid peers key in tracker response"))
+        }
     }
 
 }

@@ -1,6 +1,7 @@
 {
   "b69c32110fb71bb7b2c1ede7e7fbde3b3fcb7926": {
-    "dest_path": "D:\\Diplomna\\TtTorrent/./test_folder/data",
+    "dest_path": "/home/jivko/Programing/TtTorrent/test_folder/data",
+    "downloaded": 0,
     "info_hash": [
       182,
       156,
@@ -25,12 +26,21 @@
     ],
     "peers": [
       {
-        "address": "192.168.0.15",
+        "address": "127.0.0.1",
         "port": "51413"
       }
     ],
-    "pieces": [],
-    "src_path": "client_state/torrent_files\\torrent_image.torrent",
+    "pieces": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "src_path": "client_state/torrent_files/torrent_image.torrent",
     "torrent_file": {
       "bencoded_dict": {
         "Dict": {
@@ -322,6 +332,7 @@
         }
       }
     },
-    "torrent_name": "torrent_image.torrent"
+    "torrent_name": "torrent_image.torrent",
+    "uploaded": 0
   }
 }

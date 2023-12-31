@@ -165,7 +165,7 @@ impl Client {
                         },
                         ClientMessage::Shutdown => {
                             for torrent_handle in &mut self.torrent_handles {
-                                torrent_handle.shutdown().await?;
+                                let _ = torrent_handle.shutdown().await;
                             }
                             break;
                         },
@@ -185,6 +185,9 @@ impl Client {
 
                     // TODO: save state to file
                     // self.save_state().await?;
+                }
+                else => {
+                    break;
                 }
             }
         }

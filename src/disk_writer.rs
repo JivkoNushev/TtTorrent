@@ -4,7 +4,6 @@ use tokio::sync::{mpsc, Semaphore};
 use anyhow::{Result, anyhow};
 
 use std::collections::BTreeMap;
-use std::f32::consts::E;
 use std::sync::Arc;
 
 use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
@@ -266,6 +265,9 @@ impl DiskWriter {
                         },
                         _ => {}
                     }
+                }
+                else => {
+                    break;
                 }
             };
         }
