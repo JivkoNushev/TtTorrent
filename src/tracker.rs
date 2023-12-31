@@ -44,6 +44,41 @@ pub struct TrackerRequest {
 }
 
 impl TrackerRequest {
+    async fn new(announce: String, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<TrackerRequest> {
+        let info_hash = torrent_context.info_hash.clone();
+        let peer_id = client_id;
+        let port = 6881;
+
+        // calculate uploaded, downloaded, and left
+        let uploaded = torrent_context.uploaded.lock().await.clone();
+        let downloaded = torrent_context.downloaded;
+        let left = torrent_context.torrent_file.get_torrent_length()? - downloaded;
+        let compact = 1;
+        let no_peer_id = 0;
+        let event = tracker_event;
+        let ip = None;
+        let numwant = None;
+        let key = None;
+        let trackerid = None;
+
+        Ok(TrackerRequest {
+            announce,
+            info_hash,
+            peer_id,
+            port,
+            uploaded,
+            downloaded,
+            left,
+            compact,
+            no_peer_id,
+            event,
+            ip,
+            numwant,
+            key,
+            trackerid,
+        })
+    }
+
     fn as_url(self) -> Result<reqwest::Url> {
         let mut url = format!{
             "{announce}?info_hash={info_hash}\
@@ -120,41 +155,6 @@ impl TrackerRequest {
             trackerid,
         })
     }
-
-    async fn regular(announce: String, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<TrackerRequest> {
-        let info_hash = torrent_context.info_hash.clone();
-        let peer_id = client_id;
-        let port = 6881;
-
-        // calculate uploaded, downloaded, and left
-        let uploaded = torrent_context.uploaded.lock().await.clone();
-        let downloaded = torrent_context.downloaded;
-        let left = torrent_context.torrent_file.get_torrent_length()? - downloaded;
-        let compact = 1;
-        let no_peer_id = 0;
-        let event = TrackerEvent::None;
-        let ip = None;
-        let numwant = None;
-        let key = None;
-        let trackerid = None;
-
-        Ok(TrackerRequest {
-            announce,
-            info_hash,
-            peer_id,
-            port,
-            uploaded,
-            downloaded,
-            left,
-            compact,
-            no_peer_id,
-            event,
-            ip,
-            numwant,
-            key,
-            trackerid,
-        })
-    }
 }
 
 
@@ -185,22 +185,45 @@ impl Tracker {
         request.as_url()
     }
 
-    async fn regular_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Url> {
-        let request = TrackerRequest::regular(self.announce.clone(), client_id, torrent_context).await?;
+    async fn new_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<reqwest::Url> {
+        let request = TrackerRequest::new(self.announce.clone(), client_id, torrent_context, tracker_event).await?;
         request.as_url()
     }
 
-    pub async fn response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
+    pub async fn regular_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
         let request;
         // if no pieces have been downloaded, send a started request
         if torrent_context.pieces.lock().await.len() == 0 {
             request = self.started_request(client_id, torrent_context)?;
         }
         else {
-            request = self.regular_request(client_id, torrent_context).await?;
+            request = self.new_request(client_id, torrent_context, TrackerEvent::None).await?;
         };
 
         println!("request: {:?}", request);
+
+        let response = match crate::DEBUG_MODE {
+            true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
+            false => reqwest::get(request).await.context("invalid tracker url")?
+        };
+
+        Ok(response)
+    }
+
+    pub async fn stopped_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
+        let request = self.new_request(client_id, torrent_context, TrackerEvent::Stopped).await?;
+
+        let response = match crate::DEBUG_MODE {
+            true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
+            false => reqwest::get(request).await.context("invalid tracker url")?
+        };
+
+        Ok(response)
+
+    }
+
+    pub async fn completed_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
+        let request = self.new_request(client_id, torrent_context, TrackerEvent::Completed).await?;
 
         let response = match crate::DEBUG_MODE {
             true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,

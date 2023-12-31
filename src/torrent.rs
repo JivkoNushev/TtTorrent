@@ -349,8 +349,7 @@ impl Torrent {
     }
 
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
-        // TODO: create a tracker request based on the missing pieces
-        let tracker_response = tracker.response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
+        let tracker_response = tracker.regular_response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
 
         let peer_addresses = match crate::DEBUG_MODE {
             // true => vec![PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
@@ -362,6 +361,18 @@ impl Torrent {
 
         Ok(())
     }
+
+    pub async fn tracker_stopped(&mut self, tracker: &mut Tracker) -> Result<()> {
+        let _ = tracker.stopped_response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
+
+        Ok(())
+    }
+
+    async fn tracker_completed(&mut self, tracker: &mut Tracker) -> Result<()> {
+        let _ = tracker.completed_response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
+
+        Ok(())
+    }   
 
     pub async fn run(mut self) -> Result<()> {
         self.load_state().await?;
@@ -393,6 +404,8 @@ impl Torrent {
                         ClientMessage::FinishedDownloading => {
                             println!("Torrent '{}' downloaded", self.torrent_context.torrent_name);
                             Torrent::save_state(self.torrent_context.clone()).await?;
+
+                            self.tracker_completed(&mut tracker).await?;
                         }
                         _ => {}
                     }
@@ -410,6 +423,8 @@ impl Torrent {
                 }
             }
         }
+        // TODO: is this to be called before the handles are joined?
+        self.tracker_stopped(&mut tracker).await?;
 
         for peer_handle in self.peer_handles {
             let peer_addr = peer_handle.peer_address.clone();
