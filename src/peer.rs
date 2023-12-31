@@ -1,7 +1,6 @@
-use sha1::digest::typenum::bit;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, Error};
 
 use std::sync::Arc;
 
@@ -111,10 +110,32 @@ impl PeerHandle {
 
         let peer = Peer::new(client_id, torrent_context, peer_address.clone(), receiver);
 
+        let peer_addr_clone = peer_address.clone();
         let peer_session = PeerSession::new(stream, connection_type).await?;
         let join_handle = tokio::spawn(async move {
             if let Err(e) = peer.run(peer_session).await {
-                eprintln!("Peer error: {:?}", e);
+                if let Some(e) = e.downcast_ref::<tokio::io::Error>() {
+                    match e.kind() {
+                        tokio::io::ErrorKind::UnexpectedEof => {
+                            eprintln!("Peer '{peer_addr_clone}' disconnected")
+                        },
+                        tokio::io::ErrorKind::ConnectionRefused => {
+                            eprintln!("Peer '{peer_addr_clone}' connection refused")
+                        },
+                        tokio::io::ErrorKind::ConnectionReset => {
+                            eprintln!("Peer '{peer_addr_clone}' connection reset")
+                        },
+                        tokio::io::ErrorKind::ConnectionAborted => {
+                            eprintln!("Peer '{peer_addr_clone}' connection aborted")
+                        },
+                        _ => {
+                            eprintln!("Peer '{peer_addr_clone}' error: {:?}", e);
+                        }
+                    }
+                }
+                else {
+                    eprintln!("Peer '{peer_addr_clone}' error: {:?}", e);
+                }
             }
         });
 
@@ -324,9 +345,8 @@ impl Peer {
                         _ => {}
                     }
                 }
-                msg = peer_session.recv() => {
-                    let msg = msg.map_err(|e| anyhow::anyhow!("Peer '{self}' errored: {:?}", e))?;
-                    match msg {
+                peer_message = peer_session.recv() => {
+                    match peer_message? {
                         PeerMessage::Choke => {
                             println!("Peer '{self}' choke");
                             self.peer_context.choking = true;

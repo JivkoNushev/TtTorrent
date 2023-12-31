@@ -1,4 +1,3 @@
-use futures::future::Join;
 use interprocess::local_socket::LocalSocketStream;
 use tokio::task::JoinHandle;
 use tokio::sync::mpsc;

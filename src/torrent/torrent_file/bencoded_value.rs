@@ -37,17 +37,24 @@ impl BencodedValue {
         }
     }
 
-    pub fn try_into_integer(&self) -> Option<&i64> {
+    pub fn try_into_integer(&self) -> Result<&i64> {
         match self {
-            BencodedValue::Integer(i) => Some(i),
-            _ => None
+            BencodedValue::Integer(i) => Ok(i),
+            _ => Err(anyhow!("Trying to convert a non-bencoded integer"))
         }
     }
 
-    pub fn try_into_list(&self) -> Option<&Vec<BencodedValue>> {
+    pub fn try_into_list(&self) -> Result<&Vec<BencodedValue>> {
         match self {
-            BencodedValue::List(l) => Some(l),
-            _ => None
+            BencodedValue::List(l) => Ok(l),
+            _ => Err(anyhow!("Trying to convert a non-bencoded list"))
+        }
+    }
+
+    pub fn try_into_byte_string(&self) -> Result<&Vec<u8>> {
+        match self {
+            BencodedValue::ByteString(b) => Ok(b),
+            _ => Err(anyhow!("Trying to convert a non-bencoded byte string"))
         }
     }
 
@@ -72,15 +79,12 @@ impl BencodedValue {
         }
     }
 
-    pub fn get_from_list(&self, index: usize) -> Option<BencodedValue> {
-        let list = match self.try_into_list() {
-            Some(list) => list,
-            None => panic!("Trying to get a value from a non-bencoded list")
-        };
+    pub fn get_from_list(&self, index: usize) -> Result<BencodedValue> {
+        let list = self.try_into_list()?;
 
         match list.get(index) {
-            Some(value) => Some(value.clone()),
-            None => None
+            Some(value) => Ok(value.clone()),
+            None => Err(anyhow!("Index out of bounds in list"))
         }
     }
 

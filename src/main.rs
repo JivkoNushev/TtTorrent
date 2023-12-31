@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
     // ------------------------ create socket for client ------------------------
 
     // remove socket if it exists and create new one
-    let _ = tokio::fs::remove_file(torrent_client::SOCKET_PATH).await.context("couldn't remove old socket")?;
+    let _ = tokio::fs::remove_file(torrent_client::SOCKET_PATH).await;
     let client_socket = LocalSocketListener::bind(torrent_client::SOCKET_PATH).context("couldn't bind to local socket")?;
     let mut socket_stream = tokio_stream::iter(client_socket.incoming());
 

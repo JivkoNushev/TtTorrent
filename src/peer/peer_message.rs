@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, Context};
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
 use crate::torrent::Sha1Hash;
@@ -178,7 +178,6 @@ impl PeerSession {
                 // send handshake
                 let handshake = PeerMessage::new_handshake(info_hash.clone(), client_id);
                 self.send(handshake).await?;
-                println!("Sent handshake");
 
                 // recv handshake
                 let handshake_response = self.recv_handshake().await?;
@@ -186,7 +185,6 @@ impl PeerSession {
                 if handshake.info_hash != info_hash.0 {
                     return Err(anyhow!("Invalid info hash"));
                 }
-                println!("Received handshake");  
 
                 handshake.peer_id
             }
@@ -196,12 +194,10 @@ impl PeerSession {
                 if handshake.info_hash != info_hash.0 {
                     return Err(anyhow!("Invalid info hash"));
                 }
-                println!("Received handshake");
 
                 // send handshake
                 let handshake_response = PeerMessage::new_handshake(info_hash.clone(), client_id);
                 self.send(handshake_response).await?;
-                println!("Sent handshake");
 
                 handshake.peer_id
             }
@@ -244,6 +240,10 @@ impl PeerSession {
     }
 
     pub async fn recv(&mut self) -> Result<PeerMessage> {
+        struct Helper {
+
+        }
+
         let mut message_size;
         loop {
             let mut message_size_bytes = [0; 4];

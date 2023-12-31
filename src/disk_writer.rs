@@ -4,6 +4,7 @@ use tokio::sync::{mpsc, Semaphore};
 use anyhow::{Result, anyhow};
 
 use std::collections::BTreeMap;
+use std::f32::consts::E;
 use std::sync::Arc;
 
 use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
@@ -83,35 +84,22 @@ impl DiskWriter {
         let mut all_files = Vec::new();
 
         if let Ok(files_dict) = info_dict.get_from_dict("files") {
-            let files = match files_dict {
-                BencodedValue::List(files) => files,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
-            };
+            let files = files_dict.try_into_list()?;
 
             for file in files {
-                let file = match file {
-                    BencodedValue::Dict(file) => file,
-                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name)
-                };
-
+                let file = file.try_into_dict()?;
                 all_files.push(file.clone());
             }
         }
         else {
             let file_name = info_dict.get_from_dict("name")?;
-            let file_name = match file_name {
-                BencodedValue::ByteString(file_name) => file_name,
-                _ => return Err(anyhow!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name))
-            };
+            let file_name = file_name.try_into_byte_string()?;
 
             let length = info_dict.get_from_dict("length")?;
-            let length = match length {
-                BencodedValue::Integer(length) => length,
-                _ => return Err(anyhow!("Could not get file size from info dict ref in torrent file: {}", torrent_context.torrent_name))
-            };
+            let length = length.try_into_integer()?;
 
             let mut file_dict = BTreeMap::new();
-            let path = BencodedValue::List(vec![BencodedValue::ByteString(file_name)]);
+            let path = BencodedValue::List(vec![BencodedValue::ByteString(file_name.clone())]);
             file_dict.insert("path".to_string(), path);
             file_dict.insert("length".to_string(), BencodedValue::Integer(length.clone()));
             all_files.push(file_dict);
@@ -137,13 +125,20 @@ impl DiskWriter {
                             .iter()
                             .map(|path| {
                                 match path {
-                                    BencodedValue::ByteString(path) => String::from_utf8(path.to_vec()).unwrap(),
-                                    _ => panic!("Error: couldn't get file path")
+                                    BencodedValue::ByteString(path) => {
+                                        match String::from_utf8(path.to_vec()) {
+                                            Ok(path) => Ok(path),
+                                            Err(_) => Err(anyhow!("invalid utf8 in torrent file path"))
+                                        }
+                                    },
+                                    _ => Err(anyhow!("invalid torrent file path"))
                                 }
                             })
-                            .collect::<Vec<String>>()
+                            .collect::<Result<Vec<String>>>()?
                     },
-                    _ => panic!("Error: couldn't get file path")
+                    _ => {
+                        return Err(anyhow!("invalid torrent file path"));
+                    }
                 };
 
                 let path = path.join("/");
@@ -196,16 +191,19 @@ impl DiskWriter {
             let file_path = std::path::PathBuf::from(format!("{}/{}", torrent_context.dest_path, file.path));
             
             // create the directories if they don't exist
-            let file_dir = file_path.parent().unwrap();
-            tokio::fs::create_dir_all(file_dir).await.unwrap();
+            let file_dir = match file_path.parent() {
+                Some(file_dir) => file_dir,
+                None => return Err(anyhow!("Invalid torrent file path"))
+            };
+
+            tokio::fs::create_dir_all(file_dir).await.unwrap(); // file_dir is always a directory
 
             let mut fd = tokio::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .open(file_path.clone())
-                .await
-                .unwrap();
+                .await?;
 
             let bytes_to_write = if file.size - file_offset > bytes_left  {
                 bytes_left
@@ -213,13 +211,13 @@ impl DiskWriter {
                 file.size - file_offset
             };
             
-            fd.seek(std::io::SeekFrom::Start(file_offset)).await.unwrap();
+            fd.seek(std::io::SeekFrom::Start(file_offset)).await?;
 
             let written_bytes = piece_length - bytes_left;
 
             fd.write_all(
                 &piece[written_bytes as usize..(written_bytes + bytes_to_write) as usize]
-            ).await.unwrap();
+            ).await?;
 
             piece_start_offset += bytes_to_write;
             bytes_left -= bytes_to_write;
@@ -236,7 +234,7 @@ impl DiskWriter {
         let mut writer_handles = Vec::new();
 
         loop {
-            tokio::select! {
+            let _ = tokio::select! {
                 Some(message) = self.rx.recv() => {
                     match message {
                         ClientMessage::Shutdown => {
@@ -251,11 +249,11 @@ impl DiskWriter {
 
                             let handle = tokio::spawn(async move {
                                 if let Err(e) = semaphore_clone.acquire().await {
-                                    println!("Semaphore Error: {}", e);
+                                    eprintln!("Semaphore Error: {}", e);
                                     return;
                                 }
                                 if let Err(e) = DiskWriter::write_to_file(torrent_context, piece_index, piece).await {
-                                    println!("Disk writer error: {:?}", e);
+                                    eprintln!("Disk writer error: {:?}", e);
                                 }
                             });
 
@@ -269,7 +267,7 @@ impl DiskWriter {
                         _ => {}
                     }
                 }
-            }
+            };
         }
 
         for handle in writer_handles {
