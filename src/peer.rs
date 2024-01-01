@@ -319,11 +319,6 @@ impl Peer {
         // handshake with peer
         self.handshake(&mut peer_session).await?;
         println!("Handshake with peer '{self}' successful");
-
-        // send interested if there are pieces to download
-        if !self.torrent_context.pieces.lock().await.is_empty() {
-            self.interested(&mut peer_session).await?;
-        }
         
         let mut downloading_piece = PeerPiece::default();
         loop {
@@ -414,7 +409,8 @@ impl Peer {
                             println!("Peer '{self}' keep alive");
                             // the counter should reset every time a message is received or a keep alive is
                             // sent from me
-                            todo!("make a counter and disconnect if no keep alive is received for a long time");
+                            continue;
+                            todo!("make a counter and disconnect if any messages aren't received for a long time");
                         },
                         _ => {
                             return Err(anyhow!("Peer '{self}' sent invalid message"));
@@ -422,12 +418,17 @@ impl Peer {
                     }
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    // send keep alive message every 60 secs (max 120)
-                    if !self.torrent_context.pieces.lock().await.is_empty() {
-                        println!("Sending keep alive to peer: '{self}'");
-                        self.keep_alive(&mut peer_session).await?;
-                    }
+                    // TODO: send keep alive message every 60 secs (max 120)
+                    // if !self.torrent_context.pieces.lock().await.is_empty() {
+                    //     println!("Sending keep alive to peer: '{self}'");
+                    //     self.keep_alive(&mut peer_session).await?;
+                    // }
                 }
+            }
+
+            // send interested if there are pieces to download
+            if !self.peer_context.interested && !self.torrent_context.pieces.lock().await.is_empty() {
+                self.interested(&mut peer_session).await?;
             }
 
             // if interested in downloading and unchoked
@@ -443,8 +444,7 @@ impl Peer {
             // file is fully downloaded and peer doesn't want to download as well
             if !self.peer_context.am_interested && self.peer_context.bitfield.len() == self.torrent_context.pieces_count {
                 println!("File is fully downloaded and peer doesn't want to download as well");
-                // return connection aborted error
-                return Err(Error::from(tokio::io::Error::new(tokio::io::ErrorKind::ConnectionAborted, "Connection aborted")))
+                break;
             }
         }
 

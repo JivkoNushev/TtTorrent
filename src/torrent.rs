@@ -1,6 +1,6 @@
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
-use anyhow::{Result, Context, Ok, anyhow};
+use anyhow::{Result, Context, anyhow};
 use serde::{Serialize, Deserialize};
 
 use std::sync::Arc;
@@ -315,9 +315,13 @@ impl Torrent {
         let torrent_length = self.torrent_context.torrent_file.get_torrent_length()?;
 
         for peer_address in peer_addresses {
-            let peer_address_clone = peer_address.clone();
-            if !self.torrent_context.peers.contains(&peer_address_clone) {
-                self.torrent_context.peers.push(peer_address_clone);
+            let stream = match tokio::net::TcpStream::connect(format!("{}:{}", peer_address.address, peer_address.port)).await {
+                Ok(stream) => stream,
+                Err(_) => continue,
+            };
+
+            if !self.torrent_context.peers.contains(&peer_address) {
+                self.torrent_context.peers.push(peer_address);
             }
 
             let torrent_context = PeerTorrentContext::new(
@@ -328,8 +332,6 @@ impl Torrent {
                 Arc::clone(&self.torrent_context.pieces),
                 Arc::clone(&self.torrent_context.uploaded),
             );
-
-            let stream = tokio::net::TcpStream::connect(format!("{}:{}", peer_address.address, peer_address.port)).await?;
 
             let peer_handle = PeerHandle::new(
                 self.client_id,
