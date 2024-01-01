@@ -354,8 +354,7 @@ impl Torrent {
         let tracker_response = tracker.regular_response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
 
         let peer_addresses = match crate::DEBUG_MODE {
-            // true => vec![PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
-            true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}],
+            true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
             false => PeerAddress::from_tracker_response(tracker_response).await?
         };
 

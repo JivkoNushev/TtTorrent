@@ -444,7 +444,9 @@ impl Peer {
             // file is fully downloaded and peer doesn't want to download as well
             if !self.peer_context.am_interested && self.peer_context.bitfield.len() == self.torrent_context.pieces_count {
                 println!("File is fully downloaded and peer doesn't want to download as well");
-                break;
+                // throwing an error so that the peer is removed from torrent peer
+                // TODO: find a better way to do this
+                return Err(Error::from(tokio::io::Error::new(tokio::io::ErrorKind::ConnectionAborted, "Connection aborted by client")));
             }
         }
 
