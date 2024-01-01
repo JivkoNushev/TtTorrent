@@ -102,10 +102,14 @@ impl BencodedValue {
             Some(info) => {
                 match info {
                     BencodedValue::Dict(info) => info,
-                    _ => panic!("Trying to validate a non-bencoded dictionary named \"info\"")
+                    _ => {
+                        return false;
+                    }
                 }
             }
-            None => panic!("Trying to validate a non-bencoded dictionary named \"info\"")
+            None => {
+                return false
+            }
         };
 
         if ["name", "piece length", "pieces"].iter().any(|key| !info.contains_key(*key)) {
@@ -122,10 +126,14 @@ impl BencodedValue {
                 Some(files) => {
                     match files {
                         BencodedValue::List(files) => files,
-                        _ => panic!("Trying to validate a non-bencoded list named \"files\"")
+                        _ => {
+                            return false;
+                        }
                     }
                 }
-                None => panic!("Trying to validate a non-bencoded list named \"files\"")
+                None => {
+                    return false;
+                }
             };
 
             return files
@@ -133,7 +141,7 @@ impl BencodedValue {
             .all(|file| {
                 match file {
                     BencodedValue::Dict(d) => ["length", "path"].iter().all(|key| d.contains_key(*key)),
-                    _ => panic!("Trying to validate a non-bencoded dictionary in \"files\"")
+                    _ => false
                 }
             });
         }
