@@ -93,9 +93,6 @@ pub struct TorrentHandle {
 
 impl TorrentHandle {
     pub async fn new(client_id: [u8; 20], src: &str, dest: &str) -> Result<Self> {
-        // if src or dest are not valid paths return error
-
-
         // copy torrent file to state folder for redundancy
         let src_path = std::path::Path::new(src);
         let torrent_name = src_path
@@ -104,18 +101,25 @@ impl TorrentHandle {
             .to_str()
             .unwrap();
 
-        let dest_path = std::path::Path::new(crate::STATE_TORRENT_FILES_PATH).join(torrent_name);
-        tokio::fs::copy(src_path, dest_path.clone()).await?;
+        let torrent_file_dest_path = std::path::Path::new(crate::STATE_TORRENT_FILES_PATH).join(torrent_name);
+        tokio::fs::copy(src_path, torrent_file_dest_path.clone()).await?;
 
         // create torrent handle
-        let src = dest_path.to_str().unwrap();
+        let src = torrent_file_dest_path.to_str().unwrap(); // torrent_file_dest_path is always valid utf8
+        
         let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
-
         let pipe = CommunicationPipe {
             tx: sender.clone(),
             rx: receiver,
         };
-        let torrent = Torrent::new(client_id, pipe, src, dest).await?;
+        let torrent = match Torrent::new(client_id, pipe, src, dest).await {
+            Ok(torrent) => torrent,
+            Err(e) => {
+                // remove torrent file from state folder
+                tokio::fs::remove_file(src).await?;
+                return Err(e);
+            }
+        };
         let torrent_name = torrent.torrent_context.torrent_name.clone();
 
         let join_handle = tokio::spawn(async move {
@@ -214,7 +218,7 @@ impl Torrent {
             .file_name()
             .unwrap()
             .to_str()
-            .unwrap();
+            .unwrap(); // src is always valid utf8
 
         let info_hash = TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref())?;
 

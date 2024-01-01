@@ -32,9 +32,7 @@ impl PeerAddress {
 
     pub async fn from_tracker_response(resp: reqwest::Response) -> Result<Vec<PeerAddress>> {
         let bencoded_response = resp.bytes().await?;
-
-        // TODO: Handle errors
-        let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response);
+        let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response)?;
         let bencoded_dict = bencoded_response.try_into_dict()?;
 
         match bencoded_dict.get("peers") {

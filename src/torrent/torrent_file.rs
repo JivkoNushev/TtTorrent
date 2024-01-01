@@ -25,7 +25,7 @@ impl TorrentFile {
         let info_dict = bencoded_dict.get_from_dict("info")?;
         match info_dict {
             BencodedValue::Dict(_) => {
-                let bencoded_info_dict = TorrentParser::parse_to_torrent_file(&info_dict);
+                let bencoded_info_dict = TorrentParser::parse_to_torrent_file(&info_dict)?;
                 Ok(sha1_hash(bencoded_info_dict))
             },
             _ => Err(anyhow!("Invalid dictionary in info key when getting the tracker params"))
@@ -110,7 +110,7 @@ impl TorrentFile {
 impl TorrentFile {
     pub async fn new(torrent_file_name: &str) -> Result<TorrentFile> {
         let torrent_file = read_file_as_bytes(torrent_file_name).await.context("couldn't read file as bytes")?;
-        let bencoded_dict = TorrentParser::parse_torrent_file(&torrent_file);
+        let bencoded_dict = TorrentParser::parse_torrent_file(&torrent_file)?;
 
         Ok(TorrentFile { bencoded_dict })
     }
