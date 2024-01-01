@@ -1,6 +1,6 @@
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
-use anyhow::{Result, anyhow, Error};
+use anyhow::{anyhow, Result, Error};
 
 use std::sync::Arc;
 
@@ -78,7 +78,6 @@ pub struct PeerTorrentContext {
     info_hash: Sha1Hash,
     pieces: Arc<Mutex<Vec<usize>>>,
 
-    // TODO: use arc mutex or send a message to the client ?
     uploaded: Arc<Mutex<u64>>,
 }
 
@@ -203,7 +202,13 @@ impl Peer {
             return None;
         }
 
-        let piece_index = rand_number_u32(0, common_indexes.len() as u32) as usize;
+        let piece_index = match rand_number_u32(0, common_indexes.len() as u32) {
+            Ok(piece_index) => piece_index as usize,
+            Err(_) => {
+                eprintln!("Failed to generate random number");
+                return None;
+            }
+        };
 
         let piece = common_indexes[piece_index];
 

@@ -1,6 +1,6 @@
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
-use anyhow::{Result, Context, anyhow};
+use anyhow::{anyhow, Result, Context};
 use serde::{Serialize, Deserialize};
 
 use std::sync::Arc;
@@ -200,7 +200,7 @@ impl Torrent {
 
         let torrent_info_hash = torrent_context.info_hash.clone();
         let torrent_context = serde_json::to_value(torrent_context).unwrap(); // torrent context is always valid json
-        client_state[torrent_info_hash.as_hex()] = torrent_context;
+        client_state[torrent_info_hash.to_hex()] = torrent_context;
 
         let client_state = serde_json::to_string_pretty(&client_state).unwrap(); // client state is always valid json
 

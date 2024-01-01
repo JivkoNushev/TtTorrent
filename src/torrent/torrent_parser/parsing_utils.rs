@@ -280,7 +280,7 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> Result<Bencode
     let torrent_file_len = torrent_file.len();   
 
     if torrent_file[*cur_index] != b'd' {
-        panic!("Invalid torrent file: missing 'd' prefix")
+        return Err(anyhow!("Invalid torrent file: missing 'd' prefix"));
     }
     *cur_index += 1;
 
@@ -288,7 +288,7 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> Result<Bencode
     let mut key = String::new();
     loop {
         if torrent_file_len <= *cur_index {
-            panic!("Invalid torrent file: too short")
+            return Err(anyhow!("Invalid torrent file: too short"));
         }
 
         match torrent_file[*cur_index] {

@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow, Context};
+use anyhow::{anyhow, Result};
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
 use crate::torrent::Sha1Hash;
@@ -45,23 +45,13 @@ pub enum PeerMessage {
     Cancel(u32, u32, u32),
     Port(u16),
 
-    Handshake(Handshake),
     KeepAlive,
+    Handshake(Handshake),
 }
 
 impl AsBytes for PeerMessage {
     fn as_bytes(&self) -> Vec<u8> {
         match self {
-            PeerMessage::Handshake(handshake) => {
-                let mut data = Vec::new();
-                data.push(handshake.protocol_len.clone());
-                data.extend_from_slice(&handshake.protocol.clone());
-                data.extend_from_slice(&handshake.reserved.clone());
-                data.extend_from_slice(&handshake.info_hash.clone());
-                data.extend_from_slice(&handshake.peer_id.clone());
-
-                data
-            },
             PeerMessage::Choke => vec![0, 0, 0, 1, 0],
             PeerMessage::Unchoke => vec![0, 0, 0, 1, 1],
             PeerMessage::Interested => vec![0, 0, 0, 1, 2],
@@ -108,7 +98,18 @@ impl AsBytes for PeerMessage {
 
                 data
             },
+
             PeerMessage::KeepAlive => vec![0, 0, 0, 0],
+            PeerMessage::Handshake(handshake) => {
+                let mut data = Vec::new();
+                data.push(handshake.protocol_len.clone());
+                data.extend_from_slice(&handshake.protocol.clone());
+                data.extend_from_slice(&handshake.reserved.clone());
+                data.extend_from_slice(&handshake.info_hash.clone());
+                data.extend_from_slice(&handshake.peer_id.clone());
+
+                data
+            },
         }
     }
 }

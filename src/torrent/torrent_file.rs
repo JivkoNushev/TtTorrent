@@ -1,4 +1,4 @@
-use anyhow::{Result, Context, anyhow};
+use anyhow::{anyhow, Result, Context};
 use serde::{Serialize, Deserialize};
 
 use crate::utils::{read_file_as_bytes, sha1_hash};
@@ -35,27 +35,20 @@ impl TorrentFile {
     pub fn get_piece_hash(&self, piece_index: usize) -> Result<Sha1Hash> {
         let info_dict = self.bencoded_dict.get_from_dict("info")?;
         let pieces = info_dict.get_from_dict("pieces")?;
+        let pieces = pieces.try_into_byte_sha1_hashes()?;
 
-        match pieces {
-            BencodedValue::ByteSha1Hashes(pieces) => {
-                match pieces.get(piece_index) {
-                    Some(piece_hash) => Ok(piece_hash.clone()),
-                    None => Err(anyhow!("Invalid piece index in info dict ref in torrent file: {:?}", self.bencoded_dict))
-                }
-            },
-            _ => Err(anyhow!("Invalid pieces key in info dict ref in torrent file: {:?}", self.bencoded_dict))
+        match pieces.get(piece_index) {
+            Some(piece_hash) => Ok(piece_hash.clone()),
+            None => Err(anyhow!("Invalid piece index in info dict ref in torrent file: {:?}", self.bencoded_dict))
         }
     }
 
     pub fn get_piece_length(&self) -> Result<usize> {
         let info_dict = self.bencoded_dict.get_from_dict("info")?;
-
         let piece_length = info_dict.get_from_dict("piece length")?;
+        let piece_length = piece_length.try_into_integer()?;
 
-        match piece_length {
-            BencodedValue::Integer(piece_length) => Ok(piece_length as usize),
-            _ => Err(anyhow!("Invalid piece length key in info dict ref in torrent file: {:?}", self.bencoded_dict))
-        }
+        Ok(piece_length as usize)
     }
 
     pub fn get_torrent_length(&self) -> Result<u64> {
@@ -66,39 +59,27 @@ impl TorrentFile {
         };
 
         let mut total_size: u64 = 0;
-
         if let Ok(files_dict) = info_dict.get_from_dict("files") {
-            let files = match files_dict {
-                BencodedValue::List(files) => files,
-                _ => panic!("Could not get file size from info dict ref in torrent file")
-            };
+            let files = files_dict.try_into_list()?;
 
             for file in files {
-                let file = match file {
-                    BencodedValue::Dict(file) => file,
-                    _ => panic!("Could not get file size from info dict ref in torrent file")
-                };
+                let file = file.try_into_dict()?;
 
                 let length = match file.get("length") {
                     Some(length) => length,
-                    None => panic!("Could not get file size from info dict ref in torrent file")
+                    None => {
+                        return Err(anyhow!("Could not get file size from info dict ref in torrent file"));
+                    }
                 };
+                let length = length.try_into_integer()?;
 
-                let length = match length {
-                    BencodedValue::Integer(length) => length,
-                    _ => panic!("Could not get file size from info dict ref in torrent file")
-                };
-
-                total_size += *length as u64;
+                total_size += length as u64;
             }
         }
         else { 
             let file_length = info_dict.get_from_dict("length")?;
-            let file_length = match file_length {
-                BencodedValue::Integer(file_length) => file_length,
-                _ => return Err(anyhow!("Could not get file size from info dict ref in torrent file"))
-            };
-
+            let file_length = file_length.try_into_integer()?;
+            
             total_size = file_length as u64;
         }
         

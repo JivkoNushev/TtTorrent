@@ -30,19 +30,10 @@ impl ClientHandle {
                 },
             }
 
-            let mut client_socket = match LocalSocketStream::connect(crate::SOCKET_PATH) {
-                Ok(socket) => socket,
-                Err(e) => {
-                    eprintln!("Failed to connect to the server socket: {:?}", e);
-                    return
-                }
-            };
+            let mut client_socket = LocalSocketStream::connect(crate::SOCKET_PATH).expect("Failed to connect to local socket");
 
-            let message = ClientMessage::Shutdown;
-
-            let serialized_data = serde_json::to_string(&message).expect("Serialization failed");
-
-            client_socket.write_all(serialized_data.as_bytes()).expect("Failed to send data");
+            let serialized_data = serde_json::to_string(&ClientMessage::Shutdown).expect("Serialization failed");
+            client_socket.write_all(serialized_data.as_bytes()).expect("Failed to write to socket");
         });
     }
 }

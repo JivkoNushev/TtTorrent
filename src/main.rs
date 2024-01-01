@@ -43,12 +43,10 @@ async fn main() -> Result<()> {
                         break;
                     },
                     ClientMessage::DownloadTorrent{src, dst} => {
-                        // check src and dst
                         if !valid_src_and_dst(&src, &dst) {
                             eprintln!("Invalid src or dst");
                             continue;
                         }
-
                         client.client_download_torrent(src, dst).await?;
                     },
                     ClientMessage::SendTorrentInfo => {

@@ -1,7 +1,262 @@
 {
+  "240b2a5714c404f504f99df1988955b0ca8e157a": {
+    "dest_path": "D:\\Diplomna\\TtTorrent/./test_folder/data",
+    "downloaded": 80119,
+    "info_hash": [
+      36,
+      11,
+      42,
+      87,
+      20,
+      196,
+      4,
+      245,
+      4,
+      249,
+      157,
+      241,
+      152,
+      137,
+      85,
+      176,
+      202,
+      142,
+      21,
+      122
+    ],
+    "peers": [],
+    "pieces": [],
+    "src_path": "client_state/torrent_files\\import.torrent",
+    "torrent_file": {
+      "bencoded_dict": {
+        "Dict": {
+          "announce": {
+            "ByteString": [
+              117,
+              100,
+              112,
+              58,
+              47,
+              47,
+              116,
+              101,
+              115,
+              116,
+              116,
+              114,
+              97,
+              99,
+              107,
+              107,
+              101,
+              114,
+              46,
+              111,
+              114,
+              103
+            ]
+          },
+          "created by": {
+            "ByteString": [
+              84,
+              114,
+              97,
+              110,
+              115,
+              109,
+              105,
+              115,
+              115,
+              105,
+              111,
+              110,
+              47,
+              51,
+              46,
+              48,
+              48,
+              32,
+              40,
+              98,
+              98,
+              54,
+              98,
+              53,
+              97,
+              48,
+              54,
+              50,
+              101,
+              41
+            ]
+          },
+          "creation date": {
+            "Integer": 1701433891
+          },
+          "encoding": {
+            "ByteString": [
+              85,
+              84,
+              70,
+              45,
+              56
+            ]
+          },
+          "info": {
+            "Dict": {
+              "files": {
+                "List": [
+                  {
+                    "Dict": {
+                      "length": {
+                        "Integer": 44031
+                      },
+                      "path": {
+                        "List": [
+                          {
+                            "ByteString": [
+                              105,
+                              109,
+                              112,
+                              111,
+                              114,
+                              116,
+                              49,
+                              46,
+                              116,
+                              120,
+                              116
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "Dict": {
+                      "length": {
+                        "Integer": 36088
+                      },
+                      "path": {
+                        "List": [
+                          {
+                            "ByteString": [
+                              105,
+                              109,
+                              112,
+                              111,
+                              114,
+                              116,
+                              50,
+                              46,
+                              116,
+                              120,
+                              116
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "name": {
+                "ByteString": [
+                  105,
+                  109,
+                  112,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              "piece length": {
+                "Integer": 32768
+              },
+              "pieces": {
+                "ByteSha1Hashes": [
+                  [
+                    224,
+                    169,
+                    92,
+                    167,
+                    202,
+                    213,
+                    7,
+                    71,
+                    104,
+                    245,
+                    54,
+                    82,
+                    229,
+                    133,
+                    98,
+                    41,
+                    31,
+                    156,
+                    235,
+                    192
+                  ],
+                  [
+                    109,
+                    104,
+                    138,
+                    62,
+                    140,
+                    14,
+                    192,
+                    151,
+                    59,
+                    199,
+                    210,
+                    235,
+                    191,
+                    133,
+                    77,
+                    36,
+                    25,
+                    115,
+                    9,
+                    209
+                  ],
+                  [
+                    154,
+                    242,
+                    97,
+                    43,
+                    117,
+                    206,
+                    26,
+                    139,
+                    251,
+                    57,
+                    184,
+                    60,
+                    172,
+                    185,
+                    180,
+                    205,
+                    226,
+                    250,
+                    220,
+                    121
+                  ]
+                ]
+              },
+              "private": {
+                "Integer": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "torrent_name": "import.torrent",
+    "uploaded": 0
+  },
   "b69c32110fb71bb7b2c1ede7e7fbde3b3fcb7926": {
     "dest_path": "D:\\Diplomna\\TtTorrent/./test_folder/data",
-    "downloaded": 244474,
+    "downloaded": 0,
     "info_hash": [
       182,
       156,
@@ -25,7 +280,16 @@
       38
     ],
     "peers": [],
-    "pieces": [],
+    "pieces": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
     "src_path": "client_state/torrent_files\\torrent_image.torrent",
     "torrent_file": {
       "bencoded_dict": {

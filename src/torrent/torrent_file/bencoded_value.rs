@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 use std::collections::BTreeMap;
 
@@ -37,9 +37,9 @@ impl BencodedValue {
         }
     }
 
-    pub fn try_into_integer(&self) -> Result<&i64> {
+    pub fn try_into_integer(&self) -> Result<i64> {
         match self {
-            BencodedValue::Integer(i) => Ok(i),
+            BencodedValue::Integer(i) => Ok(*i),
             _ => Err(anyhow!("Trying to convert a non-bencoded integer"))
         }
     }
@@ -54,6 +54,13 @@ impl BencodedValue {
     pub fn try_into_byte_string(&self) -> Result<&Vec<u8>> {
         match self {
             BencodedValue::ByteString(b) => Ok(b),
+            _ => Err(anyhow!("Trying to convert a non-bencoded byte string"))
+        }
+    }
+
+    pub fn try_into_byte_sha1_hashes(&self) -> Result<&Vec<Sha1Hash>> {
+        match self {
+            BencodedValue::ByteSha1Hashes(b) => Ok(b),
             _ => Err(anyhow!("Trying to convert a non-bencoded byte string"))
         }
     }

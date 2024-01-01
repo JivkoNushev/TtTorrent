@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 use std::fmt::Display;
 

@@ -1,7 +1,7 @@
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
 use tokio::sync::{mpsc, Semaphore};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -241,8 +241,7 @@ impl DiskWriter {
                             break;
                         },
                         ClientMessage::DownloadedPiece{piece_index, piece} => {
-                            // TODO: maybe save the pieces and if the client crashes, it can resume from where it left off
-
+                            // TODO: maybe save the pieces indexes somewhere and if the client crashes download them again
                             let semaphore_clone = Arc::clone(&semaphore);
                             let torrent_context = Arc::clone(&self.torrent_context);
 

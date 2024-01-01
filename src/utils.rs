@@ -1,8 +1,7 @@
-
 use sha1::{Sha1, Digest};
 use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
-use anyhow::{Result, Context};
+use anyhow::{anyhow, Result, Context};
 
 use crate::torrent::torrent_file::Sha1Hash;
 
@@ -28,7 +27,9 @@ pub trait AsBytes {
 pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     let mut hasher = Sha1::new();
     hasher.update(value);
-    Sha1Hash::new(&hasher.finalize())
+    let hash = hasher.finalize();
+    let hash = hash.as_slice().try_into().unwrap(); // sha1 hash is always 20 bytes in this case
+    Sha1Hash::new(hash)
 }   
 
 pub async fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
@@ -45,30 +46,27 @@ pub fn print_as_string(char_vec: &Vec<u8>) {
     println!("{}", char_vec.iter().map(|&c| c as char).collect::<String>());
 }
 
-pub fn rand_number_u32(min: u32, max: u32) -> u32 {
-    let mut buffer = [0u8; 4]; // Assuming you want a u32 random number
-
-    // Use getrandom to fill the buffer with random bytes
-    if let Ok(_) = getrandom(&mut buffer) {
-        // Convert the buffer to a u32 and get a random number within the desired range
-        u32::from_ne_bytes(buffer) % (max - min) + min
-    } else {
-        panic!("Failed to generate random number");
+pub fn rand_number_u32(min: u32, max: u32) -> Result<u32> {
+    let mut buffer = [0u8; 4];
+    if let Err(e) = getrandom(&mut buffer) {
+        return Err(anyhow!("Failed to generate random number: {}", e));
     }
+    Ok(u32::from_ne_bytes(buffer) % (max - min) + min)
 }
 
 pub fn valid_src_and_dst(src: &str, dst: &str) -> bool {
     let torrent_file = std::path::Path::new(src);
     let directory = std::path::Path::new(dst);
-    if  !torrent_file.exists()                          || 
-        !torrent_file.is_file()                         || 
-        torrent_file.extension().is_none()              ||
-        "torrent" != torrent_file.extension().unwrap()  || 
-        !directory.exists()                             || 
-        !directory.is_dir()                                 
+    if  !torrent_file.exists()                              || 
+        !torrent_file.is_file()                             || 
+        torrent_file.extension().is_none()               ||
+        "torrent" != torrent_file.extension().unwrap()
     {
         return false;
     }
 
-    true
+    match std::fs::create_dir_all(directory) {
+        Ok(_) => true,
+        Err(_) => false
+    }
 }
