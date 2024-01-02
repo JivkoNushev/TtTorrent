@@ -49,8 +49,6 @@ Commands:
 }
 
 fn list_torrents(socket: &mut LocalSocketStream) {
-    socket.set_nonblocking(true).expect("Failed to set nonblocking mode");
-
     let (tx, rx) = std::sync::mpsc::channel::<()>();
 
     ctrlc::set_handler(move || {
@@ -60,6 +58,8 @@ fn list_torrents(socket: &mut LocalSocketStream) {
     loop {
         // check if ctrl+c was pressed
         if let Ok(_) = rx.try_recv() {
+            println!("Shutting down client daemon...");
+
             let mut serialized_data = serde_json::to_string(&TerminalClientMessage::TerminalClientClosed).expect("Serialization failed");
             serialized_data.push('\n');
             let _ = socket.write(serialized_data.as_bytes());
@@ -74,6 +74,12 @@ fn list_torrents(socket: &mut LocalSocketStream) {
     
             continue;
         }
+
+        if message.is_empty() {
+            continue;
+        }
+
+        println!("received message: {:?}", message);
         
         let message = match serde_json::from_slice::<TerminalClientMessage>(&message) {
             Ok(message) => message,
@@ -147,6 +153,7 @@ async fn main() {
             exit(1);
         }
     };
+    client_socket.set_nonblocking(true).expect("Failed to set nonblocking mode");
     
     match args[1].as_str() {
         "download" => {
@@ -199,16 +206,19 @@ async fn main() {
             
             let message = TerminalClientMessage::Download{src: torrent_path, dst: dest_path};
 
-            let serialized_data = serde_json::to_string(&message).expect("Serialization failed");
-            client_socket.write_all(serialized_data.as_bytes()).expect("Failed to send data");
+            let mut serialized_data = serde_json::to_string(&message).expect("Serialization failed");
+            serialized_data.push('\n');
+            client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");
         },
         "shutdown" => {
-            let serialized_data = serde_json::to_string(&TerminalClientMessage::Shutdown).expect("Serialization failed");
-            client_socket.write_all(serialized_data.as_bytes()).expect("Failed to send data");
+            let mut serialized_data = serde_json::to_string(&TerminalClientMessage::Shutdown).expect("Serialization failed");
+            serialized_data.push('\n');
+            client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");
         },
         "list" => {
             let mut serialized_data = serde_json::to_string(&TerminalClientMessage::ListTorrents).expect("Serialization failed");
             serialized_data.push('\n');
+            println!("{}", serialized_data);
             let _ = client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");
 
             list_torrents(&mut client_socket);

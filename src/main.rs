@@ -1,5 +1,5 @@
 use anyhow::{Result, Context};
-use interprocess::local_socket::LocalSocketListener;
+use interprocess::local_socket::{LocalSocketListener, LocalSocketStream};
 use tokio_stream::StreamExt;
 
 use std::io::{Read, Write};
@@ -21,30 +21,29 @@ async fn main() -> Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(torrent_client::MAX_CHANNEL_SIZE);
     let mut client = ClientHandle::new(tx);
     
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufReader, BufRead};
+
+    let mut sending_to_terminal_client = false;
+    let mut terminal_client_sockets: Vec<LocalSocketStream> = Vec::new();
 
     loop {
         tokio::select! {
             Some(Ok(mut socket)) = socket_stream.next() => {
+                println!("Received connection from local socket");
                 let mut reader = BufReader::new(&mut socket);
+
                 let mut message = String::new();
-
-                reader.read_line(&mut message)?;
-
-                // if let Err(e) = socket.read_to_end(&mut message) {
-                //     eprintln!("Failed to read message from local socket: {}", e);
-                //     continue;
-                // }
-
-                // message.lines().for_each(|line| {
-                //     println!("{:?}", line);
-                // });
-
+                if let Err(e) = reader.read_line(&mut message) {
+                    eprintln!("Failed to read message from local socket: {}", e);
+                    continue;
+                }
                 if message.is_empty() {
                     eprintln!("Received empty message");
                     continue;
                 }
 
+                println!("Received message: {}", message);
+                
                 let message = match serde_json::from_slice::<TerminalClientMessage>(&message.as_bytes()) {
                     Ok(message) => message,
                     Err(e) => {
@@ -69,31 +68,9 @@ async fn main() -> Result<()> {
                         }
                     },
                     TerminalClientMessage::ListTorrents => {
-                        if let Err(e) = client.client_list_torrents().await {
-                            eprintln!("Failed to send list torrents message to client: {}", e);
-                            continue;
-                        }
-
-                        let torrents = match rx.recv().await {
-                            Some(ClientMessage::TorrentsInfo{torrents}) => torrents,
-                            _ => {
-                                eprintln!("Failed to get torrents info");
-                                continue;
-                            }
-                        };
-
-                        let serialized_data = match serde_json::to_string(&TerminalClientMessage::TorrentsInfo{torrents}) {
-                            Ok(data) => data,
-                            Err(e) => {
-                                eprintln!("Failed to serialize torrents info: {}", e);
-                                continue;
-                            }
-                        };
-                        if let Err(e) = socket.write_all(serialized_data.as_bytes()) {
-                            eprintln!("Failed to write to local socket: {}", e);
-                            // TODO: continue
-                            return Ok(());
-                        }
+                        println!("sending list torrents message to client");
+                        sending_to_terminal_client = true;
+                        terminal_client_sockets.push(socket);
                     },
                     TerminalClientMessage::TerminalClientClosed => {
                         if let Err(e) = client.client_terminal_closed().await {
@@ -102,6 +79,43 @@ async fn main() -> Result<()> {
                         }
                     },
                     _ => {}
+                }
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                println!("checking for messages from client: {sending_to_terminal_client:?}");
+                if sending_to_terminal_client {
+                    println!("sending to terminal client");
+
+                    if let Err(e) = client.client_list_torrents().await {
+                        eprintln!("Failed to send list torrents message to client: {}", e);
+                        continue;
+                    }
+
+                    let torrents = match rx.recv().await {
+                        Some(ClientMessage::TorrentsInfo{torrents}) => torrents,
+                        _ => {
+                            eprintln!("Failed to get torrents info");
+                            continue;
+                        }
+                    };
+
+                    let serialized_data = match serde_json::to_string(&TerminalClientMessage::TorrentsInfo{torrents}) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            eprintln!("Failed to serialize torrents info: {}", e);
+                            continue;
+                        }
+                    };
+
+                    println!("sending: {}", serialized_data);
+
+                    for client in terminal_client_sockets.iter_mut() {
+                        if let Err(e) = client.write_all(serialized_data.as_bytes()) {
+                            eprintln!("Failed to write to local socket: {}", e);
+                            // TODO: continue
+                            return Ok(());
+                        }
+                    }
                 }
             },
             _ = tokio::signal::ctrl_c() => {
