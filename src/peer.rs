@@ -82,8 +82,7 @@ pub struct PeerTorrentContext {
 }
 
 impl PeerTorrentContext {
-    pub fn new(tx: mpsc::Sender<ClientMessage>, piece_length: usize, torrent_length: u64, info_hash: Sha1Hash, pieces: Arc<Mutex<Vec<usize>>>, uploaded: Arc<Mutex<u64>>) -> Self {
-        let pieces_count = torrent_length.div_ceil(piece_length as u64) as usize;
+    pub fn new(tx: mpsc::Sender<ClientMessage>, piece_length: usize, torrent_length: u64, info_hash: Sha1Hash, pieces: Arc<Mutex<Vec<usize>>>, pieces_count: usize, uploaded: Arc<Mutex<u64>>) -> Self {
         Self {
             tx,
 

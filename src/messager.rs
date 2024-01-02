@@ -1,11 +1,25 @@
 use serde::{Serialize, Deserialize};
+use tokio::sync::oneshot;
 
-#[derive(Debug, Serialize, Deserialize)]
+use crate::torrent::TorrentState;
+
+#[derive(Debug)]
 pub enum ClientMessage {
-    DownloadTorrent{src: String, dst: String},
     Shutdown,
+    Download{src: String, dst: String},
     DownloadedPiece{piece_index: usize, piece: Vec<u8>},
     FinishedDownloading,
-    SendTorrentInfo,
+    SendTorrentInfo{tx: oneshot::Sender<TorrentState>},
+    TorrentsInfo{torrents: Vec<TorrentState>},
+    SendTorrentsInfo,
+    TerminalClientClosed,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TerminalClientMessage {
+    Shutdown,
+    Download{src: String, dst: String},
+    ListTorrents,
+    TorrentsInfo{torrents: Vec<TorrentState>},
     TerminalClientClosed,
 }

@@ -1,4 +1,4 @@
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 use anyhow::{anyhow, Result, Context};
 use serde::{Serialize, Deserialize};
@@ -22,14 +22,15 @@ pub use torrent_parser::TorrentParser;
 pub struct TorrentState {
     src_path: String,
     dest_path: String,
-    torrent_name: String,
+    pub torrent_name: String,
     torrent_file: TorrentFile,
     info_hash: Sha1Hash,
-    pieces: Vec<usize>,
-    peers: Vec<PeerAddress>,
+    pub pieces: Vec<usize>,
+    pub peers: Vec<PeerAddress>,
 
-    downloaded: u64,
-    uploaded: u64,
+    pub pieces_count: usize,
+    pub downloaded: u64,
+    pub uploaded: u64,
 }
 
 impl TorrentState {
@@ -43,6 +44,7 @@ impl TorrentState {
             pieces: torrent_context.pieces.lock().await.clone(),
             peers: torrent_context.peers,
 
+            pieces_count: torrent_context.pieces_count,
             downloaded: torrent_context.downloaded,
             uploaded: torrent_context.uploaded.lock().await.clone(),
         }
@@ -61,6 +63,7 @@ pub struct TorrentContext {
     pub pieces: Arc<Mutex<Vec<usize>>>,
     peers: Vec<PeerAddress>,
 
+    pieces_count: usize,
     pub downloaded: u64,
     pub uploaded: Arc<Mutex<u64>>,
 }
@@ -78,6 +81,7 @@ impl TorrentContext {
             pieces: Arc::new(Mutex::new(torrent_state.pieces)),
             peers: torrent_state.peers,
 
+            pieces_count: torrent_state.pieces_count,
             downloaded: torrent_state.downloaded,
             uploaded: Arc::new(Mutex::new(torrent_state.uploaded)),
         }
@@ -170,6 +174,11 @@ impl TorrentHandle {
         self.tx.send(ClientMessage::Shutdown).await?;
         Ok(())
     }
+
+    pub async fn send_torrent_info(&mut self, tx: oneshot::Sender<TorrentState>) -> Result<()> {
+        self.tx.send(ClientMessage::SendTorrentInfo{tx}).await?;
+        Ok(())
+    }
 }
 
 struct Torrent {
@@ -241,6 +250,8 @@ impl Torrent {
             pieces_left
         };
 
+        let pieces_count = pieces_left.len();
+
         let torrent_context = DiskWriterTorrentContext::new(
             self_pipe.tx.clone(),
             dest.to_string(),
@@ -261,6 +272,7 @@ impl Torrent {
             pieces: Arc::new(Mutex::new(pieces_left)),
             peers: Vec::new(),
 
+            pieces_count,
             downloaded: 0,
             uploaded: Arc::new(Mutex::new(0)),
         };
@@ -334,6 +346,8 @@ impl Torrent {
                 torrent_length,
                 self.torrent_context.info_hash.clone(),
                 Arc::clone(&self.torrent_context.pieces),
+
+                self.torrent_context.pieces_count,
                 Arc::clone(&self.torrent_context.uploaded),
             );
 
@@ -411,7 +425,13 @@ impl Torrent {
                             Torrent::save_state(self.torrent_context.clone()).await?;
 
                             self.tracker_completed(&mut tracker).await?;
-                        }
+                        },
+                        ClientMessage::SendTorrentInfo { tx } => {
+                            let torrent_state = TorrentState::new(self.torrent_context.clone()).await;
+                            if let Err(e) = tx.send(torrent_state) {
+                                eprintln!("Failed to send torrent info for torrent '{}' to client: {:?}", self.torrent_context.torrent_name, e);
+                            }
+                        },
                         _ => {}
                     }
                 },
@@ -446,7 +466,7 @@ impl Torrent {
 
                         }
                         tokio::io::ErrorKind::ConnectionAborted => {
-                            println!("Peer '{peer_addr}' disconnected");
+                            println!("Peer '{peer_addr}' was disconnected");
                             self.torrent_context.peers.retain(|peer| peer != &peer_addr);
 
                         }
