@@ -21,21 +21,31 @@ async fn main() -> Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(torrent_client::MAX_CHANNEL_SIZE);
     let mut client = ClientHandle::new(tx);
     
+    use std::io::{BufRead, BufReader};
+
     loop {
         tokio::select! {
             Some(Ok(mut socket)) = socket_stream.next() => {
-                let mut message = Vec::new();
-                if let Err(e) = socket.read_to_end(&mut message) {
-                    eprintln!("Failed to read message from local socket: {}", e);
-                    continue;
-                }
+                let mut reader = BufReader::new(&mut socket);
+                let mut message = String::new();
+
+                reader.read_line(&mut message)?;
+
+                // if let Err(e) = socket.read_to_end(&mut message) {
+                //     eprintln!("Failed to read message from local socket: {}", e);
+                //     continue;
+                // }
+
+                // message.lines().for_each(|line| {
+                //     println!("{:?}", line);
+                // });
 
                 if message.is_empty() {
                     eprintln!("Received empty message");
                     continue;
                 }
-                
-                let message = match serde_json::from_slice::<TerminalClientMessage>(&message) {
+
+                let message = match serde_json::from_slice::<TerminalClientMessage>(&message.as_bytes()) {
                     Ok(message) => message,
                     Err(e) => {
                         eprintln!("Failed to deserialize message from local socket: {}", e);

@@ -60,8 +60,8 @@ fn list_torrents(socket: &mut LocalSocketStream) {
     loop {
         // check if ctrl+c was pressed
         if let Ok(_) = rx.try_recv() {
-            
-            let serialized_data = serde_json::to_string(&TerminalClientMessage::TerminalClientClosed).expect("Serialization failed");
+            let mut serialized_data = serde_json::to_string(&TerminalClientMessage::TerminalClientClosed).expect("Serialization failed");
+            serialized_data.push('\n');
             let _ = socket.write(serialized_data.as_bytes());
             break;
         }
@@ -207,7 +207,8 @@ async fn main() {
             client_socket.write_all(serialized_data.as_bytes()).expect("Failed to send data");
         },
         "list" => {
-            let serialized_data = serde_json::to_string(&TerminalClientMessage::ListTorrents).expect("Serialization failed");
+            let mut serialized_data = serde_json::to_string(&TerminalClientMessage::ListTorrents).expect("Serialization failed");
+            serialized_data.push('\n');
             let _ = client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");
 
             list_torrents(&mut client_socket);
