@@ -1,10 +1,66 @@
 use interprocess::local_socket::LocalSocketStream;
+use anyhow::{anyhow, Result};
 
-use std::io::{Read, Write};
+use std::io::{BufReader, BufRead, Write};
 use std::env::args;
 use std::process::{exit, Command, Stdio};
+use std::sync::mpsc;
 
 use torrent_client::messager::TerminalClientMessage;
+
+struct TerminalClient {
+    socket: LocalSocketStream,
+    client_id: u32,
+}
+
+impl TerminalClient {
+    pub fn read_message(&mut self) -> Result<TerminalClientMessage> {
+        let mut reader = BufReader::new(&mut self.socket);
+
+        let mut message = String::new();
+        if let Err(e) = reader.read_line(&mut message) {
+            return Err(anyhow!("Failed to read message from local socket: {}", e));
+        }
+        if message.is_empty() {
+            return Err(anyhow!("Received empty message"));
+        }
+
+        let message = match serde_json::from_slice::<TerminalClientMessage>(message.as_bytes()) {
+            Ok(message) => message,
+            Err(e) => {
+                return Err(anyhow!("Failed to deserialize message from local socket: {}", e));
+            }
+        };
+
+        Ok(message)
+    }
+
+    pub fn send_message(&mut self, message: &TerminalClientMessage) -> Result<()> {
+        let message = create_message(message);
+        self.socket.write(&message)?;
+
+        Ok(())
+    }
+}
+
+fn create_message (message: &TerminalClientMessage) -> Vec<u8> {
+    let mut serialized_data = serde_json::to_string(message).expect("Serialization failed");
+    serialized_data.push('\n');
+    serialized_data.as_bytes().to_vec()
+}
+
+fn create_client_socket() -> LocalSocketStream {
+    let client_socket = match LocalSocketStream::connect(torrent_client::SOCKET_PATH) {
+        Ok(socket) => socket,
+        Err(e) => {
+            eprintln!("[Error] Failed to connect to the client: {}", e);
+            exit(1);
+        }
+    };
+    client_socket.set_nonblocking(true).expect("Failed to set nonblocking mode");
+
+    client_socket
+}
 
 fn check_file(path: &str) -> bool {
     let file = std::path::Path::new(path);
@@ -48,71 +104,70 @@ Commands:
     );
 }
 
-fn list_torrents(socket: &mut LocalSocketStream) {
-    let (tx, rx) = std::sync::mpsc::channel::<()>();
+fn list_torrents(mut torrent_client: TerminalClient) {
+    let (tx, rx) = mpsc::channel::<()>();
 
     ctrlc::set_handler(move || {
         tx.send(()).expect("Failed to send ctrl-c signal");
     }).expect("Failed to set ctrl+c handler");
 
+    
     loop {
         // check if ctrl+c was pressed
         if let Ok(_) = rx.try_recv() {
             println!("Shutting down client daemon...");
-            let mut shutdown_socket = match LocalSocketStream::connect(torrent_client::SOCKET_PATH) {
-                Ok(socket) => socket,
-                Err(_) => {
-                    eprintln!("[Error] Failed to connect to the client");
-                    exit(1);
-                }
-            };
-
-            let msg = TerminalClientMessage::TerminalClientClosed { client_id: std::process::id() };
-            let mut serialized_data = serde_json::to_string(&msg).expect("Serialization failed");
-            serialized_data.push('\n');
-            let _ = shutdown_socket.write(serialized_data.as_bytes());
-            break;
-        }
-        
-        let mut message = Vec::new();
-        if let Err(e) = socket.read_to_end(&mut message) {
-            if e.kind() != std::io::ErrorKind::WouldBlock {
-                eprintln!("Failed to read message from local socket: {}", e);
-            }
-    
-            continue;
-        }
-
-        if message.is_empty() {
-            continue;
-        }
-
-        println!("received message: {:?}", message);
-        
-        let message = match serde_json::from_slice::<TerminalClientMessage>(&message) {
-            Ok(message) => message,
-            Err(e) => {
-                if e.is_eof() {
-                    println!("Client daemon stopped running");
+            
+            let mut socket = create_client_socket();
+            let message = create_message(&TerminalClientMessage::TerminalClientClosed{client_id: torrent_client.client_id});
+            
+            if let Err(e) = socket.write(&message) {
+                if e.kind() == std::io::ErrorKind::BrokenPipe {
                     break;
                 }
 
-                eprintln!("Failed to deserialize message from local socket: {}", e);
+                eprintln!("Failed to send message to local socket: {}", e);
                 continue;
             }
-        };
+            break;
+        }
         
-        let torrent_states;
-        match message {
+        let message = match torrent_client.read_message() {
+            Ok(message) => message,
+            Err(e) => {
+                eprintln!("Failed to read message from local socket: {}", e);
+                exit(1);
+            }
+        };
+        let mut message;
+        loop {
+            message = torrent_client.read_message();
+
+            if let Err(e) = message {
+                continue;
+            }
+
+            break;
+        }
+        
+        let message = match message {
+            Ok(message) => message,
+            Err(e) => {
+                eprintln!("Failed to read message from local socket: {}", e);
+                exit(1);
+            }
+        };
+
+
+        let torrent_states = match message {
             TerminalClientMessage::TorrentsInfo{torrents} => {
-                torrent_states = torrents;
+                torrents
             },
             _ => {
                 eprintln!("Invalid message");
                 exit(1);
             }
-        }
-    
+        };
+
         for torrent_state in torrent_states {
             let downloaded_percentage = calculate_percentage(torrent_state.pieces_count, torrent_state.pieces.len());
             println!("Name: {}\nProgress: {}%\nPeers: {:?}\n", torrent_state.torrent_name, downloaded_percentage, torrent_state.peers);
@@ -154,15 +209,8 @@ async fn main() {
         exit(0);
     }
 
-    let mut client_socket = match LocalSocketStream::connect(torrent_client::SOCKET_PATH) {
-        Ok(socket) => socket,
-        Err(_) => {
-            eprintln!("[Error] Failed to connect to the client");
-            exit(1);
-        }
-    };
-    client_socket.set_nonblocking(true).expect("Failed to set nonblocking mode");
-    
+    let mut client_socket = create_client_socket();
+
     match args[1].as_str() {
         "download" => {
             if args.len() < 4 {
@@ -212,29 +260,66 @@ async fn main() {
                 dest_path = format!("{}/{}", curr_path, dest_path);
             }
             
-            let message = TerminalClientMessage::Download{src: torrent_path, dst: dest_path};
+            let message = create_message(&TerminalClientMessage::Download{src: torrent_path, dst: dest_path});
 
-            let mut serialized_data = serde_json::to_string(&message).expect("Serialization failed");
-            serialized_data.push('\n');
-            client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");
+            client_socket.write(&message).expect("Failed to send data");
+
+            let mut reader = BufReader::new(&mut client_socket);
+            let mut message = String::new();
+            if let Err(e) = reader.read_line(&mut message) {
+                eprintln!("Failed to read message from local socket: {} ", e);
+                exit(1);
+            }
+
+            if message.is_empty() {
+                eprintln!("Received empty message");
+                exit(1);
+            }
+
+            let message = match serde_json::from_slice::<TerminalClientMessage>(&message.as_bytes()) {
+                Ok(message) => message,
+                Err(e) => {
+                    eprintln!("Failed to deserialize message from local socket: {}", e);
+                    exit(1);
+                }
+            };
+
+            match message {
+                TerminalClientMessage::Status{exit_code} => {
+                    match exit_code {
+                        torrent_client::messager::ExitCode::SUCCESS => {
+                            println!("Download started");
+                        },
+                        torrent_client::messager::ExitCode::InvalidSrcOrDst => {
+                            eprintln!("Invalid src or dst");
+                            exit(1);
+                        }
+                    }
+                },
+                _ => {
+                    eprintln!("Invalid message");
+                    exit(1);
+                }
+            }
         },
         "shutdown" => {
-            let mut serialized_data = serde_json::to_string(&TerminalClientMessage::Shutdown).expect("Serialization failed");
-            serialized_data.push('\n');
-            client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");
+            let message = create_message(&TerminalClientMessage::Shutdown);
+            client_socket.write(&message).expect("Failed to send data");
+            println!("Shutting down client daemon...")
         },
         "list" => {
-            let msg = TerminalClientMessage::ListTorrents{client_id: std::process::id()};
-            let mut serialized_data = serde_json::to_string(&msg).expect("Serialization failed");
-            serialized_data.push('\n');
-            println!("{}", serialized_data);
-            let _ = client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");
+            let mut torrent_client = TerminalClient{socket: client_socket, client_id: std::process::id()};
+            if let Err(e) = torrent_client.send_message(&TerminalClientMessage::ListTorrents{client_id: torrent_client.client_id}) {
+                eprintln!("Failed to send list torrents message to client: {}", e);
+                exit(1);
+            }
 
-            list_torrents(&mut client_socket);
+            list_torrents(torrent_client);
         },
         _ => {
             eprintln!("[Error] Invalid command");
             exit(1);
         }
     }
+
 }

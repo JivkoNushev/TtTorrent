@@ -3,6 +3,12 @@ use tokio::sync::oneshot;
 
 use crate::torrent::TorrentState;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ExitCode {
+    SUCCESS,
+    InvalidSrcOrDst,
+}
+
 #[derive(Debug)]
 pub enum ClientMessage {
     Shutdown,
@@ -17,6 +23,7 @@ pub enum ClientMessage {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum TerminalClientMessage {
+    Status{exit_code: ExitCode},
     Shutdown,
     Download{src: String, dst: String},
     ListTorrents{client_id: u32},

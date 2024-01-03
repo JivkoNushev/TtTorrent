@@ -1,9 +1,48 @@
+use interprocess::local_socket::LocalSocketStream;
 use sha1::{Sha1, Digest};
 use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
 use anyhow::{anyhow, Result, Context};
 
+use std::io::{BufReader, BufRead, Write};
+
 use crate::torrent::torrent_file::Sha1Hash;
+use crate::messager::TerminalClientMessage;
+
+pub struct TerminalClient {
+    pub socket: LocalSocketStream,
+    pub client_id: u32,
+}
+
+impl TerminalClient {
+    pub fn read_message(&mut self) -> Result<TerminalClientMessage> {
+        let mut reader = BufReader::new(&mut self.socket);
+
+        let mut message = String::new();
+        if let Err(e) = reader.read_line(&mut message) {
+            return Err(anyhow!("Failed to read message from local socket: {}", e));
+        }
+        if message.is_empty() {
+            return Err(anyhow!("Received empty message"));
+        }
+
+        let message = match serde_json::from_slice::<TerminalClientMessage>(message.as_bytes()) {
+            Ok(message) => message,
+            Err(e) => {
+                return Err(anyhow!("Failed to deserialize message from local socket: {}", e));
+            }
+        };
+
+        Ok(message)
+    }
+
+    pub fn send_message(&mut self, message: &TerminalClientMessage) -> Result<()> {
+        let message = create_message(message);
+        self.socket.write(&message)?;
+
+        Ok(())
+    }
+}
 
 pub struct CommunicationPipe {
     pub tx: tokio::sync::mpsc::Sender<crate::messager::ClientMessage>,
@@ -69,4 +108,10 @@ pub fn valid_src_and_dst(src: &str, dst: &str) -> bool {
         Ok(_) => true,
         Err(_) => false
     }
+}
+
+pub fn create_message (message: &TerminalClientMessage) -> Vec<u8> {
+    let mut serialized_data = serde_json::to_string(message).expect("Serialization failed");
+    serialized_data.push('\n');
+    serialized_data.as_bytes().to_vec()
 }
