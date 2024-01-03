@@ -19,7 +19,7 @@ pub enum ClientMessage {
 pub enum TerminalClientMessage {
     Shutdown,
     Download{src: String, dst: String},
-    ListTorrents,
+    ListTorrents{client_id: u32},
     TorrentsInfo{torrents: Vec<TorrentState>},
-    TerminalClientClosed,
+    TerminalClientClosed{client_id: u32},
 }

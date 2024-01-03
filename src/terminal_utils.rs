@@ -59,10 +59,18 @@ fn list_torrents(socket: &mut LocalSocketStream) {
         // check if ctrl+c was pressed
         if let Ok(_) = rx.try_recv() {
             println!("Shutting down client daemon...");
+            let mut shutdown_socket = match LocalSocketStream::connect(torrent_client::SOCKET_PATH) {
+                Ok(socket) => socket,
+                Err(_) => {
+                    eprintln!("[Error] Failed to connect to the client");
+                    exit(1);
+                }
+            };
 
-            let mut serialized_data = serde_json::to_string(&TerminalClientMessage::TerminalClientClosed).expect("Serialization failed");
+            let msg = TerminalClientMessage::TerminalClientClosed { client_id: std::process::id() };
+            let mut serialized_data = serde_json::to_string(&msg).expect("Serialization failed");
             serialized_data.push('\n');
-            let _ = socket.write(serialized_data.as_bytes());
+            let _ = shutdown_socket.write(serialized_data.as_bytes());
             break;
         }
         
@@ -216,7 +224,8 @@ async fn main() {
             client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");
         },
         "list" => {
-            let mut serialized_data = serde_json::to_string(&TerminalClientMessage::ListTorrents).expect("Serialization failed");
+            let msg = TerminalClientMessage::ListTorrents{client_id: std::process::id()};
+            let mut serialized_data = serde_json::to_string(&msg).expect("Serialization failed");
             serialized_data.push('\n');
             println!("{}", serialized_data);
             let _ = client_socket.write(serialized_data.as_bytes()).expect("Failed to send data");

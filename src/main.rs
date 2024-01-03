@@ -23,8 +23,13 @@ async fn main() -> Result<()> {
     
     use std::io::{BufReader, BufRead};
 
+    struct TerminalClient {
+        socket: LocalSocketStream,
+        client_id: u32,
+    }
+
     let mut sending_to_terminal_client = false;
-    let mut terminal_client_sockets: Vec<LocalSocketStream> = Vec::new();
+    let mut terminal_client_sockets: Vec<TerminalClient> = Vec::new();
 
     loop {
         tokio::select! {
@@ -67,15 +72,19 @@ async fn main() -> Result<()> {
                             continue;
                         }
                     },
-                    TerminalClientMessage::ListTorrents => {
+                    TerminalClientMessage::ListTorrents{client_id} => {
                         println!("sending list torrents message to client");
                         sending_to_terminal_client = true;
-                        terminal_client_sockets.push(socket);
+                        terminal_client_sockets.push(TerminalClient{socket, client_id});
                     },
-                    TerminalClientMessage::TerminalClientClosed => {
-                        if let Err(e) = client.client_terminal_closed().await {
-                            eprintln!("Failed to send terminal client closed message to client: {}", e);
-                            continue;
+                    TerminalClientMessage::TerminalClientClosed{client_id} => {
+                        terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != client_id);
+
+                        if terminal_client_sockets.is_empty() {
+                            if let Err(e) = client.client_terminal_closed().await {
+                                eprintln!("Failed to send terminal client closed message to client: {}", e);
+                                continue;
+                            }
                         }
                     },
                     _ => {}
@@ -109,8 +118,8 @@ async fn main() -> Result<()> {
 
                     println!("sending: {}", serialized_data);
 
-                    for client in terminal_client_sockets.iter_mut() {
-                        if let Err(e) = client.write_all(serialized_data.as_bytes()) {
+                    for terminal_client in terminal_client_sockets.iter_mut() {
+                        if let Err(e) = terminal_client.socket.write_all(serialized_data.as_bytes()) {
                             eprintln!("Failed to write to local socket: {}", e);
                             // TODO: continue
                             return Ok(());
