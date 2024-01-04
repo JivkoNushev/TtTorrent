@@ -125,7 +125,6 @@ impl Client {
         // load the client state
         self.load_state().await?;
 
-
         loop {
             tokio::select! {
                 Some(msg) = self.pipe.rx.recv() => {
@@ -142,6 +141,7 @@ impl Client {
                         },
                         ClientMessage::SendTorrentsInfo => {
                             sending_to_terminal_client = true;
+                            println!("Sending torrents true");
                         },
                         ClientMessage::TerminalClientClosed => {
                             sending_to_terminal_client = false;
@@ -150,6 +150,7 @@ impl Client {
                     }
                 }
                 _ = sending_interval.tick() => {
+                    println!("Sending torrents info");
                     if !sending_to_terminal_client {
                         continue;
                     }

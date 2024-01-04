@@ -15,7 +15,6 @@ async fn main() -> Result<()> {
     client_socket.set_nonblocking(true).context("couldn't set nonblocking mode")?;
 
     let mut terminal_client_sockets: Vec<TerminalClient> = Vec::new();
-    let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(torrent_client::INTERVAL_SECS));
     // ------------------------ create client ------------------------
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(torrent_client::MAX_CHANNEL_SIZE);
     let mut client = ClientHandle::new(tx);
@@ -23,7 +22,7 @@ async fn main() -> Result<()> {
     loop {
         tokio::select! {
             Ok(socket) = async { client_socket.accept() } => {
-               // println!("new terminal client connected");
+                println!("new terminal client connected");
                 let mut terminal_client = TerminalClient{socket, client_id: 0};
 
                 let message = match terminal_client.read_message() {
@@ -35,8 +34,6 @@ async fn main() -> Result<()> {
                         continue;
                     }
                 };
-
-               // println!("Received message from terminal client: {:?}", message);
 
                 match message {
                     TerminalClientMessage::Shutdown => {
@@ -69,9 +66,16 @@ async fn main() -> Result<()> {
                         }
                     },
                     TerminalClientMessage::ListTorrents{client_id} => {
-                       // println!("sending list torrents message to client");
-                        terminal_client.client_id = client_id;
+                        println!("client id: {}", client_id);
+                        if terminal_client_sockets.is_empty() {
+                            println!("sending list torrents message to client");
+                            if let Err(e) = client.client_list_torrents().await {
+                                eprintln!("Failed to send list torrents message to client: {}", e);
+                                continue;
+                            }
+                        }
 
+                        terminal_client.client_id = client_id;
                         terminal_client_sockets.push(terminal_client);
                     },
                     TerminalClientMessage::TerminalClientClosed{client_id} => {
@@ -87,31 +91,22 @@ async fn main() -> Result<()> {
                     _ => {}
                 }
             },
-            _ = sending_interval.tick() => {
-                if !terminal_client_sockets.is_empty() {
-                   // println!("sending to terminal client");
-
-                    if let Err(e) = client.client_list_torrents().await {
-                        eprintln!("Failed to send list torrents message to client: {}", e);
-                        continue;
-                    }
-
-                    let torrents = match rx.recv().await {
-                        Some(ClientMessage::TorrentsInfo{torrents}) => torrents,
-                        _ => {
-                            eprintln!("Failed to get torrents info");
-                            continue;
+            Some(client_message) = rx.recv() => {
+                match client_message {
+                    ClientMessage::TorrentsInfo{torrents} => {
+                        let message = TerminalClientMessage::TorrentsInfo{torrents};
+                        for terminal_client in terminal_client_sockets.iter_mut() {
+                            if let Err(e) = terminal_client.send_buffered_message(&message) {
+                                terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != terminal_client.client_id);
+                                eprintln!("Failed to write to local socket: {}", e);
+                                break;
+                            }
                         }
-                    };
-
-                    let message = TerminalClientMessage::TorrentsInfo{torrents};
-                    for terminal_client in terminal_client_sockets.iter_mut() {
-                        if let Err(e) = terminal_client.send_buffered_message(&message) {
-                            terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != terminal_client.client_id);
-                            eprintln!("Failed to write to local socket: {}", e);
-                            break;
-                        }
-                    }
+                    },
+                    ClientMessage::Shutdown => {
+                        break;
+                    },
+                    _ => {}
                 }
             },
             _ = tokio::signal::ctrl_c() => {
