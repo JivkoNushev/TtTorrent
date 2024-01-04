@@ -225,7 +225,7 @@ impl Peer {
         let bitfield = self.bitfield().await?;
         self.peer_context.id = peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id.clone(), bitfield.clone()).await?;
         if !bitfield.is_empty() {
-            println!("Bitfield with peer '{self}': {bitfield:?}");
+            //// println!("Bitfield with peer '{self}': {bitfield:?}");
         }
         Ok(())
     }
@@ -256,12 +256,12 @@ impl Peer {
     async fn interested(&mut self, peer_session: &mut PeerSession) -> Result<()> {
         peer_session.interested().await?;
         self.peer_context.am_interested = true;
-        println!("Interested in peer: '{self}'");
+        //// println!("Interested in peer: '{self}'");
         Ok(())
     }
 
     async fn not_interested(&mut self, peer_session: &mut PeerSession) -> Result<()> {
-        println!("Not interested in peer: '{self}'");
+        //// println!("Not interested in peer: '{self}'");
         peer_session.not_interested().await?;
         self.peer_context.am_interested = false;
         Ok(())
@@ -284,6 +284,7 @@ impl Peer {
             // if the piece is requested but not resived yet
             if piece.offset == piece.size {
                 self.torrent_context.tx.send(ClientMessage::DownloadedPiece{piece_index: piece.index, piece: piece.data.clone()}).await?;
+                println!("Downloaded piece {} from peer: '{self}'", piece.index);
                 piece.size = 0;
             }
         }
@@ -309,7 +310,7 @@ impl Peer {
         }
 
         peer_session.send(PeerMessage::Request(piece.index as u32, piece.offset as u32, piece.block_size as u32)).await?;
-        println!("Requesting piece {} {} {} from peer: '{self}'", piece.index, piece.offset, piece.block_size);
+        //// println!("Requesting piece {} {} {} from peer: '{self}'", piece.index, piece.offset, piece.block_size);
 
         piece.offset += piece.block_size;
         piece.block_count += 1;
@@ -322,7 +323,7 @@ impl Peer {
 
         // handshake with peer
         self.handshake(&mut peer_session).await?;
-        println!("Handshake with peer '{self}' successful");
+       // println!("Handshake with peer '{self}' successful");
         
         let mut downloading_piece = PeerPiece::default();
         loop {
@@ -330,7 +331,7 @@ impl Peer {
                 Some(msg) = self.rx.recv() => {
                     match msg {
                         ClientMessage::Shutdown => {
-                            println!("Shutdown Peer '{self}'");
+                           // println!("Shutdown Peer '{self}'");
 
                             // dropping last not fully downloaded piece
                             if 0 != downloading_piece.size {
@@ -344,32 +345,32 @@ impl Peer {
                 peer_message = peer_session.recv() => {
                     match peer_message? {
                         PeerMessage::Choke => {
-                            println!("Peer '{self}' choke");
+                           // println!("Peer '{self}' choke");
                             self.peer_context.choking = true;
                             todo!();
                         },
                         PeerMessage::Unchoke => {
-                            println!("Peer '{self}' unchoke");
+                           // println!("Peer '{self}' unchoke");
                             self.peer_context.choking = false;
                         },
                         PeerMessage::Interested => {
-                            println!("Peer '{self}' interested");
+                           // println!("Peer '{self}' interested");
                             self.peer_context.interested = true;
                             todo!();
                         },
                         PeerMessage::NotInterested => {
-                            println!("Peer '{self}' not interested");
+                           // println!("Peer '{self}' not interested");
                             self.peer_context.interested = false;
                             self.choke(&mut peer_session).await?;
                         },
                         PeerMessage::Have(index) => {
-                            println!("Peer '{self}' have {}", index);
+                           // println!("Peer '{self}' have {}", index);
                             if !self.peer_context.bitfield.contains(&(index as usize)) {
                                 self.peer_context.bitfield.push(index as usize);
                             }
                         },
                         PeerMessage::Bitfield(bitfield) => {
-                            println!("Peer '{self}' bitfield {:?}", bitfield);
+                           // println!("Peer '{self}' bitfield {:?}", bitfield);
 
                             let mut available_pieces = Vec::new();
                             for (i, byte) in bitfield.iter().enumerate() {
@@ -383,13 +384,13 @@ impl Peer {
                             self.peer_context.bitfield = available_pieces;
                         },
                         PeerMessage::Request(index, begin, length) => {
-                            println!("Peer '{self}' request {} {} {}", index, begin, length);
+                           // println!("Peer '{self}' request {} {} {}", index, begin, length);
                             todo!("send piece");
 
                             *self.torrent_context.uploaded.lock().await += length as u64;
                         },
                         PeerMessage::Piece(index, begin, block) => {
-                            println!("Peer '{self}' piece {} {}", index, begin);
+                           // println!("Peer '{self}' piece {} {}", index, begin);
 
                             if 0 == downloading_piece.size {
                                 return Err(anyhow!("Peer '{self}' received piece when no piece was requested"));
@@ -402,15 +403,15 @@ impl Peer {
                             downloading_piece.reseived = true;
                         },
                         PeerMessage::Cancel(index, begin, length) => {
-                            println!("Peer '{self}' cancel {} {} {}", index, begin, length);
+                           // println!("Peer '{self}' cancel {} {} {}", index, begin, length);
                             todo!();
                         },
                         PeerMessage::Port(port) => {
-                            println!("Peer '{self}' port {}", port);
+                           // println!("Peer '{self}' port {}", port);
                             todo!();
                         },
                         PeerMessage::KeepAlive => {
-                            println!("Peer '{self}' keep alive");
+                           // println!("Peer '{self}' keep alive");
                             // the counter should reset every time a message is received or a keep alive is
                             // sent from me
                             continue;
@@ -424,7 +425,7 @@ impl Peer {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
                     // TODO: send keep alive message every 60 secs (max 120)
                     // if !self.torrent_context.pieces.lock().await.is_empty() {
-                    //     println!("Sending keep alive to peer: '{self}'");
+                    //    // println!("Sending keep alive to peer: '{self}'");
                     //     self.keep_alive(&mut peer_session).await?;
                     // }
                 }
@@ -447,10 +448,10 @@ impl Peer {
 
             // file is fully downloaded and peer doesn't want to download as well
             if !self.peer_context.am_interested && self.peer_context.bitfield.len() == self.torrent_context.pieces_count {
-                println!("File is fully downloaded and peer doesn't want to download as well");
-                // throwing an error so that the peer is removed from torrent peer
-                // TODO: find a better way to do this
-                return Err(Error::from(tokio::io::Error::new(tokio::io::ErrorKind::ConnectionAborted, "Connection aborted by client")));
+               // println!("File is fully downloaded and peer doesn't want to download as well");
+                self.torrent_context.tx.send(ClientMessage::PeerDisconnected{peer_address: self.peer_context.ip}).await?;
+
+                break;
             }
         }
 

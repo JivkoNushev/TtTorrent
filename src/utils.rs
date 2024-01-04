@@ -42,6 +42,13 @@ impl TerminalClient {
 
         Ok(())
     }
+
+    pub fn send_buffered_message(&mut self, message: &TerminalClientMessage) -> Result<()> {
+        let message = create_message(message);
+        self.socket.write_all(&message)?;
+
+        Ok(())
+    }
 }
 
 pub struct CommunicationPipe {

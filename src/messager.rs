@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use tokio::sync::oneshot;
 
-use crate::torrent::TorrentState;
+use crate::{torrent::TorrentState, peer::PeerAddress};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ExitCode {
@@ -19,6 +19,7 @@ pub enum ClientMessage {
     TorrentsInfo{torrents: Vec<TorrentState>},
     SendTorrentsInfo,
     TerminalClientClosed,
+    PeerDisconnected{peer_address: PeerAddress},
 }
 
 #[derive(Debug, Serialize, Deserialize)]

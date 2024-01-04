@@ -38,7 +38,15 @@ impl PeerAddress {
         match bencoded_dict.get("peers") {
             Some(BencodedValue::ByteAddresses(byte_addresses)) => Ok(byte_addresses.to_vec()),
             Some(BencodedValue::Dict(_peer_dict)) => todo!(),
-            _ => Err(anyhow!("Invalid peers key in tracker response"))
+            _ => {
+                if let Some(failure) = bencoded_dict.get("failure reason") {
+                    // TODO: better capture error no peers found
+                    Err(anyhow!("Failure reason: {}", String::from_utf8(failure.try_into_byte_string()?.to_vec())?))
+                }
+                else {
+                    Err(anyhow!("Invalid peers key in tracker response"))
+                }
+            }
         }
     }
 

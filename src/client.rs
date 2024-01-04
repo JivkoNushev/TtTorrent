@@ -1,6 +1,7 @@
 use tokio::task::JoinHandle;
 use tokio::sync::{mpsc, oneshot};
 use anyhow::{Result, Context};
+use tokio::time::interval;
 
 use crate::peer::ConnectionType;
 use crate::torrent::{TorrentHandle, TorrentState};
@@ -100,12 +101,12 @@ impl Client {
         let client_state = match tokio::fs::read_to_string(crate::STATE_FILE_PATH).await {
             Ok(state) => state,
             Err(_) => {
-                println!("No available client state");
+               // println!("No available client state");
                 return Ok(());
             }
         };
         let client_state = serde_json::from_str::<serde_json::Value>(&client_state)?;
-        println!("Loading client state");
+       // println!("Loading client state");
 
         for (_, val) in client_state.as_object().unwrap() { // client_state is always a valid json object
             let torrent_state = serde_json::from_value::<TorrentState>(val.clone())?;
@@ -118,10 +119,12 @@ impl Client {
     }
 
     pub async fn run(mut self) -> Result<()> {
+        let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(crate::INTERVAL_SECS));
         let mut sending_to_terminal_client = false;
 
         // load the client state
         self.load_state().await?;
+
 
         loop {
             tokio::select! {
@@ -146,7 +149,7 @@ impl Client {
                         _ => {}
                     }
                 }
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(3)) => {
+                _ = sending_interval.tick() => {
                     if !sending_to_terminal_client {
                         continue;
                     }
@@ -180,7 +183,7 @@ impl Client {
             }
         }
 
-        println!("Client stopping");
+       // println!("Client stopping");
 
         Ok(())
     }

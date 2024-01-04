@@ -237,7 +237,7 @@ impl DiskWriter {
                 Some(message) = self.rx.recv() => {
                     match message {
                         ClientMessage::Shutdown => {
-                            println!("Shutting down disk writer");
+                           // println!("Shutting down disk writer");
                             break;
                         },
                         ClientMessage::DownloadedPiece{piece_index, piece} => {
@@ -298,7 +298,7 @@ impl DiskWriterHandle {
         let disk_writer = DiskWriter::new(rx, torrent_context, torrent_pieces_count);
         let join_handle = tokio::spawn(async move {
             if let Err(e) = disk_writer.run().await {
-                println!("Disk writer error: {:?}", e);
+               // println!("Disk writer error: {:?}", e);
             }
         });
 

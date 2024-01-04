@@ -224,7 +224,7 @@ impl Torrent {
         let torrent_file = TorrentFile::new(&src).await.context("couldn't create TorrentFile")?;
 
         let torrent_name = std::path::Path::new(src)
-            .file_name()
+            .file_stem()
             .unwrap()
             .to_str()
             .unwrap(); // src is always valid utf8
@@ -398,7 +398,6 @@ impl Torrent {
 
         // initialize tracker
         let mut tracker = Tracker::from_torrent_file(&self.torrent_context.torrent_file)?;
-
         // connect to peers from tracker response
         self.connect_to_peers(&mut tracker).await?;
 
@@ -414,14 +413,14 @@ impl Torrent {
                             // send stop message to disk writer
                             let _ = self.disk_writer_handle.shutdown().await;
                             break;
-                        }
+                        },
                         ClientMessage::DownloadedPiece { piece_index, piece } => {
                             let piece_size = piece.len();
                             self.disk_writer_handle.downloaded_piece(piece_index, piece).await?;
                             self.torrent_context.downloaded += piece_size as u64;
                         },
                         ClientMessage::FinishedDownloading => {
-                            println!("Torrent '{}' downloaded", self.torrent_context.torrent_name);
+                            // println!("Torrent '{}' downloaded", self.torrent_context.torrent_name);
                             Torrent::save_state(self.torrent_context.clone()).await?;
 
                             self.tracker_completed(&mut tracker).await?;
@@ -432,10 +431,13 @@ impl Torrent {
                                 eprintln!("Failed to send torrent info for torrent '{}' to client: {:?}", self.torrent_context.torrent_name, e);
                             }
                         },
+                        ClientMessage::PeerDisconnected { peer_address } => {
+                            self.torrent_context.peers.retain(|peer| peer != &peer_address);
+                        },
                         _ => {}
                     }
                 },
-                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(120)) => {
                     // connect to more peers with better tracker request
                     if self.torrent_context.pieces.lock().await.len() > 0 {
                         // connect to new peers
@@ -457,16 +459,16 @@ impl Torrent {
                 if let Some(err) = err.downcast_ref::<tokio::io::Error>() {
                     match err.kind() {
                         tokio::io::ErrorKind::UnexpectedEof => {
-                            println!("Peer '{peer_addr}' closed the connection");
+                            // println!("Peer '{peer_addr}' closed the connection");
                             self.torrent_context.peers.retain(|peer| peer != &peer_addr);
                         }
                         tokio::io::ErrorKind::ConnectionReset => {
-                            println!("Peer '{peer_addr}' disconnected");
+                            // println!("Peer '{peer_addr}' disconnected");
                             self.torrent_context.peers.retain(|peer| peer != &peer_addr);
 
                         }
                         tokio::io::ErrorKind::ConnectionAborted => {
-                            println!("Peer '{peer_addr}' was disconnected");
+                            // println!("Peer '{peer_addr}' was disconnected");
                             self.torrent_context.peers.retain(|peer| peer != &peer_addr);
 
                         }

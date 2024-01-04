@@ -200,8 +200,6 @@ impl Tracker {
             request = self.new_request(client_id, torrent_context, TrackerEvent::None).await?;
         };
 
-        println!("request: {:?}", request);
-
         let response = match crate::DEBUG_MODE {
             true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
             false => reqwest::get(request).await.context("invalid tracker url")?
