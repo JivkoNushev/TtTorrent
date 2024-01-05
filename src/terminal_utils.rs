@@ -272,7 +272,7 @@ async fn main() {
         exit(0);
     }
 
-    let mut terminal_client = TerminalClient{socket: create_client_socket(), client_id: 0};
+    let mut terminal_client = TerminalClient{socket: create_client_socket(), client_id: std::process::id()};
 
     match args[1].as_str() {
         "download" => {

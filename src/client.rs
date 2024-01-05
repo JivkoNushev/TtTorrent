@@ -150,7 +150,6 @@ impl Client {
                     }
                 }
                 _ = sending_interval.tick() => {
-                    println!("Sending torrents info");
                     if !sending_to_terminal_client {
                         continue;
                     }
@@ -170,7 +169,9 @@ impl Client {
                         torrent_states.push(torrent_state);
                     }
 
-                    self.pipe.tx.send(ClientMessage::TorrentsInfo{torrents: torrent_states}).await?;
+                    // if !torrent_states.is_empty() {
+                        self.pipe.tx.send(ClientMessage::TorrentsInfo{torrents: torrent_states}).await?;
+                    // }
                 }
                 else => {
                     break;

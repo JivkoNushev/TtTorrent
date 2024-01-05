@@ -12,7 +12,6 @@ async fn main() -> Result<()> {
     // remove socket if it exists and create new one
     let _ = tokio::fs::remove_file(torrent_client::SOCKET_PATH).await;
     let client_socket = LocalSocketListener::bind(torrent_client::SOCKET_PATH).context("couldn't bind to local socket")?;
-    client_socket.set_nonblocking(true).context("couldn't set nonblocking mode")?;
 
     let mut terminal_client_sockets: Vec<TerminalClient> = Vec::new();
     // ------------------------ create client ------------------------
@@ -95,6 +94,8 @@ async fn main() -> Result<()> {
                 match client_message {
                     ClientMessage::TorrentsInfo{torrents} => {
                         let message = TerminalClientMessage::TorrentsInfo{torrents};
+                        println!("sending torrents info to terminal client");
+
                         for terminal_client in terminal_client_sockets.iter_mut() {
                             if let Err(e) = terminal_client.send_buffered_message(&message) {
                                 terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != terminal_client.client_id);
@@ -106,7 +107,9 @@ async fn main() -> Result<()> {
                     ClientMessage::Shutdown => {
                         break;
                     },
-                    _ => {}
+                    _ => {
+                        eprintln!("Received invalid message from client");
+                    }
                 }
             },
             _ = tokio::signal::ctrl_c() => {
