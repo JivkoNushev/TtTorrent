@@ -1,74 +1,36 @@
-use interprocess::local_socket::LocalSocketStream;
+use futures::{AsyncReadExt, AsyncWriteExt};
+use interprocess::local_socket::tokio::LocalSocketStream;
 use anyhow::{anyhow, Result};
 
-use std::io::{BufReader, BufRead, Write, Read};
+
 use std::env::args;
 use std::path::PathBuf;
 use std::process::{exit, Command, Stdio};
-use std::sync::mpsc;
 
 use torrent_client::messager::TerminalClientMessage;
 use torrent_client::torrent::TorrentState;
 
-struct TerminalClient {
-    socket: LocalSocketStream,
-    client_id: u32,
+pub struct TerminalClient {
+    pub socket: LocalSocketStream,
+    pub client_id: u32,
 }
 
 impl TerminalClient {
-    pub fn read_message(&mut self) -> Result<Option<TerminalClientMessage>> {
-        let mut reader = BufReader::new(&mut self.socket);
+    pub async fn recv_message(&mut self) -> Result<TerminalClientMessage> {
+        let mut buffer = Vec::new();
+        let bytes_read = self.socket.read_to_end(&mut buffer).await?;
 
-        let mut message = String::new();
-        if let Err(e) = reader.read_line(&mut message) {
-            if e.kind() == std::io::ErrorKind::WouldBlock {
-                return Ok(None);
-            }
-
-            return Err(anyhow!("Failed to read message from local socket: {}", e));
-        }
-        if message.is_empty() {
-            return Err(anyhow!("Failed to read message from local socket: Message is empty"));
+        if bytes_read == 0 {
+            return Err(anyhow!("Failed to read message from socket"));
         }
 
-        let message = match serde_json::from_slice::<TerminalClientMessage>(message.as_bytes()) {
-            Ok(message) => message,
-            Err(e) => {
-                return Err(anyhow!("Failed to deserialize message from local socket: {}\nMessage: {}", e, message));
-            }
-        };
+        let message = serde_json::from_slice(&buffer)?;
+        Ok(message)
+    } 
 
-        Ok(Some(message))
-    }
-
-    pub fn read_buffered_message(&mut self) -> Result<Option<TerminalClientMessage>> {
-        let mut message = Vec::new();
-
-        if let Err(e) = self.socket.read_to_end(&mut message) {
-            if e.kind() == std::io::ErrorKind::WouldBlock {
-                return Ok(None);
-            }
-
-            return Err(anyhow!("Failed to read message from local socket: {}", e));
-        }
-
-        if message.is_empty() {
-            return Err(anyhow!("Failed to read message from local socket: Message is empty"));
-        }
-
-        let message = match serde_json::from_slice::<TerminalClientMessage>(&message) {
-            Ok(message) => message,
-            Err(e) => {
-                return Err(anyhow!("Failed to deserialize message from local socket: {}\nMessage: {:?}", e, message));
-            }
-        };
-
-        Ok(Some(message))
-    }
-
-    pub fn send_message(&mut self, message: &TerminalClientMessage) -> Result<()> {
+    pub async fn send_message(&mut self, message: &TerminalClientMessage) -> Result<()> {
         let message = create_message(message);
-        self.socket.write(&message)?;
+        self.socket.write_all(&message).await?;
 
         Ok(())
     }
@@ -80,15 +42,14 @@ fn create_message (message: &TerminalClientMessage) -> Vec<u8> {
     serialized_data.as_bytes().to_vec()
 }
 
-fn create_client_socket() -> LocalSocketStream {
-    let client_socket = match LocalSocketStream::connect(torrent_client::SOCKET_PATH) {
+async fn create_client_socket() -> LocalSocketStream {
+    let client_socket = match LocalSocketStream::connect(torrent_client::SOCKET_PATH).await {
         Ok(socket) => socket,
         Err(e) => {
             eprintln!("[Error] Failed to connect to the client: {}", e);
             exit(1);
         }
     };
-    client_socket.set_nonblocking(true).expect("Failed to set nonblocking mode");
 
     client_socket
 }
@@ -169,7 +130,7 @@ Commands:
     );
 }
 
-fn download(mut client: TerminalClient, src: &str, dest: &str) -> Result<()> {
+async fn download(mut client: TerminalClient, src: &str, dest: &str) -> Result<()> {
     let torrent_path = PathBuf::from(src).canonicalize()?;
     let dest_path = PathBuf::from(dest).canonicalize()?;
 
@@ -178,59 +139,44 @@ fn download(mut client: TerminalClient, src: &str, dest: &str) -> Result<()> {
     let torrent_path = torrent_path.to_str().unwrap().to_string();
     let dest_path = dest_path.to_str().unwrap().to_string();
     
-    client.send_message(&TerminalClientMessage::Download{src: torrent_path, dst: dest_path})?;
+    client.send_message(&TerminalClientMessage::Download{src: torrent_path, dst: dest_path}).await?;
 
-    loop {
-        if let Some(message) = client.read_message()? {
-            match message {
-                TerminalClientMessage::Status{exit_code} => {
-                    match exit_code {
-                        torrent_client::messager::ExitCode::SUCCESS => {
-                            println!("Download started");
-                        },
-                        torrent_client::messager::ExitCode::InvalidSrcOrDst => {
-                            return Err(anyhow!("Invalid src or dst"));
-                        }
-                    }
+    match client.recv_message().await? {
+        TerminalClientMessage::Status{exit_code} => {
+            match exit_code {
+                torrent_client::messager::ExitCode::SUCCESS => {
+                    println!("Download started");
                 },
-                _ => {
-                    return Err(anyhow!("Received invalid message from client"));
+                torrent_client::messager::ExitCode::InvalidSrcOrDst => {
+                    return Err(anyhow!("Invalid src or dst"));
                 }
             }
-
-            break;
+        },
+        _ => {
+            return Err(anyhow!("Received invalid message from client"));
         }
-    }
+    };
 
     Ok(())
 }
 
-fn list_torrents(mut torrent_client: TerminalClient) -> Result<()> {
+async fn list_torrents(mut torrent_client: TerminalClient) -> Result<()> {
     println!("Waiting for torrents info...");
-
-    let (tx, rx) = mpsc::channel::<()>();
-    ctrlc::set_handler(move || {
-        tx.send(()).expect("Failed to send ctrl-c signal");
-    }).expect("Failed to set ctrl+c handler");
-    
     loop {
-        // check if ctrl+c was pressed
-        if let Ok(_) = rx.try_recv() {
-            println!("Shutting down client daemon...");
-            break;
-        }
-        
-        let message = match torrent_client.read_buffered_message()? {
-            Some(message) => message,
-            None => continue
-        };
-
-        match message {
-            TerminalClientMessage::TorrentsInfo{torrents} => {
-                print_torrent_infos(torrents);
+        tokio::select! {
+            Ok(message) = torrent_client.recv_message() => {
+                match message {
+                    TerminalClientMessage::TorrentsInfo{torrents} => {
+                        print_torrent_infos(torrents);
+                        break;
+                    },
+                    _ => {
+                        return Err(anyhow!("Received invalid message from client"));
+                    }
+                }
             },
-            _ => {
-                return Err(anyhow!("Received invalid message from client"));
+            _ = tokio::signal::ctrl_c() => {
+                break;
             }
         }
     }
@@ -272,7 +218,7 @@ async fn main() {
         exit(0);
     }
 
-    let mut terminal_client = TerminalClient{socket: create_client_socket(), client_id: std::process::id()};
+    let mut terminal_client = TerminalClient{socket: create_client_socket().await, client_id: std::process::id()};
 
     match args[1].as_str() {
         "download" => {
@@ -282,7 +228,7 @@ async fn main() {
                 exit(1);
             }
 
-            if let Err(e) = download(terminal_client, &args[2], &args[3]) {
+            if let Err(e) = download(terminal_client, &args[2], &args[3]).await {
                 eprintln!("Failed to download torrent: {}", e);
                 exit(1);
             }
@@ -295,7 +241,7 @@ async fn main() {
                 exit(1);
             }
 
-            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Shutdown) {
+            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Shutdown).await {
                 eprintln!("Failed to send shutdown message to client: {}", e);
                 exit(1);
             }
@@ -310,12 +256,12 @@ async fn main() {
                 exit(1);
             }
 
-            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::ListTorrents{client_id: terminal_client.client_id}) {
+            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::ListTorrents{client_id: terminal_client.client_id}).await {
                 eprintln!("Failed to send list torrents message to client: {}", e);
                 exit(1);
             }
 
-            if let Err(e) = list_torrents(terminal_client) {
+            if let Err(e) = list_torrents(terminal_client).await {
                 eprintln!("Failed to list torrents: {}", e);
                 exit(1);
             }
