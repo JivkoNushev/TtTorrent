@@ -185,7 +185,7 @@ impl Client {
             }
         }
 
-       // println!("Client stopping");
+        println!("Client stopping");
 
         Ok(())
     }

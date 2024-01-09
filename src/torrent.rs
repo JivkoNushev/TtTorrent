@@ -369,7 +369,7 @@ impl Torrent {
     }
 
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
-        let tracker_response = tracker.regular_response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
+        let tracker_response = tracker.regular_response(self.client_id.clone(), &self.torrent_context).await?;
 
         let peer_addresses = match crate::DEBUG_MODE {
             true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
@@ -399,7 +399,9 @@ impl Torrent {
         // initialize tracker
         let mut tracker = Tracker::from_torrent_file(&self.torrent_context.torrent_file)?;
         // connect to peers from tracker response
-        self.connect_to_peers(&mut tracker).await?;
+        if let Err(e) = self.connect_to_peers(&mut tracker).await {
+            eprintln!("Failed to connect to peers: {}", e);
+        }
 
         loop {
             tokio::select! {
@@ -441,7 +443,9 @@ impl Torrent {
                     // connect to more peers with better tracker request
                     if self.torrent_context.pieces.lock().await.len() > 0 {
                         // connect to new peers
-                        self.connect_to_peers(&mut tracker).await?;
+                        if let Err(e) = self.connect_to_peers(&mut tracker).await {
+                            eprintln!("Failed to connect to peers: {}", e);
+                        }
                     }
                 }
                 // TODO: listen to an open socket for seeding

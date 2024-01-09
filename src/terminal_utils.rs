@@ -1,4 +1,4 @@
-use futures::{AsyncReadExt, AsyncWriteExt};
+use futures::{AsyncBufReadExt, AsyncWriteExt, AsyncReadExt};
 use interprocess::local_socket::tokio::LocalSocketStream;
 use anyhow::{anyhow, Result};
 
@@ -17,6 +17,20 @@ pub struct TerminalClient {
 
 impl TerminalClient {
     pub async fn recv_message(&mut self) -> Result<TerminalClientMessage> {
+        let mut reader = futures::io::BufReader::new(&mut self.socket);
+
+        let mut buffer = String::new();
+        let bytes_read = reader.read_line(&mut buffer).await?;
+
+        if bytes_read == 0 {
+            return Err(anyhow!("Failed to read message from socket"));
+        }
+
+        let message = serde_json::from_slice(buffer.as_bytes())?;
+        Ok(message)
+    }
+
+    pub async fn recv_buffered_message(&mut self) -> Result<TerminalClientMessage> {
         let mut buffer = Vec::new();
         let bytes_read = self.socket.read_to_end(&mut buffer).await?;
 
@@ -26,11 +40,18 @@ impl TerminalClient {
 
         let message = serde_json::from_slice(&buffer)?;
         Ok(message)
-    } 
+    }
 
     pub async fn send_message(&mut self, message: &TerminalClientMessage) -> Result<()> {
         let message = create_message(message);
         self.socket.write_all(&message).await?;
+
+        Ok(())
+    }
+
+    pub async fn send_buffered_message(&mut self, message: &TerminalClientMessage) -> Result<()> {
+        let message = serde_json::to_string(&message).expect("Serialization failed");
+        self.socket.write_all(message.as_bytes()).await?;
 
         Ok(())
     }
@@ -131,10 +152,12 @@ Commands:
 }
 
 async fn download(mut client: TerminalClient, src: &str, dest: &str) -> Result<()> {
-    let torrent_path = PathBuf::from(src).canonicalize()?;
-    let dest_path = PathBuf::from(dest).canonicalize()?;
+    let mut torrent_path = PathBuf::from(src);
+    let mut dest_path = PathBuf::from(dest);
 
-    check_download_arguments(&torrent_path, &dest_path)?;
+    check_download_arguments(&mut torrent_path, &mut dest_path)?;
+    let torrent_path = PathBuf::from(torrent_path).canonicalize()?;
+    let dest_path = PathBuf::from(dest_path).canonicalize()?;
 
     let torrent_path = torrent_path.to_str().unwrap().to_string();
     let dest_path = dest_path.to_str().unwrap().to_string();
@@ -164,11 +187,10 @@ async fn list_torrents(mut torrent_client: TerminalClient) -> Result<()> {
     println!("Waiting for torrents info...");
     loop {
         tokio::select! {
-            Ok(message) = torrent_client.recv_message() => {
-                match message {
+            message = torrent_client.recv_message() => {
+                match message? {
                     TerminalClientMessage::TorrentsInfo{torrents} => {
                         print_torrent_infos(torrents);
-                        break;
                     },
                     _ => {
                         return Err(anyhow!("Received invalid message from client"));

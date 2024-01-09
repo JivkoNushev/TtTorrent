@@ -17,4 +17,5 @@ Cargo.lock
 .idea
 .vscode
 
-test_folder
+test_folder/
+client_state/
