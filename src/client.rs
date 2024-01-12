@@ -169,9 +169,9 @@ impl Client {
                         torrent_states.push(torrent_state);
                     }
 
-                    // if !torrent_states.is_empty() {
+                    if !torrent_states.is_empty() {
                         self.pipe.tx.send(ClientMessage::TorrentsInfo{torrents: torrent_states}).await?;
-                    // }
+                    }
                 }
                 else => {
                     break;

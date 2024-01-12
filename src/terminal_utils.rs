@@ -184,7 +184,7 @@ async fn download(mut client: TerminalClient, src: &str, dest: &str) -> Result<(
 }
 
 async fn list_torrents(mut torrent_client: TerminalClient) -> Result<()> {
-    println!("Waiting for torrents info...");
+    println!("No torrent states...");
     loop {
         tokio::select! {
             message = torrent_client.recv_message() => {
