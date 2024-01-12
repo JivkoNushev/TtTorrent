@@ -425,7 +425,9 @@ impl Torrent {
                             // println!("Torrent '{}' downloaded", self.torrent_context.torrent_name);
                             Torrent::save_state(self.torrent_context.clone()).await?;
 
-                            self.tracker_completed(&mut tracker).await?;
+                            if let Err(e) = self.tracker_completed(&mut tracker).await {
+                                eprintln!("Failed to send completed message to tracker: {}", e);
+                            }
                         },
                         ClientMessage::SendTorrentInfo { tx } => {
                             let torrent_state = TorrentState::new(self.torrent_context.clone()).await;
@@ -455,7 +457,9 @@ impl Torrent {
             }
         }
         // TODO: is this to be called before the handles are joined?
-        self.tracker_stopped(&mut tracker).await?;
+        if let Err(e) = self.tracker_stopped(&mut tracker).await {
+            eprintln!("Failed to send stopped message to tracker: {}", e);
+        }
 
         for peer_handle in self.peer_handles {
             let peer_addr = peer_handle.peer_address.clone();
