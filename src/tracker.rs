@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result, Context};
 
 use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash, TorrentFile };
-use crate::torrent::TorrentContext;
+use crate::torrent::{TorrentContext, self};
 
 use crate::utils::UrlEncodable;
 
@@ -193,7 +193,7 @@ impl Tracker {
     pub async fn regular_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
         let request;
         // if no pieces have been downloaded, send a started request
-        if torrent_context.pieces.lock().await.len() == 0 {
+        if torrent_context.blocks.lock().await.len() == torrent_context.blocks_count {
             request = self.started_request(client_id, torrent_context)?;
         }
         else {

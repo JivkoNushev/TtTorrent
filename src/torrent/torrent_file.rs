@@ -21,6 +21,34 @@ impl TorrentFile {
         &self.bencoded_dict
     }
 
+    pub fn get_piece_size(&self, piece_index: usize) -> Result<usize> {
+        let torrent_length = self.get_torrent_length()?;
+        let piece_length = self.get_piece_length()?;
+        let pieces_count = self.get_pieces_count()?;
+
+        // TODO: make cleaner
+        if piece_index == pieces_count - 1 {
+            let size = (torrent_length % piece_length as u64) as usize;
+            if 0 == size {
+                Ok(piece_length)
+            }
+            else {
+                Ok(size)
+            }
+        }
+        else {
+            Ok(piece_length)
+        }
+    }
+
+    pub fn get_pieces_count(&self) -> Result<usize> {
+        let info_dict = self.bencoded_dict.get_from_dict("info")?;
+        let pieces = info_dict.get_from_dict("pieces")?;
+        let pieces = pieces.try_into_byte_sha1_hashes()?;
+
+        Ok(pieces.len())
+    }
+
     pub fn get_info_hash(bencoded_dict: &BencodedValue) -> Result<Sha1Hash> {
         let info_dict = bencoded_dict.get_from_dict("info")?;
         match info_dict {

@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::peer::PieceBlock;
 use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
 
 #[derive(Debug, Clone)]
@@ -41,16 +42,16 @@ impl DiskWriterTorrentContext {
 
 struct DiskWriter {
     rx: mpsc::Receiver<ClientMessage>,
-    torrent_pieces_count: usize,
+    torrent_blocks_count: usize,
 
     torrent_context: Arc<DiskWriterTorrentContext>,
 }
 
 impl DiskWriter {
-    pub fn new(rx: mpsc::Receiver<ClientMessage>, torrent_context: DiskWriterTorrentContext, torrent_pieces_count: usize) -> Self {
+    pub fn new(rx: mpsc::Receiver<ClientMessage>, torrent_context: DiskWriterTorrentContext, torrent_blocks_count: usize) -> Self {
         Self {
             rx,
-            torrent_pieces_count,
+            torrent_blocks_count,
 
             torrent_context: Arc::new(torrent_context),
         }
@@ -164,22 +165,21 @@ impl DiskWriter {
         Ok(files_to_download)
     }
 
-    async fn write_to_file(torrent_context: Arc<DiskWriterTorrentContext>, piece_index: usize, piece: Vec<u8>) -> Result<()> {
+    async fn write_to_file(torrent_context: Arc<DiskWriterTorrentContext>, block: PieceBlock) -> Result<()> {
         let files = DiskWriter::get_files_to_download(&torrent_context).await?;
 
-        let piece_length = DiskWriter::get_piece_size(&torrent_context, piece_index)? as u64;
-        let mut piece_start_offset = (DiskWriter::get_piece_size(&torrent_context, 0)? * piece_index) as u64;
+        let mut block_start = (block.piece_index * DiskWriter::get_piece_size(&torrent_context, 0)? + block.offset) as u64;
 
         let mut file_index= 0;
         let mut file_offset = 0;
         
-        let mut bytes_left = piece_length;
+        let mut bytes_left = block.size as u64;
         while bytes_left > 0 {
             for (i, file) in files.iter().enumerate() {
                 // if this piece is in this file
-                if file.start <= piece_start_offset && piece_start_offset < file.start + file.size {
+                if file.start <= block_start && block_start < file.start + file.size {
                     file_index = i;
-                    file_offset = piece_start_offset - file.start;
+                    file_offset = block_start - file.start;
     
                     break;
                 }
@@ -212,13 +212,13 @@ impl DiskWriter {
             
             fd.seek(std::io::SeekFrom::Start(file_offset)).await?;
 
-            let written_bytes = piece_length - bytes_left;
+            let written_bytes = block.size as u64 - bytes_left;
 
             fd.write_all(
-                &piece[written_bytes as usize..(written_bytes + bytes_to_write) as usize]
+                &block.data[written_bytes as usize..(written_bytes + bytes_to_write) as usize]
             ).await?;
 
-            piece_start_offset += bytes_to_write;
+            block_start += bytes_to_write;
             bytes_left -= bytes_to_write;
             file_index += 1;
         }
@@ -240,25 +240,26 @@ impl DiskWriter {
                            // println!("Shutting down disk writer");
                             break;
                         },
-                        ClientMessage::DownloadedPiece{piece_index, piece} => {
+                        ClientMessage::DownloadedBlock{ block } => {
                             // TODO: maybe save the pieces indexes somewhere and if the client crashes download them again
                             let semaphore_clone = Arc::clone(&semaphore);
                             let torrent_context = Arc::clone(&self.torrent_context);
 
                             let handle = tokio::spawn(async move {
+                                println!("writing piece index '{}', offset '{}' to file", block.piece_index, block.offset);
                                 if let Err(e) = semaphore_clone.acquire().await {
                                     eprintln!("Semaphore Error: {}", e);
                                     return;
                                 }
-                                if let Err(e) = DiskWriter::write_to_file(torrent_context, piece_index, piece).await {
+                                if let Err(e) = DiskWriter::write_to_file(torrent_context, block).await {
                                     eprintln!("Disk writer error: {:?}", e);
                                 }
                             });
 
                             writer_handles.push(handle);
 
-                            self.torrent_pieces_count -= 1;
-                            if self.torrent_pieces_count == 0 {
+                            self.torrent_blocks_count -= 1;
+                            if self.torrent_blocks_count == 0 {
                                 break;
                             }
                         },
@@ -290,12 +291,12 @@ pub struct DiskWriterHandle {
 }
 
 impl DiskWriterHandle {
-    pub fn new(torrent_context: DiskWriterTorrentContext, torrent_pieces_count: usize) -> Self {
+    pub fn new(torrent_context: DiskWriterTorrentContext, torrent_blocks_count: usize) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
         let torrent_name = torrent_context.torrent_name.clone();
 
-        let disk_writer = DiskWriter::new(rx, torrent_context, torrent_pieces_count);
+        let disk_writer = DiskWriter::new(rx, torrent_context, torrent_blocks_count);
         let join_handle = tokio::spawn(async move {
             if let Err(e) = disk_writer.run().await {
                // println!("Disk writer error: {:?}", e);
@@ -324,9 +325,8 @@ impl DiskWriterHandle {
         Ok(())
     }
 
-    pub async fn downloaded_piece(&mut self, piece_index: usize, piece: Vec<u8>) -> Result<()> {
-        self.tx.send(ClientMessage::DownloadedPiece{piece_index, piece}).await?;
-
+    pub async fn downloaded_block(&mut self, block: PieceBlock) -> Result<()> {
+        self.tx.send(ClientMessage::DownloadedBlock{ block }).await?;
         Ok(())
     }
 }

@@ -25,10 +25,11 @@ pub struct TorrentState {
     pub torrent_name: String,
     torrent_file: TorrentFile,
     info_hash: Sha1Hash,
-    pub pieces: Vec<usize>,
+    pub blocks: Vec<usize>,
     pub peers: Vec<PeerAddress>,
 
     pub pieces_count: usize,
+    pub blocks_count: usize,
     pub downloaded: u64,
     pub uploaded: u64,
 }
@@ -41,10 +42,11 @@ impl TorrentState {
             torrent_name: torrent_context.torrent_name,
             torrent_file: torrent_context.torrent_file,
             info_hash: torrent_context.info_hash,
-            pieces: torrent_context.pieces.lock().await.clone(),
+            blocks: torrent_context.blocks.lock().await.clone(),
             peers: torrent_context.peers,
 
             pieces_count: torrent_context.pieces_count,
+            blocks_count: torrent_context.blocks_count,
             downloaded: torrent_context.downloaded,
             uploaded: torrent_context.uploaded.lock().await.clone(),
         }
@@ -60,10 +62,11 @@ pub struct TorrentContext {
     torrent_name: String,
     pub torrent_file: TorrentFile,
     pub info_hash: Sha1Hash,
-    pub pieces: Arc<Mutex<Vec<usize>>>,
+    pub blocks: Arc<Mutex<Vec<usize>>>,
     peers: Vec<PeerAddress>,
 
     pieces_count: usize,
+    pub blocks_count: usize,
     pub downloaded: u64,
     pub uploaded: Arc<Mutex<u64>>,
 }
@@ -78,10 +81,11 @@ impl TorrentContext {
             torrent_name: torrent_state.torrent_name,
             torrent_file: torrent_state.torrent_file,
             info_hash: torrent_state.info_hash,
-            pieces: Arc::new(Mutex::new(torrent_state.pieces)),
+            blocks: Arc::new(Mutex::new(torrent_state.blocks)),
             peers: torrent_state.peers,
 
             pieces_count: torrent_state.pieces_count,
+            blocks_count: torrent_state.blocks_count,
             downloaded: torrent_state.downloaded,
             uploaded: Arc::new(Mutex::new(torrent_state.uploaded)),
         }
@@ -219,6 +223,7 @@ impl Torrent {
     }
 }
 
+
 impl Torrent {
     pub async fn new(client_id: [u8; 20], self_pipe: CommunicationPipe, src: &str, dest: &str) -> Result<Self> {
         let torrent_file = TorrentFile::new(&src).await.context("couldn't create TorrentFile")?;
@@ -252,6 +257,25 @@ impl Torrent {
 
         let pieces_count = pieces_left.len();
 
+        let blocks_left = {
+            let mut blocks_left = Vec::new();
+            let blocks_in_piece = torrent_file.get_piece_size(0)?.div_ceil(crate::BLOCK_SIZE);
+
+            for piece in pieces_left.iter() {
+                let piece_size = torrent_file.get_piece_size(*piece)?;
+                let blocks_count = piece_size.div_ceil(crate::BLOCK_SIZE);
+
+                for block in 0..blocks_count {
+                    let block_index = *piece * blocks_in_piece + block;
+                    blocks_left.push(block_index);
+                }
+            }
+
+            blocks_left
+        };
+
+        let blocks_count = blocks_left.len();
+
         let torrent_context = DiskWriterTorrentContext::new(
             self_pipe.tx.clone(),
             dest.to_string(),
@@ -259,7 +283,7 @@ impl Torrent {
             torrent_file.clone()
         );
 
-        let disk_writer_handle = DiskWriterHandle::new(torrent_context, pieces_left.len());
+        let disk_writer_handle = DiskWriterHandle::new(torrent_context, blocks_left.len());
         
         let torrent_context = TorrentContext {
             connection_type: ConnectionType::Outgoing,
@@ -269,10 +293,11 @@ impl Torrent {
             torrent_name: torrent_name.to_string(),
             torrent_file,
             info_hash,
-            pieces: Arc::new(Mutex::new(pieces_left)),
+            blocks: Arc::new(Mutex::new(blocks_left)),
             peers: Vec::new(),
 
             pieces_count,
+            blocks_count,
             downloaded: 0,
             uploaded: Arc::new(Mutex::new(0)),
         };
@@ -289,6 +314,7 @@ impl Torrent {
         })
     }
 
+
     pub fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentState, connection_type: ConnectionType) -> Result<Self> {
         let torrent_context = DiskWriterTorrentContext::new(
             self_pipe.tx.clone(),
@@ -297,9 +323,9 @@ impl Torrent {
             torrent_state.torrent_file.clone()
         );
 
-        let torrent_pieces_count = torrent_state.pieces.len();
+        let torrent_blocks_count = torrent_state.blocks.len();
         
-        let disk_writer_handle = DiskWriterHandle::new(torrent_context, torrent_pieces_count);
+        let disk_writer_handle = DiskWriterHandle::new(torrent_context, torrent_blocks_count);
         
         let torrent_context = TorrentContext::from_state(torrent_state, connection_type);
 
@@ -345,9 +371,10 @@ impl Torrent {
                 piece_length,
                 torrent_length,
                 self.torrent_context.info_hash.clone(),
-                Arc::clone(&self.torrent_context.pieces),
+                Arc::clone(&self.torrent_context.blocks),
 
                 self.torrent_context.pieces_count,
+                self.torrent_context.blocks_count,
                 Arc::clone(&self.torrent_context.uploaded),
             );
 
@@ -416,10 +443,9 @@ impl Torrent {
                             let _ = self.disk_writer_handle.shutdown().await;
                             break;
                         },
-                        ClientMessage::DownloadedPiece { piece_index, piece } => {
-                            let piece_size = piece.len();
-                            self.disk_writer_handle.downloaded_piece(piece_index, piece).await?;
-                            self.torrent_context.downloaded += piece_size as u64;
+                        ClientMessage::DownloadedBlock { block } => {
+                            self.torrent_context.downloaded += block.size as u64;
+                            self.disk_writer_handle.downloaded_block(block).await.context("sending to disk handle")?;
                         },
                         ClientMessage::FinishedDownloading => {
                             // println!("Torrent '{}' downloaded", self.torrent_context.torrent_name);
@@ -437,13 +463,20 @@ impl Torrent {
                         },
                         ClientMessage::PeerDisconnected { peer_address } => {
                             self.torrent_context.peers.retain(|peer| peer != &peer_address);
+
+                            let handle_index = self.peer_handles.iter().position(|peer_handle| peer_handle.peer_address == peer_address);
+                            if let Some(handle_index) = handle_index {
+                                if let Err(e) = self.peer_handles.remove(handle_index).join().await {
+                                    eprintln!("Failed to join peer handle when disconnecting peer: {:?}", e);
+                                }
+                            }
                         },
                         _ => {}
                     }
                 },
                 _ = tokio::time::sleep(std::time::Duration::from_secs(120)) => {
                     // connect to more peers with better tracker request
-                    if self.torrent_context.pieces.lock().await.len() > 0 {
+                    if self.torrent_context.blocks.lock().await.len() > 0 {
                         // connect to new peers
                         if let Err(e) = self.connect_to_peers(&mut tracker).await {
                             eprintln!("Failed to connect to peers: {}", e);
@@ -452,7 +485,7 @@ impl Torrent {
                 }
                 // TODO: listen to an open socket for seeding
                 else => {
-                    break;
+                    println!("Trying to listen for seeding");
                 }
             }
         }
