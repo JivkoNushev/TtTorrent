@@ -72,20 +72,12 @@ pub struct PeerHandle {
 }
 
 impl PeerHandle {
-    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, stream: tokio::net::TcpStream, connection_type: ConnectionType) -> Result<Self> {
+    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, peer_address: PeerAddress, connection_type: ConnectionType) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
 
-        let addr = stream.peer_addr()?;
-        let peer_address = PeerAddress{
-            address: addr.ip().to_string(),
-            port: addr.port().to_string(),
-        };
-
         let peer = Peer::new(client_id, torrent_context, peer_address.clone(), receiver).await;
-
-        let peer_session = PeerSession::new(stream, connection_type).await?;
         let join_handle: JoinHandle<Result<()>>= tokio::spawn(async move {
-            peer.run(peer_session).await
+            peer.run(connection_type).await
         });
 
         Ok(Self {
@@ -324,7 +316,21 @@ impl Peer {
         Ok(())
     }
 
-    pub async fn run(mut self, mut peer_session: PeerSession) -> Result<()> {
+    async fn get_peer_session(&self, connection_type: ConnectionType) -> Result<PeerSession> {
+        let stream = match tokio::net::TcpStream::connect(format!("{}:{}", self.peer_context.ip.address, self.peer_context.ip.port)).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                return Err(anyhow!("Failed to connect to peer '{self}': {e}"));
+            }
+        };
+
+        let peer_session = PeerSession::new(stream, connection_type).await;
+
+        Ok(peer_session)
+    }
+
+    pub async fn run(mut self, connection_type: ConnectionType) -> Result<()> {
+        let mut peer_session = self.get_peer_session(connection_type).await?;
         println!("Connected to peer: '{self}'");
 
         // handshake with peer

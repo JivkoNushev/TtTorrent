@@ -1,3 +1,4 @@
+use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 use anyhow::{anyhow, Result, Context};
@@ -341,7 +342,7 @@ impl Torrent {
         })
     }   
 
-    async fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) -> Result<()>{
+    async fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) -> Result<()> {
         let old_peer_addresses = self.peer_handles
         .iter()
         .map(|peer_handle| peer_handle.peer_address.clone())
@@ -356,14 +357,10 @@ impl Torrent {
         let piece_length = self.torrent_context.torrent_file.get_piece_length()?;
         let torrent_length = self.torrent_context.torrent_file.get_torrent_length()?;
 
-        for peer_address in peer_addresses {
-            let stream = match tokio::net::TcpStream::connect(format!("{}:{}", peer_address.address, peer_address.port)).await {
-                Ok(stream) => stream,
-                Err(_) => continue,
-            };
-
+        let mut peer_addresses_iter = tokio_stream::iter(peer_addresses);
+        while let Some(peer_address) = peer_addresses_iter.next().await {
             if !self.torrent_context.peers.contains(&peer_address) {
-                self.torrent_context.peers.push(peer_address);
+                self.torrent_context.peers.push(peer_address.clone());
             }
 
             let torrent_context = PeerTorrentContext::new(
@@ -381,7 +378,7 @@ impl Torrent {
             let peer_handle = PeerHandle::new(
                 self.client_id,
                 torrent_context,
-                stream,
+                peer_address,
                 connection_type.clone(),
             ).await?;
 
@@ -402,7 +399,6 @@ impl Torrent {
             true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
             false => PeerAddress::from_tracker_response(tracker_response).await?
         };
-
         self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone()).await?;
 
         Ok(())
@@ -424,10 +420,19 @@ impl Torrent {
         self.load_state().await?;
 
         // initialize tracker
-        let mut tracker = Tracker::from_torrent_file(&self.torrent_context.torrent_file)?;
-        // connect to peers from tracker response
-        if let Err(e) = self.connect_to_peers(&mut tracker).await {
-            eprintln!("Failed to connect to peers: {}", e);
+        let mut tracker = match Tracker::from_torrent_file(&self.torrent_context.torrent_file) {
+            Ok(tracker) => Some(tracker),
+            Err(e) => {
+                eprintln!("Failed to create tracker: {}", e);
+                None
+            }
+        };
+
+        if let Some(ref mut tracker) = tracker {
+            // connect to peers from tracker response
+            if let Err(e) = self.connect_to_peers(tracker).await {
+                eprintln!("Failed to connect to peers: {}", e);
+            }
         }
 
         loop {
@@ -441,6 +446,14 @@ impl Torrent {
                             }
                             // send stop message to disk writer
                             let _ = self.disk_writer_handle.shutdown().await;
+
+
+                            if let Some(ref mut tracker) = tracker {
+                                // TODO: is this to be called before the handles are joined?
+                                if let Err(e) = self.tracker_stopped(tracker).await {
+                                    eprintln!("Failed to send stopped message to tracker: {}", e);
+                                }
+                            }
                             break;
                         },
                         ClientMessage::DownloadedBlock { block } => {
@@ -448,12 +461,13 @@ impl Torrent {
                             self.disk_writer_handle.downloaded_block(block).await.context("sending to disk handle")?;
                         },
                         ClientMessage::FinishedDownloading => {
-                            // println!("Torrent '{}' downloaded", self.torrent_context.torrent_name);
-                            Torrent::save_state(self.torrent_context.clone()).await?;
+                            Torrent::save_state(self.torrent_context.clone()).await.context("saving torrent state")?;
 
-                            if let Err(e) = self.tracker_completed(&mut tracker).await {
-                                eprintln!("Failed to send completed message to tracker: {}", e);
-                            }
+                            if let Some(ref mut tracker) = tracker {
+                                if let Err(e) = self.tracker_completed(tracker).await {
+                                    eprintln!("Failed to send completed message to tracker: {}", e);
+                                }
+                            } 
                         },
                         ClientMessage::SendTorrentInfo { tx } => {
                             let torrent_state = TorrentState::new(self.torrent_context.clone()).await;
@@ -477,9 +491,11 @@ impl Torrent {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(120)) => {
                     // connect to more peers with better tracker request
                     if self.torrent_context.blocks.lock().await.len() > 0 {
-                        // connect to new peers
-                        if let Err(e) = self.connect_to_peers(&mut tracker).await {
-                            eprintln!("Failed to connect to peers: {}", e);
+                        if let Some(ref mut tracker) = tracker {
+                            // connect to peers from tracker response
+                            if let Err(e) = self.connect_to_peers(tracker).await {
+                                eprintln!("Failed to connect to peers: {}", e);
+                            }
                         }
                     }
                 }
@@ -488,10 +504,6 @@ impl Torrent {
                     println!("Trying to listen for seeding");
                 }
             }
-        }
-        // TODO: is this to be called before the handles are joined?
-        if let Err(e) = self.tracker_stopped(&mut tracker).await {
-            eprintln!("Failed to send stopped message to tracker: {}", e);
         }
 
         for peer_handle in self.peer_handles {

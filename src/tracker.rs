@@ -79,7 +79,7 @@ impl TrackerRequest {
         })
     }
 
-    fn as_url(self) -> Result<reqwest::Url> {
+    fn as_url(self) -> Result<String> {
         let mut url = format!{
             "{announce}?info_hash={info_hash}\
             &peer_id={peer_id}\
@@ -117,8 +117,6 @@ impl TrackerRequest {
         if let Some(trackerid) = self.trackerid {
             url.push_str(&format!("&trackerid={}", trackerid));
         }
-
-        let url = reqwest::Url::parse(&url)?;
 
         Ok(url)
     }
@@ -180,24 +178,23 @@ impl Tracker {
         })
     }
 
-    fn started_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Url> {
+    fn started_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<String> {
         let request = TrackerRequest::start(self.announce.clone(), client_id, torrent_context)?;
         request.as_url()
     }
 
-    async fn new_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<reqwest::Url> {
+    async fn new_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<String> {
         let request = TrackerRequest::new(self.announce.clone(), client_id, torrent_context, tracker_event).await?;
         request.as_url()
     }
 
     pub async fn regular_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
-        let request;
         // if no pieces have been downloaded, send a started request
-        if torrent_context.blocks.lock().await.len() == torrent_context.blocks_count {
-            request = self.started_request(client_id, torrent_context)?;
+        let request = if torrent_context.blocks.lock().await.len() == torrent_context.blocks_count {
+            self.started_request(client_id, torrent_context)?
         }
         else {
-            request = self.new_request(client_id, torrent_context, TrackerEvent::None).await?;
+            self.new_request(client_id, torrent_context, TrackerEvent::None).await?
         };
 
         let response = match crate::DEBUG_MODE {

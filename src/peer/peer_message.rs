@@ -168,11 +168,11 @@ pub struct PeerSession {
 }
 
 impl PeerSession {
-    pub async fn new(stream: tokio::net::TcpStream, connection_type: ConnectionType) -> Result<Self> {
-        Ok(Self {
+    pub async fn new(stream: tokio::net::TcpStream, connection_type: ConnectionType) -> Self{
+        Self {
             stream,
             connection_type,
-        })
+        }
     }
 
     async fn incoming_handshake(&mut self, info_hash: Sha1Hash) -> Result<Handshake> {
