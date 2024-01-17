@@ -20,6 +20,7 @@ pub enum ClientMessage {
     SendTorrentsInfo,
     TerminalClientClosed,
     PeerDisconnected{peer_address: PeerAddress},
+    CancelBlock{index: u32, begin: u32, length: u32},
 }
 
 #[derive(Debug, Serialize, Deserialize)]

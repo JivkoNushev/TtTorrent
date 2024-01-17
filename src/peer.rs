@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 
 use std::sync::Arc;
 
+use crate::BLOCK_REQUEST_COUNT;
 use crate::messager::ClientMessage;
 use crate::torrent::Sha1Hash;
 use crate::utils::rand_number_u32;
@@ -18,6 +19,7 @@ pub use peer_message::{PeerMessage, PeerSession, ConnectionType};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PieceBlock {
+    pub block_index: usize,
     pub piece_index: usize,
     pub offset: usize,
     pub size: usize,
@@ -89,6 +91,11 @@ impl PeerHandle {
 
     pub async fn join(self) -> Result<()> {
         self.join_handle.await?
+    }
+
+    pub async fn cancel_block(&mut self, index: u32, begin: u32, length: u32) -> Result<()> {
+        self.tx.send(ClientMessage::CancelBlock{index, begin, length}).await?;
+        Ok(())
     }
 
     pub async fn shutdown(&mut self) -> Result<()> {
@@ -194,7 +201,9 @@ impl Peer {
 
         let block = common_indexes[block_index];
 
-        block_guard.retain(|&i| i != *block);
+        if !block_guard.len() > BLOCK_REQUEST_COUNT {
+            block_guard.retain(|&i| i != *block);
+        }
 
         Some(*block)
     }
@@ -299,6 +308,7 @@ impl Peer {
                     let block_size = Peer::get_block_size(&self.torrent_context, block_index);
 
                     downloading_blocks.push(PieceBlock {
+                        block_index,
                         piece_index,
                         offset: block_offset,
                         size: block_size,
@@ -342,6 +352,9 @@ impl Peer {
             tokio::select! {
                 Some(msg) = self.rx.recv() => {
                     match msg {
+                        ClientMessage::CancelBlock{index, begin, length} => {
+                            peer_session.send(PeerMessage::Cancel(index, begin, length)).await?;
+                        },
                         ClientMessage::Shutdown => {
                             // dropping last not fully downloaded piece
                             for block in downloading_blocks {
@@ -423,7 +436,13 @@ impl Peer {
                         },
                         PeerMessage::Piece(index, begin, block) => {
                             // println!("Peer '{self}' piece {} {}", index, begin);
+                            let block_index = {
+                                let blocks_in_piece = self.torrent_context.piece_length.div_ceil(crate::BLOCK_SIZE);
+                                index as usize * blocks_in_piece + begin.div_ceil(crate::BLOCK_SIZE as u32) as usize
+                            };
+
                             let mut piece_block = PieceBlock {
+                                block_index: block_index,
                                 piece_index: index as usize,
                                 offset: begin as usize,
                                 size: block.len(),
