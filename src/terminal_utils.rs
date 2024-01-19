@@ -117,7 +117,7 @@ fn print_torrent_infos(torrents: Vec<TorrentState>) {
     println!("{}", "-".repeat(89));
 
     for torrent in torrents {
-        let downloaded_percentage = calculate_percentage(torrent.pieces_count, torrent.blocks.len());
+        let downloaded_percentage = calculate_percentage(torrent.pieces_count, torrent.needed_blocks.len());
         let peers = torrent.peers.len();
 
         println!(

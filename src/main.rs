@@ -8,7 +8,7 @@ use torrent_client::utils::valid_src_and_dst;
 mod terminal_utils;
 use crate::terminal_utils::TerminalClient;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     // ------------------------ create socket for client ------------------------
 
@@ -20,6 +20,8 @@ async fn main() -> Result<()> {
     // ------------------------ create client ------------------------
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(torrent_client::MAX_CHANNEL_SIZE);
     let mut client = ClientHandle::new(tx);
+
+    client.client_download_torrent("test_folder/torrents/centOS.torrent".to_string(), "test_folder/data/centOS".to_string()).await?;
 
     loop {
         tokio::select! {
