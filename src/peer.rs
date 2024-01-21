@@ -387,13 +387,11 @@ impl Peer {
     }
 
     pub async fn run(mut self, connection_type: ConnectionType) -> Result<()> {
-        // let seeder_handle = SeederHandle::new()
         let mut peer_session = self.get_peer_session(connection_type).await?;
         println!("Connected to peer: '{self}'");
 
         // handshake with peer
         self.handshake(&mut peer_session).await?;
-       // println!("Handshake with peer '{self}' successful");
 
         let mut last_request_elapsed = false; 
 
@@ -492,6 +490,8 @@ impl Peer {
                                 size: length as usize,
                                 data: Vec::new(),
                             };
+
+                            unimplemented!("Peer '{self}' requested block: {seeding_block:?}")
                         },
                         PeerMessage::Piece(index, begin, block) => {
                             if !self.peer_context.am_interested || self.peer_context.choking {
@@ -531,7 +531,7 @@ impl Peer {
                             self.torrent_context.tx.send(ClientMessage::DownloadedBlock{ block: piece_block }).await?;
                         },
                         PeerMessage::Cancel(index, begin, length) => {
-                            // seeding_blocks.retain(|block| block.block_index != index as usize && block.offset != begin as usize && block.size != length as usize);
+                            unimplemented!("Peer '{self}' sent cancel: {index}, {begin}, {length}")
                         },
                         PeerMessage::Port(port) => {
                             unimplemented!("Peer '{self}' sent port: {port}")
