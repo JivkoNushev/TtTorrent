@@ -402,7 +402,7 @@ impl Torrent {
         let tracker_response = tracker.regular_response(self.client_id.clone(), &self.torrent_context).await?;
 
         let peer_addresses = match crate::DEBUG_MODE {
-            true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.15".to_string(), port: "51413".to_string()}],
+            true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}],
             false => PeerAddress::from_tracker_response(tracker_response).await?
         };
 
@@ -472,8 +472,6 @@ impl Torrent {
                             if l.contains(&block.block_index) {
                                 l.retain(|index| index != &block.block_index);
                                 for peer_handle in &mut self.peer_handles {
-                                    // TODO: sending to all but the one that sent the block shouldn't receive it
-                                    println!("cancelling block: {:?} for peer: {}", block, peer_handle.peer_address);
                                     let _ = peer_handle.cancel_block(block.block_index as u32, block.offset as u32, block.size as u32).await;
                                 }
                                 last_blocks.push(block.block_index);
