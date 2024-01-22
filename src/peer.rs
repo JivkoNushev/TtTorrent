@@ -46,12 +46,13 @@ pub struct PeerTorrentContext {
     info_hash: Sha1Hash,
     needed_blocks: Arc<Mutex<Vec<usize>>>,
     needed_pieces: Arc<Mutex<Vec<usize>>>,
+    bitfield: Arc<Mutex<Vec<u8>>>,
 
     uploaded: Arc<Mutex<u64>>,
 }
 
 impl PeerTorrentContext {
-    pub fn new(tx: mpsc::Sender<ClientMessage>, piece_length: usize, torrent_length: u64, info_hash: Sha1Hash, needed_blocks: Arc<Mutex<Vec<usize>>>, needed_pieces: Arc<Mutex<Vec<usize>>>, pieces_count: usize, blocks_count: usize, uploaded: Arc<Mutex<u64>>) -> Self {
+    pub fn new(tx: mpsc::Sender<ClientMessage>, piece_length: usize, torrent_length: u64, info_hash: Sha1Hash, needed_blocks: Arc<Mutex<Vec<usize>>>, needed_pieces: Arc<Mutex<Vec<usize>>>, bitfield: Arc<Mutex<Vec<u8>>>, pieces_count: usize, blocks_count: usize, uploaded: Arc<Mutex<u64>>) -> Self {
         Self {
             tx,
 
@@ -62,6 +63,7 @@ impl PeerTorrentContext {
             info_hash,
             needed_blocks,
             needed_pieces,
+            bitfield,
 
             uploaded,
         }
@@ -95,8 +97,13 @@ impl PeerHandle {
         self.join_handle.await?
     }
 
-    pub async fn cancel_block(&mut self, index: u32, begin: u32, length: u32) -> Result<()> {
-        self.tx.send(ClientMessage::CancelBlock{index, begin, length}).await?;
+    pub async fn cancel(&mut self, index: u32, begin: u32, length: u32) -> Result<()> {
+        self.tx.send(ClientMessage::Cancel{index, begin, length}).await?;
+        Ok(())
+    }
+
+    pub async fn have(&mut self, piece: u32) -> Result<()> {
+        self.tx.send(ClientMessage::Have{piece}).await?;
         Ok(())
     }
 
@@ -255,38 +262,10 @@ impl Peer {
     }
 
     async fn handshake(&mut self, peer_session: &mut PeerSession) -> Result<()> {
-        let bitfield = self.bitfield().await?;
-        self.peer_context.id = peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id.clone(), bitfield.clone()).await?;
+        let bitfield = self.torrent_context.bitfield.lock().await.clone();
+        self.peer_context.id = peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id.clone(), bitfield).await?;
        
         Ok(())
-    }
-
-    async fn bitfield(&self) -> Result<Vec<u8>> {
-        // let needed_pieces_guard = self.torrent_context.needed_pieces.lock().await;
-        // let all_pieces = (0..self.torrent_context.pieces_count).collect::<Vec<usize>>();
-
-        // let have_pieces = all_pieces
-        //     .into_iter()
-        //     .filter(|i| !needed_pieces_guard.contains(i))
-        //     .collect::<Vec<usize>>();
-
-        // let bitfield = {
-        //     let mut pieces_iter = tokio_stream::iter(have_pieces);
-
-        //     let mut bitfield = vec![0u8; self.torrent_context.pieces_count.div_ceil(8)];
-        //     while let Some(piece) = pieces_iter.next().await {
-        //         let byte = piece / 8;
-        //         let bit = piece % 8;
-        //         bitfield[byte] |= 1 << (7 - bit);   
-        //     }
-            
-        //     bitfield
-        // };
-
-        // Ok(bitfield)
-
-        Ok(Vec::new())
-
     }
 
     async fn interested(&mut self, peer_session: &mut PeerSession) -> Result<()> {
@@ -400,7 +379,7 @@ impl Peer {
             tokio::select! {
                 Some(msg) = self.rx.recv() => {
                     match msg {
-                        ClientMessage::CancelBlock{index, begin, length} => {
+                        ClientMessage::Cancel{index, begin, length} => {
                             let block_index = {
                                 let blocks_in_piece = self.torrent_context.piece_length.div_ceil(crate::BLOCK_SIZE);
                                 index as usize * blocks_in_piece + begin.div_ceil(crate::BLOCK_SIZE as u32) as usize
@@ -422,6 +401,11 @@ impl Peer {
                             println!("Canceling block {} from peer: '{self}' with piece index {}, offset {} and size {}", block_index, index, begin, length);
                             peer_session.send(PeerMessage::Cancel(index, begin, length)).await?;
                         },
+                        ClientMessage::Have{piece} => {
+                            if !self.peer_context.having_pieces.contains(&(piece as usize)) {
+                                peer_session.send(PeerMessage::Have(piece as u32)).await?;
+                            }
+                        }
                         ClientMessage::Shutdown => {
                             // dropping last not fully downloaded piece
                             for block in downloading_blocks {

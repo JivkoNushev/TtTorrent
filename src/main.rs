@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     let mut client = ClientHandle::new(tx);
 
     // client.client_download_torrent("test_folder/torrents/ospdf.torrent".to_string(), "test_folder/data".to_string()).await?;
-    client.client_download_torrent("test_folder/torrents/torrent_image.torrent".to_string(), "test_folder/data".to_string()).await?;
+    // client.client_download_torrent("test_folder/torrents/torrent_image.torrent".to_string(), "test_folder/data".to_string()).await?;
 
     loop {
         tokio::select! {
@@ -86,6 +86,11 @@ async fn main() -> Result<()> {
                         for terminal_client in terminal_client_sockets.iter_mut() {
                             if let Err(e) = terminal_client.send_message(&message).await {
                                 terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != terminal_client.client_id);
+                                
+                                if terminal_client_sockets.is_empty() {
+                                    client.client_terminal_closed().await?;
+                                }
+                                
                                 eprintln!("Failed to write to local socket: {}", e);
                                 break;
                             }

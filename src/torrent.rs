@@ -28,6 +28,7 @@ pub struct TorrentState {
     info_hash: Sha1Hash,
     pub needed_blocks: Vec<usize>,
     pub needed_pieces: Vec<usize>,
+    bitfield: Vec<u8>,
     pub peers: Vec<PeerAddress>,
 
     pub pieces_count: usize,
@@ -46,6 +47,7 @@ impl TorrentState {
             info_hash: torrent_context.info_hash,
             needed_blocks: torrent_context.needed_blocks.lock().await.clone(),
             needed_pieces: torrent_context.needed_pieces.lock().await.clone(),
+            bitfield: torrent_context.bitfield.lock().await.clone(),
             peers: torrent_context.peers,
 
             pieces_count: torrent_context.pieces_count,
@@ -67,6 +69,7 @@ pub struct TorrentContext {
     pub info_hash: Sha1Hash,
     pub needed_blocks: Arc<Mutex<Vec<usize>>>,
     pub needed_pieces: Arc<Mutex<Vec<usize>>>,
+    bitfield: Arc<Mutex<Vec<u8>>>,
     peers: Vec<PeerAddress>,
 
     pieces_count: usize,
@@ -87,6 +90,7 @@ impl TorrentContext {
             info_hash: torrent_state.info_hash,
             needed_blocks: Arc::new(Mutex::new(torrent_state.needed_blocks)),
             needed_pieces: Arc::new(Mutex::new(torrent_state.needed_pieces)),
+            bitfield: Arc::new(Mutex::new(torrent_state.bitfield)),
             peers: torrent_state.peers,
 
             pieces_count: torrent_state.pieces_count,
@@ -300,6 +304,7 @@ impl Torrent {
             info_hash,
             needed_blocks: Arc::new(Mutex::new(blocks_left)),
             needed_pieces: Arc::new(Mutex::new(pieces_left)),
+            bitfield: Arc::new(Mutex::new(vec![0; pieces_count.div_ceil(8)])),
             peers: Vec::new(),
 
             pieces_count,
@@ -375,6 +380,7 @@ impl Torrent {
                 self.torrent_context.info_hash.clone(),
                 Arc::clone(&self.torrent_context.needed_blocks),
                 Arc::clone(&self.torrent_context.needed_pieces),
+                Arc::clone(&self.torrent_context.bitfield),
 
                 self.torrent_context.pieces_count,
                 self.torrent_context.blocks_count,
@@ -481,6 +487,13 @@ impl Torrent {
                             // }
                             self.torrent_context.downloaded += block.size as u64;
                             self.disk_writer_handle.downloaded_block(block).await.context("sending to disk handle")?;
+                        },
+                        ClientMessage::Have { piece } => {
+                            self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
+
+                            for peer_handle in &mut self.peer_handles {
+                                let _ = peer_handle.have(piece as u32).await;
+                            }                          
                         },
                         ClientMessage::FinishedDownloading => {
                             Torrent::save_state(self.torrent_context.clone()).await.context("saving torrent state")?;
