@@ -1,30 +1,28 @@
+use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
 
 use crate::peer::PeerAddress;
 use crate::torrent::torrent_file::{BencodedValue, Sha1Hash};
 
-pub fn parse_tracker_response_(torrent_file: &[u8]) -> BencodedValue {
+pub fn parse_tracker_response_(torrent_file: &[u8]) -> Result<BencodedValue> {
     create_dict(torrent_file, &mut 0)
 }
 
-pub fn parse_torrent_file_(torrent_file: &[u8]) -> BencodedValue {
-    let dict = create_dict(torrent_file, &mut 0);
+pub fn parse_torrent_file_(torrent_file: &[u8]) -> Result<BencodedValue> {
+    let dict = create_dict(torrent_file, &mut 0)?;
     if !dict.torrent_file_is_valid() {
-        panic!("[Error] Invalid dictionary: doesn't have all the required keys");
+        return Err(anyhow!("[Error] Invalid dictionary: doesn't have all the required keys"));
     }
 
-    dict
+    Ok(dict)
 }
 
-pub fn parse_to_torrent_file_(torrent_file: &BencodedValue) -> Vec<u8> {
+pub fn parse_to_torrent_file_(torrent_file: &BencodedValue) -> Result<Vec<u8>> {
     to_bencoded_dict(torrent_file)
 }
 
-pub fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
-    let dict = match bencoded_dict {
-        BencodedValue::Dict(dict) => dict,
-        _ => panic!("[Error] Trying to bencode a non dictionary")
-    };
+pub fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Result<Vec<u8>> {
+    let dict = bencoded_dict.try_into_dict()?;
     
     let mut bencoded_string = Vec::new();
     bencoded_string.push(b'd');
@@ -52,12 +50,12 @@ pub fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
 
         match value {
             BencodedValue::Dict(_dict) => {
-                let mut bencoded_d = to_bencoded_dict(&value);
+                let mut bencoded_d = to_bencoded_dict(&value)?;
 
                 bencoded_string.append(&mut bencoded_d);
             }
             BencodedValue::List(_list) => {
-                let mut bencoded_l = to_bencoded_list(&value);
+                let mut bencoded_l = to_bencoded_list(&value)?;
 
                 bencoded_string.append(&mut bencoded_l);
             }
@@ -111,33 +109,31 @@ pub fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Vec<u8> {
                     bencoded_string.append(&mut sha1hash);
                 }
             }
-            _ => panic!("Invalid BencodedValue type")
+            _ => {
+                return Err(anyhow!("Invalid BencodedValue type"));
+            }
         }
     }
 
     bencoded_string.push(b'e');
-    bencoded_string
+    Ok(bencoded_string)
 }
 
-pub fn to_bencoded_list(bencoded_list: &BencodedValue) -> Vec<u8> {
+pub fn to_bencoded_list(bencoded_list: &BencodedValue) -> Result<Vec<u8>> {
+    let list = bencoded_list.try_into_list()?;
+    
     let mut bencoded_string = Vec::new();
-
-    let list = match bencoded_list {
-        BencodedValue::List(list) => list,
-        _ => panic!("[Error] Trying to bencode a non list")
-    };
-
     bencoded_string.push(b'l');
 
     for value in list {
         match value {
             BencodedValue::Dict(_dict) => {
-                let mut bencoded_d = to_bencoded_dict(&value);
+                let mut bencoded_d = to_bencoded_dict(&value)?;
 
                 bencoded_string.append(&mut bencoded_d);
             }
             BencodedValue::List(_list) => {
-                let mut bencoded_l = to_bencoded_list(&value);
+                let mut bencoded_l = to_bencoded_list(&value)?;
 
                 bencoded_string.append(&mut bencoded_l);
             }
@@ -192,24 +188,26 @@ pub fn to_bencoded_list(bencoded_list: &BencodedValue) -> Vec<u8> {
                     bencoded_string.append(&mut sha1hash);
                 }
             }
-            _ => panic!("Invalid BencodedValue type")
+            _ => {
+                return Err(anyhow!("Invalid BencodedValue type"));
+            }
         }
     }
 
     bencoded_string.push(b'e');
 
-    bencoded_string
+    Ok(bencoded_string)
 }
 
-pub fn parse_bencoded_integer(input: &[u8]) -> i64 {
+pub fn parse_bencoded_integer(input: &[u8]) -> Result<i64> {
     let mut index = 0;
 
     if input.is_empty() {
-        panic!("Invalid bencoded integer: empty input");
+        return Err(anyhow!("Invalid bencoded integer: empty input"));
     }
     
     if input[index] != b'i' {
-        panic!("Invalid bencoded integer: missing 'i' prefix");
+        return Err(anyhow!("Invalid bencoded integer: missing 'i' prefix"));
     }
     index += 1;
     
@@ -224,27 +222,29 @@ pub fn parse_bencoded_integer(input: &[u8]) -> i64 {
     }
 
     if  number.starts_with('0') && number.len() > 1 {
-        panic!("Invalid bencoded integer: leading zeros");
+        return Err(anyhow!("Invalid bencoded integer: leading zeros"));
     }
 
     if number.starts_with("-0") {
-        panic!("Invalid bencoded integer: negative zero");
+        return Err(anyhow!("Invalid bencoded integer: negative zero"));
     }
 
     if input[index] != b'e' {
-        panic!("Invalid bencoded integer: missing 'e' suffix")
+        return Err(anyhow!("Invalid bencoded integer: missing 'e' suffix"));
     }
 
     if number.is_empty() {
-        panic!("Invalid bencoded integer: parsing an empty number");
+        return Err(anyhow!("Invalid bencoded integer: parsing an empty number"));
     }
     
-    number.parse::<i64>().unwrap()
+    let number = number.parse::<i64>()?;
+
+    Ok(number)
 }
 
-pub fn parse_integer(input: &[u8]) -> i64 {
+pub fn parse_integer(input: &[u8]) -> Result<i64> {
     if input.is_empty() {
-        panic!("Invalid integer: empty input");
+        return Err(anyhow!("Invalid integer: empty input"));
     }
 
     let mut number = String::new();
@@ -260,25 +260,27 @@ pub fn parse_integer(input: &[u8]) -> i64 {
     }
 
     if number.is_empty() {
-        panic!("Invalid integer: parsing an non-number");
+        return Err(anyhow!("Invalid integer: parsing an empty number"));
     }
 
     if number.starts_with('0') && number.len() > 1 {
-        panic!("Invalid integer: leading zeros");
+        return Err(anyhow!("Invalid integer: leading zeros"));
     }
 
     if number.starts_with("-0") {
-        panic!("Invalid integer: negative zero");
+        return Err(anyhow!("Invalid integer: negative zero"));
     }
 
-    number.parse::<i64>().unwrap()
+    let number = number.parse::<i64>()?;
+
+    Ok(number)
 }
 
-pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
+pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> Result<BencodedValue> {
     let torrent_file_len = torrent_file.len();   
 
     if torrent_file[*cur_index] != b'd' {
-        panic!("Invalid torrent file: missing 'd' prefix")
+        return Err(anyhow!("Invalid torrent file: missing 'd' prefix"));
     }
     *cur_index += 1;
 
@@ -286,38 +288,37 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue 
     let mut key = String::new();
     loop {
         if torrent_file_len <= *cur_index {
-            panic!("Invalid torrent file: too short")
+            return Err(anyhow!("Invalid torrent file: too short"));
         }
 
         match torrent_file[*cur_index] {
             b'e' => break,
             b'd' => {
-                dict.insert(key.clone(), create_dict(torrent_file, cur_index));
+                dict.insert(key.clone(), create_dict(torrent_file, cur_index)?);
                 key.clear();
             },
             b'l' => {
-                dict.insert(key.clone(), create_list(torrent_file, cur_index));
+                dict.insert(key.clone(), create_list(torrent_file, cur_index)?);
                 key.clear();
             },
             b'i' => {
-                dict.insert(key.clone(), create_int(torrent_file, cur_index));
+                dict.insert(key.clone(), create_int(torrent_file, cur_index)?);
                 key.clear();
             },
             // this should be either a key or a value
             _ => {
-                let word_len = parse_integer(&torrent_file[*cur_index..]) as usize;
+                let word_len = parse_integer(&torrent_file[*cur_index..])? as usize;
                 let word_len_chars_len = (word_len.checked_ilog10().unwrap_or(0) + 1) as usize;
 
                 *cur_index += word_len_chars_len + 1; // + 1 for the ':' byte
         
                 if key.is_empty() {
-                    key = String::from_utf8(torrent_file[*cur_index..*cur_index + word_len].to_vec())
-                        .expect("Couldn't parse a key value from a UTF-8 encoded byte array while parsing a dictionary");
+                    key = String::from_utf8(torrent_file[*cur_index..*cur_index + word_len].to_vec())?;
                 }
                 else {
                     if key == "pieces" {
                         if word_len % 20 != 0 {
-                            panic!("[Error] Invalid number of bytes in pieces");
+                            return Err(anyhow!("[Error] Invalid number of bytes in pieces"));
                         }
 
                         let sha1_hashes = torrent_file[*cur_index..*cur_index + word_len]
@@ -335,7 +336,7 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue 
                     }
                     else if key == "peers" {
                         if word_len % 6 != 0 {
-                            panic!("[Error] Invalid number of bytes in peers");
+                            return Err(anyhow!("[Error] Invalid number of bytes in peers"));
                         }
 
                         let peer_addresses = torrent_file[*cur_index..*cur_index + word_len]
@@ -353,7 +354,6 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue 
                     }
                     else {
                         let byte_string = torrent_file[*cur_index..*cur_index + word_len].to_vec();
-
                         dict.insert(key.clone(), BencodedValue::ByteString(byte_string));
                     }
 
@@ -366,35 +366,35 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue 
     }
 
     if torrent_file[*cur_index] != b'e' {
-        panic!("Invalid torrent file: missing 'e' suffix")
+        return Err(anyhow!("Invalid torrent file: missing 'e' suffix"));
     }
     *cur_index += 1;
 
-    BencodedValue::Dict(dict)
+    Ok(BencodedValue::Dict(dict))
 }
 
-pub fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
+pub fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> Result<BencodedValue> {
     let torrent_file_len = torrent_file.len();
 
     if torrent_file[*cur_index] != b'l' {
-        panic!("Invalid torrent file: missing 'l' prefix")
+        return Err(anyhow!("Invalid torrent file: missing 'l' prefix"));
     }
     *cur_index += 1;
 
     let mut list = Vec::new();
     loop {
         if torrent_file_len <= *cur_index {
-            panic!("Invalid torrent file: too short")
+            return Err(anyhow!("Invalid torrent file: too short"));
         }
 
         match torrent_file[*cur_index] {
             b'e' => break,
-            b'd' => list.push(create_dict(torrent_file, cur_index)),
-            b'l' => list.push(create_list(torrent_file, cur_index)),
-            b'i' => list.push(create_int(torrent_file, cur_index)),
+            b'd' => list.push(create_dict(torrent_file, cur_index)?),
+            b'l' => list.push(create_list(torrent_file, cur_index)?),
+            b'i' => list.push(create_int(torrent_file, cur_index)?),
             // this shoud be a word
             _ => {
-                let word_len = parse_integer(&torrent_file[*cur_index..]) as usize;
+                let word_len = parse_integer(&torrent_file[*cur_index..])? as usize;
                 let word_len_chars_len = (word_len.checked_ilog10().unwrap_or(0) + 1) as usize;
 
                 *cur_index += word_len_chars_len + 1; // + 1 for the ':' byte
@@ -409,18 +409,18 @@ pub fn create_list(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue 
     }
 
     if torrent_file[*cur_index] != b'e' {
-        panic!("Invalid torrent file: missing 'e' suffix")
+        return Err(anyhow!("Invalid torrent file: missing 'e' suffix"));
     }
     *cur_index += 1;
 
-    BencodedValue::List(list)
+    Ok(BencodedValue::List(list))
 }
 
-pub fn create_int(torrent_file: &[u8], cur_index: &mut usize) -> BencodedValue {
-    let num = parse_bencoded_integer(&torrent_file[*cur_index..]);
+pub fn create_int(torrent_file: &[u8], cur_index: &mut usize) -> Result<BencodedValue> {
+    let num = parse_bencoded_integer(&torrent_file[*cur_index..])?;
     
     let len_of_the_num: usize = (num.checked_ilog10().unwrap_or(0) + 1) as usize;
     *cur_index += len_of_the_num + 2; // + 2 for the 'i' and 'e' bytes
 
-    BencodedValue::Integer(num)
+    Ok(BencodedValue::Integer(num))
 }

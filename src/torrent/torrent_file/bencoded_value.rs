@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use anyhow::{anyhow, Result};
 
 use std::collections::BTreeMap;
 
@@ -29,24 +30,38 @@ pub enum BencodedValue {
 }
 
 impl BencodedValue {
-    pub fn try_into_dict(&self) -> Option<&BTreeMap<String, BencodedValue>> {
+    pub fn try_into_dict(&self) -> Result<&BTreeMap<String, BencodedValue>> {
         match self {
-            BencodedValue::Dict(d) => Some(d),
-            _ => None
+            BencodedValue::Dict(d) => Ok(d),
+            _ => Err(anyhow!("Trying to convert a non-bencoded dictionary"))
         }
     }
 
-    pub fn try_into_integer(&self) -> Option<&i64> {
+    pub fn try_into_integer(&self) -> Result<i64> {
         match self {
-            BencodedValue::Integer(i) => Some(i),
-            _ => None
+            BencodedValue::Integer(i) => Ok(*i),
+            _ => Err(anyhow!("Trying to convert a non-bencoded integer"))
         }
     }
 
-    pub fn try_into_list(&self) -> Option<&Vec<BencodedValue>> {
+    pub fn try_into_list(&self) -> Result<&Vec<BencodedValue>> {
         match self {
-            BencodedValue::List(l) => Some(l),
-            _ => None
+            BencodedValue::List(l) => Ok(l),
+            _ => Err(anyhow!("Trying to convert a non-bencoded list"))
+        }
+    }
+
+    pub fn try_into_byte_string(&self) -> Result<&Vec<u8>> {
+        match self {
+            BencodedValue::ByteString(b) => Ok(b),
+            _ => Err(anyhow!("Trying to convert a non-bencoded byte string"))
+        }
+    }
+
+    pub fn try_into_byte_sha1_hashes(&self) -> Result<&Vec<Sha1Hash>> {
+        match self {
+            BencodedValue::ByteSha1Hashes(b) => Ok(b),
+            _ => Err(anyhow!("Trying to convert a non-bencoded byte string"))
         }
     }
 
@@ -62,34 +77,28 @@ impl BencodedValue {
         }
     }
 
-    pub fn get_from_dict(&self, key: &str) -> Option<BencodedValue> {
-        let dict = match self.try_into_dict() {
-            Some(dict) => dict,
-            None => panic!("Trying to get a value from a non-bencoded dictionary")
-        };
+    pub fn get_from_dict(&self, key: &str) -> Result<BencodedValue> {
+        let dict = self.try_into_dict()?;
 
         match dict.get(key) {
-            Some(value) => Some(value.clone()),
-            None => None
+            Some(value) => Ok(value.clone()),
+            None => Err(anyhow!("Key not found in dictionary"))
         }
     }
 
-    pub fn get_from_list(&self, index: usize) -> Option<BencodedValue> {
-        let list = match self.try_into_list() {
-            Some(list) => list,
-            None => panic!("Trying to get a value from a non-bencoded list")
-        };
+    pub fn get_from_list(&self, index: usize) -> Result<BencodedValue> {
+        let list = self.try_into_list()?;
 
         match list.get(index) {
-            Some(value) => Some(value.clone()),
-            None => None
+            Some(value) => Ok(value.clone()),
+            None => Err(anyhow!("Index out of bounds in list"))
         }
     }
 
     pub fn torrent_file_is_valid(&self) -> bool {
         let dict = match self.try_into_dict() {
-            Some(dict) => dict,
-            None => panic!("Trying to validate a non-bencoded dictionary")
+            Ok(dict) => dict,
+            Err(_) => return false
         };
 
         if ["announce", "info"].iter().any(|key| !dict.contains_key(*key)) {
@@ -100,10 +109,14 @@ impl BencodedValue {
             Some(info) => {
                 match info {
                     BencodedValue::Dict(info) => info,
-                    _ => panic!("Trying to validate a non-bencoded dictionary named \"info\"")
+                    _ => {
+                        return false;
+                    }
                 }
             }
-            None => panic!("Trying to validate a non-bencoded dictionary named \"info\"")
+            None => {
+                return false
+            }
         };
 
         if ["name", "piece length", "pieces"].iter().any(|key| !info.contains_key(*key)) {
@@ -120,10 +133,14 @@ impl BencodedValue {
                 Some(files) => {
                     match files {
                         BencodedValue::List(files) => files,
-                        _ => panic!("Trying to validate a non-bencoded list named \"files\"")
+                        _ => {
+                            return false;
+                        }
                     }
                 }
-                None => panic!("Trying to validate a non-bencoded list named \"files\"")
+                None => {
+                    return false;
+                }
             };
 
             return files
@@ -131,7 +148,7 @@ impl BencodedValue {
             .all(|file| {
                 match file {
                     BencodedValue::Dict(d) => ["length", "path"].iter().all(|key| d.contains_key(*key)),
-                    _ => panic!("Trying to validate a non-bencoded dictionary in \"files\"")
+                    _ => false
                 }
             });
         }

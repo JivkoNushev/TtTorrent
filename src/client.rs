@@ -1,150 +1,192 @@
-use lazy_static::lazy_static;
-use tokio::sync::Mutex;
-use tokio::sync::mpsc::{self, Sender, Receiver};
+use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, oneshot};
+use anyhow::{Result, Context};
+use tokio::time::interval;
 
-pub mod downloader;
-use downloader::Downloader;
+use crate::peer::ConnectionType;
+use crate::torrent::{TorrentHandle, TorrentState};
+use crate::messager::ClientMessage;
+use crate::utils::CommunicationPipe;
 
-pub mod seeder;
-use seeder::Seeder;
+pub struct ClientHandle {
+    tx: mpsc::Sender<ClientMessage>,
+    join_handle: JoinHandle<()>,
 
-pub mod messager;
-pub use messager::{ InterProcessMessage, MessageType };
-
-lazy_static! {
-    pub static ref CLIENT_PEER_ID: Mutex<[u8;20]> = Mutex::new(Client::create_client_peer_id());
+    id: [u8; 20],
 }
 
-pub struct Client {
-    downloader: Downloader,
-    downloader_tx: mpsc::Sender<InterProcessMessage>,
-    seeder: Seeder,
-    _seeder_tx: mpsc::Sender<InterProcessMessage>,
+impl ClientHandle {
+    pub fn new(tx: mpsc::Sender<ClientMessage>) -> Self {
+        // TODO: generate a random id
+        let id = "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap();
 
-    rx: mpsc::Receiver<InterProcessMessage>,
-}
-
-// CLIENT_PEER_ID methods
-impl Client {
-    fn create_client_peer_id() -> [u8; 20] {
-        "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap()
-    }
-
-    pub async fn get_client_id() -> [u8;20] {
-        let client_peer_id = CLIENT_PEER_ID.lock().await;
-        client_peer_id.clone()
-    }
-}
-
-// Client methods
-impl Client {
-    pub fn new(tx: Sender<InterProcessMessage>, rx: Receiver<InterProcessMessage>) -> Client {
-        // creating the channels for comunication between processes
-        let (downloader_tx, downloader_rx) = mpsc::channel::<InterProcessMessage>(100);
-        let (_seeder_tx, _seeder_rx) = mpsc::channel::<InterProcessMessage>(100);
+        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
         
-        Client { 
-            downloader: Downloader::new(tx, downloader_rx),
-            downloader_tx,
-            seeder: Seeder {},
-            _seeder_tx,
+        let pipe = CommunicationPipe{tx, rx: receiver};
+        let client = Client::new(id, pipe);
 
-            rx,
+        let join_handle = tokio::spawn(async move {
+            if let Err(e) = client.run().await {
+                eprintln!("Client error: {:?}", e);
+            }
+        });
+
+        Self {
+            tx: sender,
+            join_handle,
+            id,
         }
     }
 
-    fn print_downloaded_percentage(msg: &InterProcessMessage) {
-        let downloaded_pieces_count = u32::from_be_bytes(msg.payload[0..4].try_into().unwrap());
-        let total_pieces_count = u32::from_be_bytes(msg.payload[4..8].try_into().unwrap());
-
-        let percentage = (downloaded_pieces_count as f32 / total_pieces_count as f32) * 100.0;
-        let percentage = (percentage * 100.0).round() / 100.0;
-
-        println!("{}: {}%", msg.torrent_name, percentage);
+    pub async fn join(self) -> Result<()> {
+        self.join_handle.await?;
+        Ok(())
     }
 
-    pub fn setup_graceful_shutdown(client_tx: Sender<InterProcessMessage>) {
-        use tokio::signal::unix::SignalKind;
+    pub async fn client_download_torrent(&mut self, src: String, dst: String) -> Result<()> {
+        self.tx
+        .send(ClientMessage::Download{src, dst})
+        .await
+        .context("couldn't send a download message to the client")?;
 
-        // Set up a Ctrl+C signal handler (SIGINT)
-        let ctrl_c = tokio::signal::ctrl_c();
+        Ok(())
+    }
 
-        // Set up a termination signal handler (SIGTERM)
-        let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate()).unwrap();
-        let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt()).unwrap();
-        let mut sigquit = tokio::signal::unix::signal(SignalKind::quit()).unwrap();
+    pub async fn client_shutdown(&mut self) -> Result<()> {
+        self.tx
+        .send(ClientMessage::Shutdown)
+        .await
+        .context("couldn't send a shutdown message to the client")?;
 
-        // Spawn an async task to handle the signals
-        tokio::spawn(async move {
+        Ok(())
+    }
+
+    pub async fn client_list_torrents(&mut self) -> Result<()> {
+        self.tx
+        .send(ClientMessage::SendTorrentsInfo)
+        .await
+        .context("couldn't send a send torrent info message to the client")?;
+
+        Ok(())
+    }
+
+    pub async fn client_terminal_closed(&mut self) -> Result<()> {
+        self.tx
+        .send(ClientMessage::TerminalClientClosed)
+        .await
+        .context("couldn't send a terminal client closed message to the client")?;
+
+        Ok(())
+    }
+}
+    
+struct Client {
+    pipe: CommunicationPipe,
+    torrent_handles: Vec<TorrentHandle>,
+
+    client_id: [u8; 20],
+}
+
+impl Client {
+    pub fn new(client_id: [u8; 20], pipe: CommunicationPipe) -> Self {
+        Self {
+            pipe,
+            torrent_handles: Vec::new(),
+
+            client_id,
+        }
+    }
+
+    async fn load_state(&mut self) -> Result<()> {
+        let client_state = match tokio::fs::read_to_string(crate::STATE_FILE_PATH).await {
+            Ok(state) => state,
+            Err(_) => {
+               // println!("No available client state");
+                return Ok(());
+            }
+        };
+        let client_state = serde_json::from_str::<serde_json::Value>(&client_state)?;
+       // println!("Loading client state");
+
+        for (_, val) in client_state.as_object().unwrap() { // client_state is always a valid json object
+            let torrent_state = serde_json::from_value::<TorrentState>(val.clone())?;
+
+            let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_state, ConnectionType::Outgoing).await?;
+            self.torrent_handles.push(torrent_handle);
+        }
+
+        Ok(())
+    }
+
+    pub async fn run(mut self) -> Result<()> {
+        let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(crate::INTERVAL_SECS));
+        let mut sending_to_terminal_client = false;
+
+        // load the client state
+        self.load_state().await?;
+
+        loop {
             tokio::select! {
-                _ = ctrl_c => {
-                    // Handle Ctrl+C (SIGINT)
-                    // println!("Ctrl+C received. Cleaning up...");
-                },
-                _ = sigterm.recv() => {
-                    // Handle SIGTERM
-                    // println!("SIGTERM received. Cleaning up...");
-                },
-                _ = sigint.recv() => {
-                    // Handle SIGINT
-                    // println!("SIGINT received. Cleaning up...");
-                },
-                _ = sigquit.recv() => {
-                    // Handle SIGQUIT
-                    // println!("SIGQUIT received. Cleaning up...");
+                Some(msg) = self.pipe.rx.recv() => {
+                    match msg {
+                        ClientMessage::Download{src, dst} => {
+                            let torrent_handle = TorrentHandle::new(self.client_id, &src, &dst).await?;
+                            self.torrent_handles.push(torrent_handle);
+                        },
+                        ClientMessage::Shutdown => {
+                            for torrent_handle in &mut self.torrent_handles {
+                                let _ = torrent_handle.shutdown().await;
+                            }
+                            break;
+                        },
+                        ClientMessage::SendTorrentsInfo => {
+                            sending_to_terminal_client = true;
+                            println!("Sending torrents true");
+                        },
+                        ClientMessage::TerminalClientClosed => {
+                            sending_to_terminal_client = false;
+                        },
+                        _ => {}
+                    }
+                }
+                _ = sending_interval.tick() => {
+                    if !sending_to_terminal_client {
+                        continue;
+                    }
+
+                    let mut torrent_states = Vec::new();
+                    let mut torrent_rxs = Vec::new();
+
+                    for torrent_handle in &mut self.torrent_handles {
+                        let (tx, rx) = oneshot::channel();
+                        torrent_handle.send_torrent_info(tx).await?;
+
+                        torrent_rxs.push(rx);
+                    }
+
+                    for rx in torrent_rxs {
+                        let torrent_state = rx.await?;
+                        torrent_states.push(torrent_state);
+                    }
+
+                    if !torrent_states.is_empty() {
+                        self.pipe.tx.send(ClientMessage::TorrentsInfo{torrents: torrent_states}).await?;
+                    }
+                }
+                else => {
+                    break;
                 }
             }
+        }
 
-            // Perform cleanup or graceful shutdown logic here
-            let _ = client_tx.send(
-                InterProcessMessage::new(
-                    MessageType::SaveState, 
-                    String::new(), 
-                    Vec::new())
-                ).await;
-        });
-    }
+        for torrent_handle in self.torrent_handles {
+            if let Err(e) = torrent_handle.join().await {
+                eprintln!("Failed to join torrent handle: {:?}", e);
+            }
+        }
 
-    pub async fn run(mut self) {
-        let _ = tokio::join!(
-            self.downloader.run(),
-            self.seeder.run(),
-            tokio::spawn(async move {
-                let mut downloader_finished = false;
-                let mut seeder_finished = true;
+        println!("Client stopping");
 
-                while let Some(msg) = self.rx.recv().await {
-                    match msg.message_type {
-                        MessageType::DownloadTorrent => {
-                            if let Err(e) = self.downloader_tx.send(msg.clone()).await {
-                                println!("Error sending message to downloader: {}", e);
-                            }
-                        },
-                        MessageType::DownloadedPiecesCount => {
-                            Client::print_downloaded_percentage(&msg);
-                        },
-                        MessageType::SaveState => {
-                            self.downloader_tx.send(msg.clone()).await.unwrap();
-                            // self.seeder_tx.send(msg.clone()).await.unwrap();
-                        },
-                        MessageType::DownloaderFinished => {
-
-                            downloader_finished = true;
-                        },
-                        // MessageType::SeederFinished => {
-                        //     seeder_finished = true;
-                        // },
-                        _ => {
-                            println!("Unknown message type: {:?}", msg.message_type);
-                        }
-                    }
-
-                    if downloader_finished && seeder_finished {
-                        println!("Finished downloading and seeding. Exiting...");
-                        std::process::exit(0);
-                    }
-                }
-            }),
-        );
+        Ok(())
     }
 }

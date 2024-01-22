@@ -1,6 +1,9 @@
 use serde::{Serialize, Deserialize};
+use anyhow::{anyhow, Result};
 
 use std::fmt::Display;
+
+use crate::torrent::{TorrentParser, BencodedValue};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerAddress {
@@ -26,4 +29,25 @@ impl PeerAddress {
 
         PeerAddress { address, port }
     }
+
+    pub async fn from_tracker_response(resp: reqwest::Response) -> Result<Vec<PeerAddress>> {
+        let bencoded_response = resp.bytes().await?;
+        let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response)?;
+        let bencoded_dict = bencoded_response.try_into_dict()?;
+
+        match bencoded_dict.get("peers") {
+            Some(BencodedValue::ByteAddresses(byte_addresses)) => Ok(byte_addresses.to_vec()),
+            Some(BencodedValue::Dict(_peer_dict)) => todo!(),
+            _ => {
+                if let Some(failure) = bencoded_dict.get("failure reason") {
+                    // TODO: better capture error no peers found
+                    Err(anyhow!("Failure reason: {}", String::from_utf8(failure.try_into_byte_string()?.to_vec())?))
+                }
+                else {
+                    Err(anyhow!("Invalid peers key in tracker response"))
+                }
+            }
+        }
+    }
+
 }

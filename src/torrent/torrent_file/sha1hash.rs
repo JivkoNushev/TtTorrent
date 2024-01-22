@@ -14,23 +14,19 @@ impl UrlEncodable for Sha1Hash {
 }
 
 impl Sha1Hash {
-    pub fn new(hash: &[u8]) -> Sha1Hash {
-        if hash.len() != 20 {
-            panic!("Hash must be 20 bytes long");
-        }
-
-        Sha1Hash(hash.try_into().unwrap())
+    pub fn new(hash: &[u8; 20]) -> Sha1Hash {
+        Sha1Hash(*hash)
     }
 
     pub fn as_bytes(&self) -> &[u8; 20] {
         &self.0
     }
 
-    pub fn as_hex(&self) -> String {
+    pub fn to_hex(&self) -> String {
         hex::encode(&self.0)
     }
 
-    pub fn as_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         String::from_utf8_lossy(self.0.as_slice()).to_string()
     }
 }
