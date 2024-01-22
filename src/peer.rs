@@ -236,7 +236,7 @@ impl Peer {
             }
         };
 
-        if needed_blocks_guard.len() > crate::BLOCK_REQUEST_COUNT {
+        // if needed_blocks_guard.len() > crate::BLOCK_REQUEST_COUNT {
             needed_blocks_guard.retain(|&i| i != piece_blocks[random_block_index]);
 
             let blocks = (random_piece * blocks_in_piece..random_piece * blocks_in_piece + blocks_in_current_piece).collect::<Vec<usize>>();
@@ -244,7 +244,7 @@ impl Peer {
             if retain_piece {
                 needed_pieces_guard.retain(|&i| i != *random_piece);
             }
-        }
+        // }
 
         Some(piece_blocks[random_block_index])
     }
@@ -317,32 +317,32 @@ impl Peer {
 
     async fn request(&mut self, peer_session: &mut PeerSession, downloading_blocks: &mut Vec<PieceBlock>, last_request_elapsed: &mut bool) -> Result<()> {
         // if piece is not initialized or if the piece is fully downloaded
-        if crate::BLOCK_REQUEST_COUNT >= self.torrent_context.needed_blocks.lock().await.len() {
-            if !*last_request_elapsed {
-                for block in self.torrent_context.needed_blocks.lock().await.iter() {
-                    let blocks_in_piece = self.torrent_context.piece_length.div_ceil(crate::BLOCK_SIZE);
-                    let piece_index = block / blocks_in_piece;
+        // if crate::BLOCK_REQUEST_COUNT >= self.torrent_context.needed_blocks.lock().await.len() {
+        //     if !*last_request_elapsed {
+        //         for block in self.torrent_context.needed_blocks.lock().await.iter() {
+        //             let blocks_in_piece = self.torrent_context.piece_length.div_ceil(crate::BLOCK_SIZE);
+        //             let piece_index = block / blocks_in_piece;
     
-                    let block_offset = (block % blocks_in_piece) * crate::BLOCK_SIZE;
+        //             let block_offset = (block % blocks_in_piece) * crate::BLOCK_SIZE;
     
-                    let block_size = Peer::get_block_size(&self.torrent_context, *block);
+        //             let block_size = Peer::get_block_size(&self.torrent_context, *block);
     
-                    downloading_blocks.push(PieceBlock {
-                        block_index: *block,
-                        piece_index,
-                        offset: block_offset,
-                        size: block_size,
-                        data: Vec::new(),
-                    });
-                    peer_session.send(PeerMessage::Request(piece_index as u32, block_offset as u32, block_size as u32)).await?;
-                    println!("Requesting block {} from peer: '{self}' with piece index {}, offset {} and size {}", block, piece_index, block_offset, block_size);
-                }
+        //             downloading_blocks.push(PieceBlock {
+        //                 block_index: *block,
+        //                 piece_index,
+        //                 offset: block_offset,
+        //                 size: block_size,
+        //                 data: Vec::new(),
+        //             });
+        //             peer_session.send(PeerMessage::Request(piece_index as u32, block_offset as u32, block_size as u32)).await?;
+        //             println!("Requesting block {} from peer: '{self}' with piece index {}, offset {} and size {}", block, piece_index, block_offset, block_size);
+        //         }
 
-                *last_request_elapsed = true;
-            }
+        //         *last_request_elapsed = true;
+        //     }
 
-            return Ok(());
-        }
+        //     return Ok(());
+        // }
 
         for _ in 0..crate::BLOCK_REQUEST_COUNT {
             match self.get_random_block_index().await {
@@ -522,10 +522,6 @@ impl Peer {
                             downloading_blocks.retain(|block| block != &piece_block);
                             
                             piece_block.data = block;
-
-                            if last_request_elapsed {
-                                self.torrent_context.needed_blocks.lock().await.retain(|&i| i != piece_block.block_index);
-                            }
 
                             // send it to the client and remove it from the downloading blocks
                             self.torrent_context.tx.send(ClientMessage::DownloadedBlock{ block: piece_block }).await?;

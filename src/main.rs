@@ -21,6 +21,7 @@ async fn main() -> Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(torrent_client::MAX_CHANNEL_SIZE);
     let mut client = ClientHandle::new(tx);
 
+    // client.client_download_torrent("test_folder/torrents/ospdf.torrent".to_string(), "test_folder/data".to_string()).await?;
     client.client_download_torrent("test_folder/torrents/torrent_image.torrent".to_string(), "test_folder/data".to_string()).await?;
 
     loop {

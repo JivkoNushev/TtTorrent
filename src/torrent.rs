@@ -444,7 +444,7 @@ impl Torrent {
             }
         }
 
-        let mut last_blocks = Vec::new();
+        // let mut last_blocks = Vec::new();
 
         loop {
             tokio::select! {
@@ -468,17 +468,17 @@ impl Torrent {
                             break;
                         },
                         ClientMessage::DownloadedBlock { block } => {
-                            let mut l = self.torrent_context.needed_blocks.lock().await;
-                            if l.contains(&block.block_index) {
-                                l.retain(|index| index != &block.block_index);
-                                for peer_handle in &mut self.peer_handles {
-                                    let _ = peer_handle.cancel_block(block.block_index as u32, block.offset as u32, block.size as u32).await;
-                                }
-                                last_blocks.push(block.block_index);
-                            }
-                            else if last_blocks.contains(&block.block_index) {
-                                continue;
-                            }
+                            // let mut l = self.torrent_context.needed_blocks.lock().await;
+                            // if l.contains(&block.block_index) {
+                            //     l.retain(|index| index != &block.block_index);
+                            //     for peer_handle in &mut self.peer_handles {
+                            //         let _ = peer_handle.cancel_block(block.block_index as u32, block.offset as u32, block.size as u32).await;
+                            //     }
+                            //     last_blocks.push(block.block_index);
+                            // }
+                            // else if last_blocks.contains(&block.block_index) {
+                            //     continue;
+                            // }
                             self.torrent_context.downloaded += block.size as u64;
                             self.disk_writer_handle.downloaded_block(block).await.context("sending to disk handle")?;
                         },

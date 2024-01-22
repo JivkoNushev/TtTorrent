@@ -100,7 +100,7 @@ fn calculate_percentage(pieces_count: usize, pieces_left: usize) -> f64 {
     let pieces_left = pieces_left as f64;
 
     let percentage = (pieces_count - pieces_left) / pieces_count * 100.0;
-    percentage
+    (percentage * 100.0).round() / 100.0
 }
 
 fn print_torrent_infos(torrents: Vec<TorrentState>) {
@@ -117,7 +117,7 @@ fn print_torrent_infos(torrents: Vec<TorrentState>) {
     println!("{}", "-".repeat(89));
 
     for torrent in torrents {
-        let downloaded_percentage = calculate_percentage(torrent.pieces_count, torrent.needed_blocks.len());
+        let downloaded_percentage = calculate_percentage(torrent.blocks_count, torrent.needed_blocks.len());
         let peers = torrent.peers.len();
 
         println!(
