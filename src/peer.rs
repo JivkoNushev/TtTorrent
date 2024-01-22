@@ -353,12 +353,10 @@ impl Peer {
     }
 
     async fn get_peer_session(&self, connection_type: ConnectionType) -> Result<PeerSession> {
-        let stream = match tokio::net::TcpStream::connect(format!("{}:{}", self.peer_context.ip.address, self.peer_context.ip.port)).await {
-            Ok(stream) => stream,
-            Err(e) => {
-                return Err(anyhow!("Failed to connect to peer '{self}': {e}"));
-            }
-        };
+        let stream = tokio::select! {
+            stream = tokio::net::TcpStream::connect(format!("{}:{}", self.peer_context.ip.address, self.peer_context.ip.port)) => stream,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => return Err(anyhow!("Failed to connect to peer '{self}'"))
+        }?;
 
         let peer_session = PeerSession::new(stream, connection_type).await;
 
@@ -414,7 +412,16 @@ impl Peer {
                                     let blocks_in_piece = self.torrent_context.piece_length.div_ceil(crate::BLOCK_SIZE);
                                     block.piece_index * blocks_in_piece + block_n
                                 };
-                                self.torrent_context.needed_blocks.lock().await.push(block_index);
+                                let mut needed_blocks_guard = self.torrent_context.needed_blocks.lock().await;
+                                if !needed_blocks_guard.contains(&block_index) {
+                                    needed_blocks_guard.push(block_index);
+                                }
+
+                                let mut needed_pieces_guard = self.torrent_context.needed_pieces.lock().await;
+                                if !needed_pieces_guard.contains(&block.piece_index) {
+                                    needed_pieces_guard.push(block.piece_index);
+                                }
+
                             }
 
                             break;
