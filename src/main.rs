@@ -58,7 +58,6 @@ async fn main() -> Result<()> {
                     TerminalClientMessage::ListTorrents{client_id} => {
                         println!("client id: {}", client_id);
                         if terminal_client_sockets.is_empty() {
-                            println!("sending list torrents message to client");
                             client.client_list_torrents().await?;
                         }
 
@@ -81,8 +80,6 @@ async fn main() -> Result<()> {
                 match client_message {
                     ClientMessage::TorrentsInfo{torrents} => {
                         let message = TerminalClientMessage::TorrentsInfo{torrents};
-                        println!("sending torrents info to terminal client");
-
                         for terminal_client in terminal_client_sockets.iter_mut() {
                             if let Err(e) = terminal_client.send_message(&message).await {
                                 terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != terminal_client.client_id);
