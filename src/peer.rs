@@ -1,4 +1,5 @@
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use anyhow::{anyhow, Result};
@@ -16,6 +17,12 @@ pub mod peer_message;
 pub use peer_message::{PeerMessage, PeerSession, ConnectionType};
 
 // TODO: change the block size based on the torrent file 
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NeededMutex {
+    pub needed_blocks: Vec<usize>,
+    pub needed_pieces: Vec<usize>,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PieceBlock {
@@ -44,15 +51,14 @@ pub struct PeerTorrentContext {
     pieces_count: usize,
     blocks_count: usize,
     info_hash: Sha1Hash,
-    needed_blocks: Arc<Mutex<Vec<usize>>>,
-    needed_pieces: Arc<Mutex<Vec<usize>>>,
+    needed: Arc<Mutex<NeededMutex>>,
     bitfield: Arc<Mutex<Vec<u8>>>,
 
     uploaded: Arc<Mutex<u64>>,
 }
 
 impl PeerTorrentContext {
-    pub fn new(tx: mpsc::Sender<ClientMessage>, piece_length: usize, torrent_length: u64, info_hash: Sha1Hash, needed_blocks: Arc<Mutex<Vec<usize>>>, needed_pieces: Arc<Mutex<Vec<usize>>>, bitfield: Arc<Mutex<Vec<u8>>>, pieces_count: usize, blocks_count: usize, uploaded: Arc<Mutex<u64>>) -> Self {
+    pub fn new(tx: mpsc::Sender<ClientMessage>, piece_length: usize, torrent_length: u64, info_hash: Sha1Hash, needed: Arc<Mutex<NeededMutex>>, bitfield: Arc<Mutex<Vec<u8>>>, pieces_count: usize, blocks_count: usize, uploaded: Arc<Mutex<u64>>) -> Self {
         Self {
             tx,
 
@@ -61,8 +67,7 @@ impl PeerTorrentContext {
             pieces_count,
             blocks_count,
             info_hash,
-            needed_blocks,
-            needed_pieces,
+            needed,
             bitfield,
 
             uploaded,
@@ -189,12 +194,11 @@ impl Peer {
     }
 
     async fn get_random_block_index(&mut self) -> Option<usize> {
-        let mut needed_pieces_guard = self.torrent_context.needed_pieces.lock().await;
-        let mut needed_blocks_guard = self.torrent_context.needed_blocks.lock().await; 
+        let mut needed_guard = self.torrent_context.needed.lock().await;
 
         let common_pieces = self.peer_context.having_pieces
             .iter()
-            .filter(|&i| needed_pieces_guard.contains(i))
+            .filter(|&i| needed_guard.needed_pieces.contains(i))
             .collect::<Vec<&usize>>();
 
         if common_pieces.is_empty() {
@@ -221,7 +225,7 @@ impl Peer {
             let mut blocks_iter = tokio_stream::iter(0..blocks_in_current_piece);
             while let Some(i) = blocks_iter.next().await {
                 let block = *random_piece * blocks_in_piece + i;
-                if needed_blocks_guard.contains(&block) {
+                if needed_guard.needed_blocks.contains(&block) {
                     piece_blocks.push(block);
                 }
             }
@@ -243,12 +247,12 @@ impl Peer {
         };
 
         // if needed_blocks_guard.len() > crate::BLOCK_REQUEST_COUNT {
-            needed_blocks_guard.retain(|&i| i != piece_blocks[random_block_index]);
+            needed_guard.needed_blocks.retain(|&i| i != piece_blocks[random_block_index]);
 
             let blocks = (random_piece * blocks_in_piece..random_piece * blocks_in_piece + blocks_in_current_piece).collect::<Vec<usize>>();
-            let retain_piece = blocks.iter().all(|&i| !needed_blocks_guard.contains(&i));
+            let retain_piece = blocks.iter().all(|&i| !needed_guard.needed_blocks.contains(&i));
             if retain_piece {
-                needed_pieces_guard.retain(|&i| i != *random_piece);
+                needed_guard.needed_pieces.retain(|&i| i != *random_piece);
             }
         // }
 
@@ -411,14 +415,15 @@ impl Peer {
                                     let blocks_in_piece = self.torrent_context.piece_length.div_ceil(crate::BLOCK_SIZE);
                                     block.piece_index * blocks_in_piece + block_n
                                 };
-                                let mut needed_blocks_guard = self.torrent_context.needed_blocks.lock().await;
-                                if !needed_blocks_guard.contains(&block_index) {
-                                    needed_blocks_guard.push(block_index);
+
+                                let mut needed_guard = self.torrent_context.needed.lock().await;
+
+                                if !needed_guard.needed_blocks.contains(&block_index) {
+                                    needed_guard.needed_blocks.push(block_index);
                                 }
 
-                                let mut needed_pieces_guard = self.torrent_context.needed_pieces.lock().await;
-                                if !needed_pieces_guard.contains(&block.piece_index) {
-                                    needed_pieces_guard.push(block.piece_index);
+                                if !needed_guard.needed_pieces.contains(&block.piece_index) {
+                                    needed_guard.needed_pieces.push(block.piece_index);
                                 }
 
                             }
@@ -537,7 +542,7 @@ impl Peer {
             }
 
             // send interested if there are pieces to download
-            if !self.peer_context.am_interested && !self.torrent_context.needed_blocks.lock().await.is_empty() {
+            if !self.peer_context.am_interested && !self.torrent_context.needed.lock().await.needed_blocks.is_empty() {
                 self.interested(&mut peer_session).await?;
             }
 
@@ -548,7 +553,7 @@ impl Peer {
                     continue;
                 }
 
-                if self.torrent_context.needed_blocks.lock().await.is_empty() {
+                if self.torrent_context.needed.lock().await.needed_blocks.is_empty() {
                     self.not_interested(&mut peer_session).await?;
                 }
                 else {

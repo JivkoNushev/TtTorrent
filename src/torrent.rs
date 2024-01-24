@@ -7,7 +7,7 @@ use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 
 use crate::messager::ClientMessage;
-use crate::peer::{PeerHandle, PeerAddress, PeerTorrentContext, peer_address, self};
+use crate::peer::{self, peer_address, NeededMutex, PeerAddress, PeerHandle, PeerTorrentContext};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
 use crate::disk_writer::{DiskWriterHandle, DiskWriterTorrentContext};
@@ -26,8 +26,7 @@ pub struct TorrentState {
     pub torrent_name: String,
     torrent_file: TorrentFile,
     info_hash: Sha1Hash,
-    pub needed_blocks: Vec<usize>,
-    pub needed_pieces: Vec<usize>,
+    pub needed: NeededMutex,
     bitfield: Vec<u8>,
     pub peers: Vec<PeerAddress>,
 
@@ -45,8 +44,7 @@ impl TorrentState {
             torrent_name: torrent_context.torrent_name,
             torrent_file: torrent_context.torrent_file,
             info_hash: torrent_context.info_hash,
-            needed_blocks: torrent_context.needed_blocks.lock().await.clone(),
-            needed_pieces: torrent_context.needed_pieces.lock().await.clone(),
+            needed: torrent_context.needed.lock().await.clone(),
             bitfield: torrent_context.bitfield.lock().await.clone(),
             peers: torrent_context.peers,
 
@@ -67,8 +65,7 @@ pub struct TorrentContext {
     torrent_name: String,
     pub torrent_file: TorrentFile,
     pub info_hash: Sha1Hash,
-    pub needed_blocks: Arc<Mutex<Vec<usize>>>,
-    pub needed_pieces: Arc<Mutex<Vec<usize>>>,
+    pub needed: Arc<Mutex<NeededMutex>>,
     bitfield: Arc<Mutex<Vec<u8>>>,
     peers: Vec<PeerAddress>,
 
@@ -88,8 +85,7 @@ impl TorrentContext {
             torrent_name: torrent_state.torrent_name,
             torrent_file: torrent_state.torrent_file,
             info_hash: torrent_state.info_hash,
-            needed_blocks: Arc::new(Mutex::new(torrent_state.needed_blocks)),
-            needed_pieces: Arc::new(Mutex::new(torrent_state.needed_pieces)),
+            needed: Arc::new(Mutex::new(torrent_state.needed)),
             bitfield: Arc::new(Mutex::new(torrent_state.bitfield)),
             peers: torrent_state.peers,
 
@@ -294,6 +290,11 @@ impl Torrent {
 
         let disk_writer_handle = DiskWriterHandle::new(torrent_context, blocks_left.len());
         
+        let needed = NeededMutex {
+            needed_blocks: blocks_left,
+            needed_pieces: pieces_left,
+        };
+
         let torrent_context = TorrentContext {
             connection_type: ConnectionType::Outgoing,
 
@@ -302,8 +303,7 @@ impl Torrent {
             torrent_name: torrent_name.to_string(),
             torrent_file,
             info_hash,
-            needed_blocks: Arc::new(Mutex::new(blocks_left)),
-            needed_pieces: Arc::new(Mutex::new(pieces_left)),
+            needed: Arc::new(Mutex::new(needed)),
             bitfield: Arc::new(Mutex::new(vec![0; pieces_count.div_ceil(8)])),
             peers: Vec::new(),
 
@@ -334,7 +334,7 @@ impl Torrent {
             torrent_state.torrent_file.clone()
         );
 
-        let torrent_blocks_count = torrent_state.needed_blocks.len();
+        let torrent_blocks_count = torrent_state.needed.needed_blocks.len();
         
         let disk_writer_handle = DiskWriterHandle::new(torrent_context, torrent_blocks_count);
         
@@ -378,8 +378,7 @@ impl Torrent {
                 piece_length,
                 torrent_length,
                 self.torrent_context.info_hash.clone(),
-                Arc::clone(&self.torrent_context.needed_blocks),
-                Arc::clone(&self.torrent_context.needed_pieces),
+                Arc::clone(&self.torrent_context.needed),
                 Arc::clone(&self.torrent_context.bitfield),
 
                 self.torrent_context.pieces_count,
@@ -526,7 +525,7 @@ impl Torrent {
                 },
                 _ = tokio::time::sleep(std::time::Duration::from_secs(120)) => {
                     // connect to more peers with better tracker request
-                    if self.torrent_context.needed_blocks.lock().await.len() > 0 {
+                    if self.torrent_context.needed.lock().await.needed_blocks.len() > 0 {
                         if let Some(ref mut tracker) = tracker {
                             // connect to peers from tracker response
                             if let Err(e) = self.connect_to_peers(tracker).await {
