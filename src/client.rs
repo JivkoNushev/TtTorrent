@@ -127,17 +127,18 @@ impl Client {
 
         loop {
             tokio::select! {
+                biased;
                 Some(msg) = self.pipe.rx.recv() => {
                     match msg {
-                        ClientMessage::Download{src, dst} => {
-                            let torrent_handle = TorrentHandle::new(self.client_id, &src, &dst).await?;
-                            self.torrent_handles.push(torrent_handle);
-                        },
                         ClientMessage::Shutdown => {
                             for torrent_handle in &mut self.torrent_handles {
                                 let _ = torrent_handle.shutdown().await;
                             }
                             break;
+                        },
+                        ClientMessage::Download{src, dst} => {
+                            let torrent_handle = TorrentHandle::new(self.client_id, &src, &dst).await?;
+                            self.torrent_handles.push(torrent_handle);
                         },
                         ClientMessage::SendTorrentsInfo => {
                             sending_to_terminal_client = true;

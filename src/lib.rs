@@ -3,7 +3,7 @@ pub mod torrent;
 pub mod tracker;
 pub mod peer;
 pub mod messager;
-pub mod disk_writer;
+pub mod disk;
 pub mod utils;
 
 pub const DEBUG_MODE: bool = true;

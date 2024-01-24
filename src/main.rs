@@ -26,6 +26,10 @@ async fn main() -> Result<()> {
 
     loop {
         tokio::select! {
+            biased;
+            _ = tokio::signal::ctrl_c() => {
+                break;
+            },
             Ok(socket) = client_socket.accept() => {
                 println!("new terminal client connected");
                 let mut terminal_client = TerminalClient{socket, client_id: 0};
@@ -101,9 +105,6 @@ async fn main() -> Result<()> {
                     }
                 }
             },
-            _ = tokio::signal::ctrl_c() => {
-                break;
-            }
         }
     }
 

@@ -9,7 +9,7 @@ use crate::messager::ClientMessage;
 use crate::peer::{PeerAddress, PeerHandle, PeerTorrentContext, BlockPicker};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
-use crate::disk_writer::{DiskWriterHandle, DiskWriterTorrentContext};
+use crate::disk::{DiskHandle, DiskTorrentContext};
 use crate::utils::CommunicationPipe;
 
 pub mod torrent_file;
@@ -123,7 +123,7 @@ struct Torrent {
 
     rx: mpsc::Receiver<ClientMessage>,
     peer_handles: Vec<PeerHandle>,
-    disk_writer_handle: DiskWriterHandle,
+    disk_handle: DiskHandle,
     
     torrent_context: TorrentContext,
     client_id: [u8; 20],
@@ -159,8 +159,9 @@ impl Torrent {
 
 impl Torrent {
     pub async fn new(client_id: [u8; 20], self_pipe: CommunicationPipe, src: &str, dest: &str) -> Result<Self> {
-        let torrent_file = TorrentFile::new(&src).await.context("couldn't create TorrentFile")?;
-
+        let torrent_file = Arc::new(TorrentFile::new(&src).await.context("couldn't create TorrentFile")?);
+        let torrent_info = Arc::new(TorrentInfo::new(&torrent_file)?);
+        
         let torrent_name = std::path::Path::new(src)
             .file_stem()
             .unwrap()
@@ -207,16 +208,16 @@ impl Torrent {
             blocks_left
         };
 
-        let torrent_context = DiskWriterTorrentContext::new(
+        let torrent_context = DiskTorrentContext::new(
             self_pipe.tx.clone(),
             dest.to_string(),
             torrent_name.to_string(),
-            torrent_file.clone()
+            Arc::clone(&torrent_file),
+            Arc::clone(&torrent_info),
         );
 
-        let disk_writer_handle = DiskWriterHandle::new(torrent_context, blocks_left.len());
+        let disk_handle = DiskHandle::new(torrent_context, blocks_left.len());
         
-        let torrent_info = Arc::new(TorrentInfo::new(&torrent_file)?);
 
         let needed = BlockPicker::new(blocks_left, pieces_left, Arc::clone(&torrent_info));
 
@@ -226,7 +227,7 @@ impl Torrent {
             src_path: src.to_string(),
             dest_path: dest.to_string(),
             torrent_name: torrent_name.to_string(),
-            torrent_file,
+            torrent_file: torrent_file,
             info_hash,
             needed: Arc::new(Mutex::new(needed)),
             bitfield: Arc::new(Mutex::new(vec![0; pieces_count.div_ceil(8)])),
@@ -243,7 +244,7 @@ impl Torrent {
             
             rx: self_pipe.rx,
             peer_handles: Vec::new(),
-            disk_writer_handle,
+            disk_handle,
 
             torrent_context,
             client_id,
@@ -252,25 +253,24 @@ impl Torrent {
 
 
     pub fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentContextState, connection_type: ConnectionType) -> Result<Self> {
-        let torrent_context = DiskWriterTorrentContext::new(
+        let disk_torrent_context = DiskTorrentContext::new(
             self_pipe.tx.clone(),
             torrent_state.dest_path.clone(),
             torrent_state.torrent_name.clone(),
-            torrent_state.torrent_file.clone()
+            Arc::new(torrent_state.torrent_file.clone()),
+            Arc::new(torrent_state.torrent_info.clone()),
         );
-
         let torrent_blocks_count = torrent_state.needed.needed_blocks.len();
         
-        let disk_writer_handle = DiskWriterHandle::new(torrent_context, torrent_blocks_count);
+        let disk_handle = DiskHandle::new(disk_torrent_context, torrent_blocks_count);
         
         let torrent_context = TorrentContext::from_state(torrent_state, connection_type);
-
         Ok(Self {
             self_tx: self_pipe.tx,
 
             rx: self_pipe.rx,
             peer_handles: Vec::new(),
-            disk_writer_handle,
+            disk_handle,
 
             torrent_context,
             client_id,
@@ -371,6 +371,7 @@ impl Torrent {
 
         loop {
             tokio::select! {
+                biased;
                 Some(msg) = self.rx.recv() => {
                     match msg {
                         ClientMessage::Shutdown => {
@@ -379,8 +380,7 @@ impl Torrent {
                                 let _ = peer_handle.shutdown().await;
                             }
                             // send stop message to disk writer
-                            let _ = self.disk_writer_handle.shutdown().await;
-
+                            let _ = self.disk_handle.shutdown().await;
 
                             if let Some(ref mut tracker) = tracker {
                                 // TODO: is this to be called before the handles are joined?
@@ -390,7 +390,7 @@ impl Torrent {
                             }
                             break;
                         },
-                        ClientMessage::DownloadedBlock { block } => {
+                        ClientMessage::DownloadedBlock { piece_block } => {
                             // let mut l = self.torrent_context.needed_blocks.lock().await;
                             // if l.contains(&block.block_index) {
                             //     l.retain(|index| index != &block.block_index);
@@ -402,8 +402,8 @@ impl Torrent {
                             // else if last_blocks.contains(&block.block_index) {
                             //     continue;
                             // }
-                            self.torrent_context.downloaded += block.size as u64;
-                            self.disk_writer_handle.downloaded_block(block).await.context("sending to disk handle")?;
+                            self.torrent_context.downloaded += piece_block.size as u64;
+                            self.disk_handle.write_block(piece_block).await.context("sending to disk handle")?;
                         },
                         ClientMessage::Have { piece } => {
                             self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
@@ -411,6 +411,9 @@ impl Torrent {
                             for peer_handle in &mut self.peer_handles {
                                 let _ = peer_handle.have(piece as u32).await;
                             }                          
+                        },
+                        ClientMessage::Request { piece_block, tx } => {
+                            self.disk_handle.read_block(piece_block, tx).await.context("sending to disk handle")?;
                         },
                         ClientMessage::FinishedDownloading => {
                             Torrent::save_state(self.torrent_context.clone()).await.context("saving torrent state")?;
@@ -486,7 +489,7 @@ impl Torrent {
             }
         }
 
-        self.disk_writer_handle.join().await?;
+        self.disk_handle.join().await?;
 
         Torrent::save_state(self.torrent_context).await?;
 

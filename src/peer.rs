@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::messager::ClientMessage;
 use crate::torrent::{Sha1Hash, TorrentInfo};
+use crate::utils::CommunicationPipe;
 
 pub mod peer_address;
 pub use peer_address::PeerAddress;  
@@ -18,7 +19,7 @@ pub mod block_picker;
 pub use block_picker::{BlockPicker, BlockPickerState};
 
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PieceBlock {
     pub block_index: usize,
     pub piece_index: usize,
@@ -74,7 +75,12 @@ impl PeerHandle {
     pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, peer_address: PeerAddress, connection_type: ConnectionType) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
 
-        let peer = Peer::new(client_id, torrent_context, peer_address.clone(), receiver).await;
+        let self_pipe = CommunicationPipe {
+            tx: sender.clone(),
+            rx: receiver
+        };
+
+        let peer = Peer::new(client_id, torrent_context, peer_address.clone(), self_pipe).await;
         let join_handle: JoinHandle<Result<()>>= tokio::spawn(async move {
             peer.run(connection_type).await
         });
@@ -107,6 +113,8 @@ impl PeerHandle {
 }
 
 struct Peer {
+    self_tx: mpsc::Sender<ClientMessage>,
+
     rx: mpsc::Receiver<ClientMessage>,
     peer_context: PeerContext,
     torrent_context: PeerTorrentContext,
@@ -121,7 +129,7 @@ impl std::fmt::Display for Peer {
 }
 
 impl Peer {
-    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, addr: PeerAddress, rx: mpsc::Receiver<ClientMessage>, ) -> Self {
+    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, addr: PeerAddress, self_pipe: CommunicationPipe ) -> Self {
         let peer_context = PeerContext {
             id: [0; 20],
             ip: addr,
@@ -133,7 +141,8 @@ impl Peer {
         };
 
         Self {
-            rx,
+            self_tx: self_pipe.tx,
+            rx: self_pipe.rx,
             peer_context,
             torrent_context,
 
@@ -256,10 +265,37 @@ impl Peer {
         let mut last_request_elapsed = false; 
 
         let mut downloading_blocks: Vec<PieceBlock> = Vec::new();
+        let mut seeding_blocks: Vec<PieceBlock> = Vec::new();
         loop {
             tokio::select! {
+                biased;
                 Some(msg) = self.rx.recv() => {
                     match msg {
+                        ClientMessage::Shutdown => {
+                            // dropping last not fully downloaded piece
+                            for block in downloading_blocks {
+                                let block_index = {
+                                    block.piece_index * self.torrent_context.torrent_info.blocks_in_piece + block.offset.div_ceil(crate::BLOCK_SIZE)
+                                };
+
+                                let mut needed_guard = self.torrent_context.needed.lock().await;
+                                if !needed_guard.needed_blocks.contains(&block_index) {
+                                    needed_guard.needed_blocks.push(block_index);
+                                }
+                                if !needed_guard.needed_pieces.contains(&block.piece_index) {
+                                    needed_guard.needed_pieces.push(block.piece_index);
+                                }
+                            }
+
+                            break;
+                        },
+                        ClientMessage::RequestedBlock{piece_block} => {
+                            if seeding_blocks.iter().any(|block| block.block_index == piece_block.block_index) {
+                                seeding_blocks.retain(|block| block.block_index != piece_block.block_index);
+
+                                peer_session.send(PeerMessage::Piece(piece_block.piece_index as u32, piece_block.offset as u32, piece_block.data)).await?;
+                            }
+                        },
                         ClientMessage::Cancel{index, begin, length} => {
                             let block_index = {
                                 index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(crate::BLOCK_SIZE as u32) as usize
@@ -286,24 +322,6 @@ impl Peer {
                                 peer_session.send(PeerMessage::Have(piece as u32)).await?;
                             }
                         }
-                        ClientMessage::Shutdown => {
-                            // dropping last not fully downloaded piece
-                            for block in downloading_blocks {
-                                let block_index = {
-                                    block.piece_index * self.torrent_context.torrent_info.blocks_in_piece + block.offset.div_ceil(crate::BLOCK_SIZE)
-                                };
-
-                                let mut needed_guard = self.torrent_context.needed.lock().await;
-                                if !needed_guard.needed_blocks.contains(&block_index) {
-                                    needed_guard.needed_blocks.push(block_index);
-                                }
-                                if !needed_guard.needed_pieces.contains(&block.piece_index) {
-                                    needed_guard.needed_pieces.push(block.piece_index);
-                                }
-                            }
-
-                            break;
-                        },
                         _ => {}
                     }
                 }
@@ -359,7 +377,13 @@ impl Peer {
                                 data: Vec::new(),
                             };
 
-                            unimplemented!("Peer '{self}' requested block: {seeding_block:?}")
+                            if seeding_blocks.contains(&seeding_block) {
+                                return Err(anyhow!("Peer '{self}' sent request for block that is already being seeded"));
+                            }
+
+                            seeding_blocks.push(seeding_block.clone());
+
+                            self.torrent_context.tx.send(ClientMessage::Request{piece_block: seeding_block, tx: self.self_tx.clone()}).await?;
                         },
                         PeerMessage::Piece(index, begin, block) => {
                             if !self.peer_context.am_interested || self.peer_context.choking {
@@ -391,7 +415,7 @@ impl Peer {
                             piece_block.data = block;
 
                             // send it to the client and remove it from the downloading blocks
-                            self.torrent_context.tx.send(ClientMessage::DownloadedBlock{ block: piece_block }).await?;
+                            self.torrent_context.tx.send(ClientMessage::DownloadedBlock{ piece_block }).await?;
                         },
                         PeerMessage::Cancel(index, begin, length) => {
                             unimplemented!("Peer '{self}' sent cancel: {index}, {begin}, {length}")
