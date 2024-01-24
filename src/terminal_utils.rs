@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::{exit, Command, Stdio};
 
 use torrent_client::messager::TerminalClientMessage;
-use torrent_client::torrent::TorrentState;
+use torrent_client::torrent::TorrentContextState;
 
 pub struct TerminalClient {
     pub socket: LocalSocketStream,
@@ -103,7 +103,7 @@ fn calculate_percentage(pieces_count: usize, pieces_left: usize) -> f64 {
     (percentage * 100.0).round() / 100.0
 }
 
-fn print_torrent_infos(torrents: Vec<TorrentState>) {
+fn print_torrent_infos(torrents: Vec<TorrentContextState>) {
     print!("{}[2J", 27 as char);
 
     if torrents.is_empty() {
@@ -117,7 +117,7 @@ fn print_torrent_infos(torrents: Vec<TorrentState>) {
     println!("{}", "-".repeat(89));
 
     for torrent in torrents {
-        let downloaded_percentage = calculate_percentage(torrent.blocks_count, torrent.needed.needed_blocks.len());
+        let downloaded_percentage = calculate_percentage(torrent.torrent_info.blocks_count, torrent.needed.needed_blocks.len());
         let peers = torrent.peers.len();
 
         println!(

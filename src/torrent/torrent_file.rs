@@ -41,12 +41,36 @@ impl TorrentFile {
         }
     }
 
+    pub fn get_block_length(&self) -> Result<usize> {
+        //TODO: maybe change block size based on torrent? don't know if its better
+        Ok(crate::BLOCK_SIZE)
+    }
+
     pub fn get_pieces_count(&self) -> Result<usize> {
         let info_dict = self.bencoded_dict.get_from_dict("info")?;
         let pieces = info_dict.get_from_dict("pieces")?;
         let pieces = pieces.try_into_byte_sha1_hashes()?;
 
         Ok(pieces.len())
+    }
+
+    pub fn get_blocks_in_piece(&self) -> Result<usize> {
+        let piece_size = self.get_piece_size(0)?;
+        let block_size = self.get_block_length()?;
+        Ok(piece_size.div_ceil(block_size))
+    }
+
+    pub fn get_blocks_count(&self) -> Result<usize> {
+        let pieces_count = self.get_pieces_count()?;
+
+        let piece_size = self.get_piece_size(0)?;
+        let block_size = self.get_block_length()?;
+        let blocks_in_piece = piece_size.div_ceil(block_size);
+
+        let last_piece_size = self.get_piece_size(pieces_count - 1)?;
+        let blocks_in_last_piece = last_piece_size.div_ceil(block_size);
+
+        Ok((pieces_count - 1) * blocks_in_piece + blocks_in_last_piece)
     }
 
     pub fn get_info_hash(bencoded_dict: &BencodedValue) -> Result<Sha1Hash> {

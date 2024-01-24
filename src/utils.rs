@@ -3,6 +3,7 @@ use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
 use anyhow::{anyhow, Result, Context};
 
+use crate::peer::PeerTorrentContext;
 use crate::torrent::torrent_file::Sha1Hash;
 use crate::messager::TerminalClientMessage;
 
@@ -76,4 +77,12 @@ pub fn create_message (message: &TerminalClientMessage) -> Vec<u8> {
     let mut serialized_data = serde_json::to_string(message).expect("Serialization failed");
     serialized_data.push('\n');
     serialized_data.as_bytes().to_vec()
+}
+
+pub fn is_zero_aligned(buf: &[u8]) -> bool {
+    let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
+
+    prefix.iter().all(|&x| x == 0)
+        && suffix.iter().all(|&x| x == 0)
+        && aligned.iter().all(|&x| x == 0)
 }

@@ -4,7 +4,7 @@ use anyhow::{Result, Context};
 use tokio::time::interval;
 
 use crate::peer::ConnectionType;
-use crate::torrent::{TorrentHandle, TorrentState};
+use crate::torrent::{TorrentHandle, TorrentContextState};
 use crate::messager::ClientMessage;
 use crate::utils::CommunicationPipe;
 
@@ -109,7 +109,7 @@ impl Client {
        // println!("Loading client state");
 
         for (_, val) in client_state.as_object().unwrap() { // client_state is always a valid json object
-            let torrent_state = serde_json::from_value::<TorrentState>(val.clone())?;
+            let torrent_state = serde_json::from_value::<TorrentContextState>(val.clone())?;
 
             let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_state, ConnectionType::Outgoing).await?;
             self.torrent_handles.push(torrent_handle);

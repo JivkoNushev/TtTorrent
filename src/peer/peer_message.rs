@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
 use crate::torrent::Sha1Hash;
-use crate::utils::AsBytes;
+use crate::utils::{AsBytes, is_zero_aligned};
 
 #[derive(Debug)]
 pub struct Handshake {
@@ -208,21 +208,6 @@ impl PeerSession {
             }
         };
 
-
-        // fn is_zero(buf: &[u8]) -> bool {
-        //     buf.into_iter().all(|&b| b == 0)
-        // }
-
-        // TODO: use this, its
-        fn is_zero_aligned(buf: &[u8]) -> bool {
-            let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
-
-            prefix.iter().all(|&x| x == 0)
-                && suffix.iter().all(|&x| x == 0)
-                && aligned.iter().all(|&x| x == 0)
-        }
-
-        // send bitfield
         if !is_zero_aligned(&bitfield) {
             self.bitfield(bitfield).await?;
         }
