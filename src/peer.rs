@@ -216,7 +216,6 @@ impl Peer {
         let blocks_in_piece = self.torrent_context.piece_length.div_ceil(crate::BLOCK_SIZE);
 
         let piece_blocks = {
-
             let mut piece_blocks = Vec::new();
 
             let mut blocks_iter = tokio_stream::iter(0..blocks_in_current_piece);
@@ -323,7 +322,7 @@ impl Peer {
         //     return Ok(());
         // }
 
-        for _ in 0..crate::BLOCK_REQUEST_COUNT {
+        while downloading_blocks.len() < crate::BLOCK_REQUEST_COUNT {
             match self.get_random_block_index().await {
                 Some(block_index) => {
                     let blocks_in_piece = self.torrent_context.piece_length.div_ceil(crate::BLOCK_SIZE);
@@ -549,13 +548,11 @@ impl Peer {
                     continue;
                 }
 
-                if downloading_blocks.is_empty() {
-                    if self.torrent_context.needed_blocks.lock().await.is_empty() {
-                        self.not_interested(&mut peer_session).await?;
-                    }
-                    else {
-                        self.request(&mut peer_session, &mut downloading_blocks, &mut last_request_elapsed).await?;
-                    }
+                if self.torrent_context.needed_blocks.lock().await.is_empty() {
+                    self.not_interested(&mut peer_session).await?;
+                }
+                else {
+                    self.request(&mut peer_session, &mut downloading_blocks, &mut last_request_elapsed).await?;
                 }
             }
 
