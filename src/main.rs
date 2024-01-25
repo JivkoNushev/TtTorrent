@@ -8,13 +8,17 @@ use torrent_client::utils::valid_src_and_dst;
 mod terminal_utils;
 use crate::terminal_utils::TerminalClient;
 
+use tracing::{Level, event, instrument};
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     // ------------------------ create socket for client ------------------------
 
     // remove socket if it exists and create new one
-    let _ = tokio::fs::remove_file(torrent_client::SOCKET_PATH).await;
-    let client_socket = LocalSocketListener::bind(torrent_client::SOCKET_PATH).context("couldn't bind to local socket")?;
+    let path = std::path::Path::new(torrent_client::SOCKET_PATH);
+
+    let _ = tokio::fs::remove_file(path).await;
+    let client_socket = LocalSocketListener::bind(path).context("couldn't bind to local socket")?;
 
     let mut terminal_client_sockets: Vec<TerminalClient> = Vec::new();
     // ------------------------ create client ------------------------
@@ -109,7 +113,7 @@ async fn main() -> Result<()> {
     }
 
     client.client_shutdown().await?;
-    let _ = tokio::fs::remove_file(torrent_client::SOCKET_PATH).await;
+    let _ = tokio::fs::remove_file(path).await;
 
     client.join().await?;
 

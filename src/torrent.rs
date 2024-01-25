@@ -133,8 +133,9 @@ struct Torrent {
 impl Torrent {
     async fn save_state(torrent_context: TorrentContext) -> Result<()> {
         let torrent_context = TorrentContextState::new(torrent_context).await;
-        
-        let client_state = match tokio::fs::read_to_string(crate::STATE_FILE_PATH).await {
+
+        let path = std::path::Path::new(crate::STATE_FILE_PATH);
+        let client_state = match tokio::fs::read_to_string(path).await {
             std::result::Result::Ok(client_state) => client_state,
             Err(_) => String::new(),
         };
@@ -150,7 +151,7 @@ impl Torrent {
 
         let client_state = serde_json::to_string_pretty(&client_state).unwrap(); // client state is always valid json
 
-        tokio::fs::write(crate::STATE_FILE_PATH, client_state).await.context("couldn't write to client state file")?;
+        tokio::fs::write(path, client_state).await.context("couldn't write to client state file")?;
 
         Ok(())
     }

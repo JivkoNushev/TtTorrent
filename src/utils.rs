@@ -3,7 +3,6 @@ use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
 use anyhow::{anyhow, Result, Context};
 
-use crate::peer::PeerTorrentContext;
 use crate::torrent::torrent_file::Sha1Hash;
 use crate::messager::TerminalClientMessage;
 

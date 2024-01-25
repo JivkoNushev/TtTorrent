@@ -64,7 +64,8 @@ fn create_message (message: &TerminalClientMessage) -> Vec<u8> {
 }
 
 async fn create_client_socket() -> LocalSocketStream {
-    let client_socket = match LocalSocketStream::connect(torrent_client::SOCKET_PATH).await {
+    let path = std::path::Path::new(torrent_client::SOCKET_PATH);
+    let client_socket = match LocalSocketStream::connect(path).await {
         Ok(socket) => socket,
         Err(e) => {
             eprintln!("[Error] Failed to connect to the client: {}", e);

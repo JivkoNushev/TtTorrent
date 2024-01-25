@@ -1,7 +1,6 @@
 use tokio::task::JoinHandle;
 use tokio::sync::{mpsc, oneshot};
 use anyhow::{Result, Context};
-use tokio::time::interval;
 
 use crate::peer::ConnectionType;
 use crate::torrent::{TorrentHandle, TorrentContextState};
@@ -98,7 +97,9 @@ impl Client {
     }
 
     async fn load_state(&mut self) -> Result<()> {
-        let client_state = match tokio::fs::read_to_string(crate::STATE_FILE_PATH).await {
+        let path = std::path::Path::new(crate::STATE_FILE_PATH);
+
+        let client_state = match tokio::fs::read_to_string(path).await {
             Ok(state) => state,
             Err(_) => {
                // println!("No available client state");
