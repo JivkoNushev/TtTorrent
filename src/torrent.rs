@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result, Context};
 use std::sync::Arc;
 
 use crate::messager::ClientMessage;
-use crate::peer::{PeerAddress, PeerHandle, PeerTorrentContext, BlockPicker};
+use crate::peer::{BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
 use crate::disk::{DiskHandle, DiskTorrentContext};
@@ -29,7 +29,8 @@ pub struct TorrentHandle {
     tx: mpsc::Sender<ClientMessage>,
     join_handle: JoinHandle<()>,
 
-    torrent_name: String,
+    // torrent_name: String,
+    pub torrent_info_hash: Sha1Hash,
 }
 
 impl TorrentHandle {
@@ -61,7 +62,7 @@ impl TorrentHandle {
                 return Err(e);
             }
         };
-        let torrent_name = torrent.torrent_context.torrent_name.clone();
+        let torrent_info_hash = torrent.torrent_context.info_hash.clone();
 
         let join_handle = tokio::spawn(async move {
             if let Err(e) = torrent.run().await {
@@ -73,7 +74,7 @@ impl TorrentHandle {
             tx: sender,
             join_handle,
 
-            torrent_name,
+            torrent_info_hash,
         })
     }
 
@@ -86,7 +87,7 @@ impl TorrentHandle {
         };
         let torrent = Torrent::from_state(client_id, pipe, torrent_state, connection_type.clone())?;
 
-        let torrent_name = torrent.torrent_context.torrent_name.clone();
+        let torrent_info_hash = torrent.torrent_context.info_hash.clone();
 
         let join_handle = tokio::spawn(async move {
             if let Err(e) = torrent.run().await {
@@ -98,7 +99,7 @@ impl TorrentHandle {
             tx: sender,
             join_handle,
 
-            torrent_name,
+            torrent_info_hash,
         })
     }
 
@@ -114,6 +115,11 @@ impl TorrentHandle {
 
     pub async fn send_torrent_info(&mut self, tx: oneshot::Sender<TorrentContextState>) -> Result<()> {
         self.tx.send(ClientMessage::SendTorrentInfo{tx}).await?;
+        Ok(())
+    }
+
+    pub async fn add_peer_session(&mut self, peer_session: PeerSession) -> Result<()> {
+        self.tx.send(ClientMessage::AddPeerSession{peer_session}).await?;
         Ok(())
     }
 }
@@ -442,6 +448,41 @@ impl Torrent {
                                 }
                             }
                         },
+                        ClientMessage::AddPeerSession { peer_session } => {
+                            let peer_address = match peer_session.stream.peer_addr() {
+                                Ok(peer_address) => peer_address,
+                                Err(e) => {
+                                    eprintln!("Failed to get peer address: {}", e);
+                                    continue;
+                                }
+                            };
+                            let peer_address = PeerAddress {
+                                address: peer_address.ip().to_string(),
+                                port: peer_address.port().to_string(),
+                            };
+                            
+                            if self.torrent_context.peers.contains(&peer_address) {
+                                continue;
+                            }
+
+                            let torrent_context = PeerTorrentContext::new(
+                                self.self_tx.clone(),
+                                Arc::clone(&self.torrent_context.torrent_info),
+                                self.torrent_context.info_hash.clone(),
+                                Arc::clone(&self.torrent_context.needed),
+                                Arc::clone(&self.torrent_context.bitfield),
+                                Arc::clone(&self.torrent_context.uploaded),
+                            );
+
+                            let peer_handle = PeerHandle::from_session(
+                                self.client_id,
+                                torrent_context,
+                                peer_session,
+                            ).await?;
+
+
+                            self.peer_handles.push(peer_handle);
+                        }
                         _ => {}
                     }
                 },

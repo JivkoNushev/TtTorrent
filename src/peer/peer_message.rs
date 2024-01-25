@@ -4,13 +4,13 @@ use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use crate::torrent::Sha1Hash;
 use crate::utils::{AsBytes, is_zero_aligned};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Handshake {
-    protocol_len: u8,
-    protocol: [u8; 19],
-    reserved: [u8; 8],
-    info_hash: [u8; 20],
-    peer_id: [u8; 20],
+    pub protocol_len: u8,
+    pub protocol: [u8; 19],
+    pub reserved: [u8; 8],
+    pub info_hash: [u8; 20],
+    pub peer_id: [u8; 20],
 }
 
 impl Handshake {
@@ -154,6 +154,13 @@ impl PeerMessage {
     pub fn new_handshake(info_hash: Sha1Hash, peer_id: [u8; 20]) -> Self {
         Self::Handshake(Handshake::new(info_hash, peer_id))
     }
+
+    pub fn as_handshake(&self) -> Result<Handshake> {
+        match self {
+            PeerMessage::Handshake(handshake) => Ok(handshake.clone()),
+            _ => Err(anyhow!("Invalid handshake")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -162,16 +169,21 @@ pub enum ConnectionType {
     Outgoing,
 }
 
+#[derive(Debug)]
 pub struct PeerSession {
-    stream: tokio::net::TcpStream,
-    connection_type: ConnectionType,
+    pub stream: tokio::net::TcpStream,
+    pub connection_type: ConnectionType,
+
+    pub peer_handshake: Handshake,
 }
 
 impl PeerSession {
-    pub async fn new(stream: tokio::net::TcpStream, connection_type: ConnectionType) -> Self{
+    pub async fn new(stream: tokio::net::TcpStream, connection_type: ConnectionType, peer_handshake: Handshake) -> Self{
         Self {
             stream,
             connection_type,
+
+            peer_handshake,
         }
     }
 
@@ -192,19 +204,17 @@ impl PeerSession {
         Ok(())
     }
 
-    pub async fn handshake(&mut self, info_hash: Sha1Hash, client_id: [u8; 20], bitfield: Vec<u8>) -> Result<[u8; 20]> {
+    pub async fn handshake(&mut self, info_hash: Sha1Hash, client_id: [u8; 20], bitfield: Vec<u8>) -> Result<()> {
         let peer_id = match self.connection_type {
             ConnectionType::Outgoing => {
                 self.outgoing_handshake(info_hash.clone(), client_id).await?;
                 let incoming_handshake = self.incoming_handshake(info_hash).await?;
 
-                incoming_handshake.peer_id
+                self.peer_handshake = incoming_handshake;
             }
             ConnectionType::Incoming => {
-                let incoming_handshake = self.incoming_handshake(info_hash.clone()).await?;
+                // let incoming_handshake = self.incoming_handshake(info_hash.clone()).await?;
                 self.outgoing_handshake(info_hash, client_id).await?;
-
-                incoming_handshake.peer_id
             }
         };
 
@@ -212,7 +222,7 @@ impl PeerSession {
             self.bitfield(bitfield).await?;
         }
 
-        Ok(peer_id)
+        Ok(())
     }
 
     pub async fn bitfield(&mut self, bitfield: Vec<u8>) -> Result<()> {

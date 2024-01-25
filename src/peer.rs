@@ -18,6 +18,8 @@ pub use peer_message::{PeerMessage, PeerSession, ConnectionType};
 pub mod block_picker;
 pub use block_picker::{BlockPicker, BlockPickerState};
 
+use self::peer_message::Handshake;
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PieceBlock {
@@ -81,8 +83,35 @@ impl PeerHandle {
         };
 
         let peer = Peer::new(client_id, torrent_context, peer_address.clone(), self_pipe).await;
-        let join_handle: JoinHandle<Result<()>>= tokio::spawn(async move {
-            peer.run(connection_type).await
+        let join_handle: JoinHandle<Result<()>> = tokio::spawn(async move {
+            peer.run(connection_type, None).await
+        });
+
+        Ok(Self {
+            tx: sender,
+            join_handle,
+            peer_address,
+        })
+    }
+
+    pub async fn from_session(client_id: [u8; 20], torrent_context: PeerTorrentContext, session: PeerSession) -> Result<PeerHandle> {
+        let peer_address = PeerAddress {
+            address: session.stream.peer_addr()?.ip().to_string(),
+            port: session.stream.peer_addr()?.port().to_string(),
+        };
+
+        let connection_type = session.connection_type.clone();
+
+        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+
+        let self_pipe = CommunicationPipe {
+            tx: sender.clone(),
+            rx: receiver
+        };
+
+        let peer = Peer::new(client_id, torrent_context, peer_address.clone(), self_pipe).await;
+        let join_handle: JoinHandle<Result<()>> = tokio::spawn(async move {
+            peer.run(connection_type, Some(session)).await
         });
 
         Ok(Self {
@@ -157,8 +186,10 @@ impl Peer {
 
     async fn handshake(&mut self, peer_session: &mut PeerSession) -> Result<()> {
         let bitfield = self.torrent_context.bitfield.lock().await.clone();
-        self.peer_context.id = peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id.clone(), bitfield).await?;
+        peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id.clone(), bitfield).await?;
        
+        self.peer_context.id = peer_session.peer_handshake.peer_id;
+
         Ok(())
     }
 
@@ -250,13 +281,17 @@ impl Peer {
             _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => return Err(anyhow!("Failed to connect to peer '{self}'"))
         }?;
 
-        let peer_session = PeerSession::new(stream, connection_type).await;
+        let peer_session = PeerSession::new(stream, connection_type, Handshake::new(Sha1Hash([0; 20]), [0; 20])).await;
 
         Ok(peer_session)
     }
 
-    pub async fn run(mut self, connection_type: ConnectionType) -> Result<()> {
-        let mut peer_session = self.get_peer_session(connection_type).await?;
+    pub async fn run(mut self, connection_type: ConnectionType, peer_session: Option<PeerSession>) -> Result<()> {
+        let mut peer_session = match peer_session {
+            Some(peer_session) => peer_session,
+            None => self.get_peer_session(connection_type).await?,
+        };
+            
         println!("Connected to peer: '{self}'");
 
         // handshake with peer

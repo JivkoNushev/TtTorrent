@@ -2,8 +2,9 @@ use tokio::task::JoinHandle;
 use tokio::sync::{mpsc, oneshot};
 use anyhow::{Result, Context};
 
-use crate::peer::ConnectionType;
-use crate::torrent::{TorrentHandle, TorrentContextState};
+use crate::peer::peer_message::Handshake;
+use crate::peer::{ConnectionType, PeerHandle, PeerMessage, PeerSession};
+use crate::torrent::{Sha1Hash, TorrentContextState, TorrentHandle};
 use crate::messager::ClientMessage;
 use crate::utils::CommunicationPipe;
 
@@ -126,6 +127,8 @@ impl Client {
         // load the client state
         self.load_state().await?;
 
+        let seeding_socket = tokio::net::TcpListener::bind("0.0.0.0:".to_owned() + crate::SEEDING_PORT).await?;
+
         loop {
             tokio::select! {
                 biased;
@@ -149,6 +152,22 @@ impl Client {
                             sending_to_terminal_client = false;
                         },
                         _ => {}
+                    }
+                }
+                Ok((socket, _)) = seeding_socket.accept() => {
+                    // TODO: use handshake::default
+                    let mut peer_session = PeerSession::new(socket, ConnectionType::Incoming, Handshake::new(Sha1Hash([0; 20]), [0; 20])).await;
+
+                    let handshake = peer_session.recv_handshake().await?;
+                    let handshake = PeerMessage::as_handshake(&handshake)?;
+
+                    peer_session.peer_handshake = handshake;
+
+                    for torrent_handle in self.torrent_handles.iter_mut() {
+                        if torrent_handle.torrent_info_hash == Sha1Hash::new(&peer_session.peer_handshake.info_hash) {
+                            torrent_handle.add_peer_session(peer_session).await?;
+                            break;
+                        }
                     }
                 }
                 _ = sending_interval.tick() => {
