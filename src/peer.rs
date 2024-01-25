@@ -38,11 +38,12 @@ pub struct PeerTorrentContext {
     pub needed: Arc<Mutex<BlockPicker>>,
     pub bitfield: Arc<Mutex<Vec<u8>>>,
 
-    uploaded: Arc<Mutex<u64>>,
+    pub downloaded: Arc<Mutex<u64>>,
+    pub uploaded: Arc<Mutex<u64>>,
 }
 
 impl PeerTorrentContext {
-    pub fn new(tx: mpsc::Sender<ClientMessage>, torrent_info: Arc<TorrentInfo>, info_hash: Sha1Hash, needed: Arc<Mutex<BlockPicker>>, bitfield: Arc<Mutex<Vec<u8>>>, uploaded: Arc<Mutex<u64>>) -> Self {
+    pub fn new(tx: mpsc::Sender<ClientMessage>, torrent_info: Arc<TorrentInfo>, info_hash: Sha1Hash, needed: Arc<Mutex<BlockPicker>>, bitfield: Arc<Mutex<Vec<u8>>>, uploaded: Arc<Mutex<u64>>, downloaded: Arc<Mutex<u64>>) -> Self {
         Self {
             tx,
 
@@ -51,6 +52,7 @@ impl PeerTorrentContext {
             needed,
             bitfield,
 
+            downloaded,
             uploaded,
         }
     }
@@ -74,7 +76,7 @@ pub struct PeerHandle {
 }
 
 impl PeerHandle {
-    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, peer_address: PeerAddress, connection_type: ConnectionType) -> Result<Self> {
+    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, peer_address: PeerAddress, connection_type: ConnectionType, disk_tx: mpsc::Sender<ClientMessage>) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
 
         let self_pipe = CommunicationPipe {
@@ -82,7 +84,7 @@ impl PeerHandle {
             rx: receiver
         };
 
-        let peer = Peer::new(client_id, torrent_context, peer_address.clone(), self_pipe).await;
+        let peer = Peer::new(client_id, torrent_context, peer_address.clone(), self_pipe, disk_tx).await;
         let join_handle: JoinHandle<Result<()>> = tokio::spawn(async move {
             peer.run(connection_type, None).await
         });
@@ -94,7 +96,7 @@ impl PeerHandle {
         })
     }
 
-    pub async fn from_session(client_id: [u8; 20], torrent_context: PeerTorrentContext, session: PeerSession) -> Result<PeerHandle> {
+    pub async fn from_session(client_id: [u8; 20], torrent_context: PeerTorrentContext, session: PeerSession, disk_tx: mpsc::Sender<ClientMessage>) -> Result<PeerHandle> {
         let peer_address = PeerAddress {
             address: session.stream.peer_addr()?.ip().to_string(),
             port: session.stream.peer_addr()?.port().to_string(),
@@ -109,7 +111,7 @@ impl PeerHandle {
             rx: receiver
         };
 
-        let peer = Peer::new(client_id, torrent_context, peer_address.clone(), self_pipe).await;
+        let peer = Peer::new(client_id, torrent_context, peer_address.clone(), self_pipe, disk_tx).await;
         let join_handle: JoinHandle<Result<()>> = tokio::spawn(async move {
             peer.run(connection_type, Some(session)).await
         });
@@ -147,6 +149,7 @@ struct Peer {
     rx: mpsc::Receiver<ClientMessage>,
     peer_context: PeerContext,
     torrent_context: PeerTorrentContext,
+    disk_tx: mpsc::Sender<ClientMessage>,
 
     client_id: [u8; 20],
 }
@@ -158,7 +161,7 @@ impl std::fmt::Display for Peer {
 }
 
 impl Peer {
-    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, addr: PeerAddress, self_pipe: CommunicationPipe ) -> Self {
+    pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, addr: PeerAddress, self_pipe: CommunicationPipe, disk_tx: mpsc::Sender<ClientMessage>) -> Self {
         let peer_context = PeerContext {
             id: [0; 20],
             ip: addr,
@@ -174,6 +177,7 @@ impl Peer {
             rx: self_pipe.rx,
             peer_context,
             torrent_context,
+            disk_tx,
 
             client_id,
         }
@@ -450,7 +454,8 @@ impl Peer {
                             piece_block.data = block;
 
                             // send it to the client and remove it from the downloading blocks
-                            self.torrent_context.tx.send(ClientMessage::DownloadedBlock{ piece_block }).await?;
+                            *self.torrent_context.downloaded.lock().await += piece_block.size as u64;
+                            self.disk_tx.send(ClientMessage::DownloadedBlock{ piece_block }).await?;
                         },
                         PeerMessage::Cancel(index, begin, length) => {
                             unimplemented!("Peer '{self}' sent cancel: {index}, {begin}, {length}")

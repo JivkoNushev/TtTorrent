@@ -373,7 +373,7 @@ impl Disk {
 }
 
 pub struct DiskHandle {
-    tx: mpsc::Sender<ClientMessage>,
+    pub tx: mpsc::Sender<ClientMessage>,
     join_handle: JoinHandle<()>,
 
     torrent_name: String,

@@ -242,7 +242,7 @@ impl Torrent {
 
             torrent_info,
 
-            downloaded: 0,
+            downloaded: Arc::new(Mutex::new(0)),
             uploaded: Arc::new(Mutex::new(0)),
         };
 
@@ -308,6 +308,7 @@ impl Torrent {
                 self.torrent_context.info_hash.clone(),
                 Arc::clone(&self.torrent_context.needed),
                 Arc::clone(&self.torrent_context.bitfield),
+                Arc::clone(&self.torrent_context.downloaded),
                 Arc::clone(&self.torrent_context.uploaded),
             );
 
@@ -316,6 +317,7 @@ impl Torrent {
                 torrent_context,
                 peer_address,
                 connection_type.clone(),
+                self.disk_handle.tx.clone(),
             ).await?;
 
             self.peer_handles.push(peer_handle);
@@ -397,21 +399,6 @@ impl Torrent {
                             }
                             break;
                         },
-                        ClientMessage::DownloadedBlock { piece_block } => {
-                            // let mut l = self.torrent_context.needed_blocks.lock().await;
-                            // if l.contains(&block.block_index) {
-                            //     l.retain(|index| index != &block.block_index);
-                            //     for peer_handle in &mut self.peer_handles {
-                            //         let _ = peer_handle.cancel_block(block.block_index as u32, block.offset as u32, block.size as u32).await;
-                            //     }
-                            //     last_blocks.push(block.block_index);
-                            // }
-                            // else if last_blocks.contains(&block.block_index) {
-                            //     continue;
-                            // }
-                            self.torrent_context.downloaded += piece_block.size as u64;
-                            self.disk_handle.write_block(piece_block).await.context("sending to disk handle")?;
-                        },
                         ClientMessage::Have { piece } => {
                             self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
 
@@ -472,12 +459,14 @@ impl Torrent {
                                 Arc::clone(&self.torrent_context.needed),
                                 Arc::clone(&self.torrent_context.bitfield),
                                 Arc::clone(&self.torrent_context.uploaded),
+                                Arc::clone(&self.torrent_context.downloaded)
                             );
 
                             let peer_handle = PeerHandle::from_session(
                                 self.client_id,
                                 torrent_context,
                                 peer_session,
+                                self.disk_handle.tx.clone(),
                             ).await?;
 
 

@@ -39,7 +39,7 @@ impl TorrentContextState {
             peers: torrent_context.peers,
 
             torrent_info: (*torrent_context.torrent_info).clone(),
-            downloaded: torrent_context.downloaded,
+            downloaded: torrent_context.downloaded.lock().await.clone(),
             uploaded: torrent_context.uploaded.lock().await.clone(),
         }
     }
@@ -60,7 +60,7 @@ pub struct TorrentContext {
 
     pub torrent_info: Arc<TorrentInfo>,
 
-    pub downloaded: u64,
+    pub downloaded: Arc<Mutex<u64>>,
     pub uploaded: Arc<Mutex<u64>>,
 }
 
@@ -82,7 +82,7 @@ impl TorrentContext {
 
             torrent_info: Arc::new(torrent_state.torrent_info),
 
-            downloaded: torrent_state.downloaded,
+            downloaded: Arc::new(Mutex::new(torrent_state.downloaded)),
             uploaded: Arc::new(Mutex::new(torrent_state.uploaded)),
         }
     }

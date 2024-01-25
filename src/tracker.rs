@@ -51,7 +51,7 @@ impl TrackerRequest {
 
         // calculate uploaded, downloaded, and left
         let uploaded = torrent_context.uploaded.lock().await.clone();
-        let downloaded = torrent_context.downloaded;
+        let downloaded = torrent_context.downloaded.lock().await.clone();
         let left = torrent_context.torrent_file.get_torrent_length()? - downloaded;
         let compact = 1;
         let no_peer_id = 0;
