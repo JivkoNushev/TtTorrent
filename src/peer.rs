@@ -484,11 +484,13 @@ impl Peer {
                     continue;
                 }
 
-                if self.torrent_context.needed.lock().await.needed_blocks.is_empty() {
-                    self.not_interested(&mut peer_session).await?;
-                }
-                else {
-                    self.request(&mut peer_session, &mut downloading_blocks, &mut last_request_elapsed).await?;
+                if downloading_blocks.is_empty() {
+                    if self.torrent_context.needed.lock().await.is_empty() {
+                        self.not_interested(&mut peer_session).await?;
+                    }
+                    else {
+                        self.request(&mut peer_session, &mut downloading_blocks, &mut last_request_elapsed).await?;
+                    }
                 }
             }
 
