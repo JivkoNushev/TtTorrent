@@ -8,10 +8,20 @@ use torrent_client::utils::valid_src_and_dst;
 mod terminal_utils;
 use crate::terminal_utils::TerminalClient;
 
-use tracing::{Level, event, instrument};
+use tracing_subscriber::Layer;
+use tracing_subscriber::prelude::*;
+use tracing::{instrument, Subscriber, span, Level, event};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    let _enter = span!(Level::TRACE, "main").entered();
+
+    event!(Level::TRACE, "starting up");    
+
     // ------------------------ create socket for client ------------------------
 
     // remove socket if it exists and create new one
