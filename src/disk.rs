@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::peer::PieceBlock;
-use crate::torrent::TorrentInfo;
+use crate::torrent::{self, TorrentInfo};
 use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
 
 #[derive(Debug, Clone)]
@@ -190,7 +190,7 @@ impl Disk {
             
             let file = &files[file_index];
 
-            let file_path = std::path::PathBuf::from(format!("{}/{}", torrent_context.dest_path, file.path));
+            let file_path = std::path::Path::new(&torrent_context.dest_path).join(file.path.clone());
             
             // create the directories if they don't exist
             let file_dir = match file_path.parent() {
@@ -199,13 +199,15 @@ impl Disk {
             };
 
             tokio::fs::create_dir_all(file_dir).await.unwrap(); // file_dir is always a directory
-
+            
+            println!("not writing: {:?}", file_path);
             let mut fd = tokio::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .open(file_path)
                 .await?;
+
 
             let bytes_to_write = if file.size - file_offset > bytes_left  {
                 bytes_left
