@@ -114,18 +114,18 @@ fn print_torrent_infos(torrents: Vec<TorrentContextState>) {
         return;
     }
     println!(
-        "{0: <20} | {1: <20} | {2: <20} | {3: <20}",
-        "name", "progress", "downloaded", "peers"
+        "{0: <20} | {1: <20}  | {2: <20}   | {3: <20}   | {4: <20}",
+        "name", "progress", "downloaded", "uploaded", "peers"
     );
-    println!("{}", "-".repeat(89));
+    println!("{}", "-".repeat(109));
 
     for torrent in torrents {
         let downloaded_percentage = calculate_percentage(torrent.torrent_info.blocks_count, torrent.needed.needed_blocks.len());
         let peers = torrent.peers.len();
 
         println!(
-            "{0: <20} | {1: <20} | {2: <20} | {3: <20}", 
-            torrent.torrent_name, downloaded_percentage, torrent.downloaded, peers
+            "{0: <20} | {1: <20}% | {2: <20}KB | {3: <20}KB | {4: <20}", 
+            torrent.torrent_name, downloaded_percentage, torrent.downloaded / 1000, torrent.uploaded / 1000, peers
         );
     }
 }
