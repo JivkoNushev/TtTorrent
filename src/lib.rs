@@ -7,7 +7,13 @@ pub mod disk;
 pub mod utils;
 
 pub const DEBUG_MODE: bool = true;
-pub const TRACING_LEVEL: tracing::Level = tracing::Level::DEBUG;
+
+// TRACE > DEBUG > INFO > WARN > ERROR
+// TRACE - не съм го използвал; използва се от други библиотеки, които използвам като reqwest 
+// DEBUG - показва ми когато записвам или рекуествам нещо и др.
+// INFO - показва ми къде започват и спират функциите
+
+pub const TRACING_LEVEL: tracing::Level = tracing::Level::DEBUG; 
 pub const MAX_CHANNEL_SIZE: usize = 100;
 pub const INTERVAL_SECS: u64 = 3;
 pub const BLOCK_SIZE: usize = 1 << 14;
