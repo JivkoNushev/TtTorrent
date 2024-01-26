@@ -33,7 +33,7 @@ pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
     Sha1Hash::new(hash)
 }   
 
-pub async fn read_file_as_bytes(path: &str) -> Result<Vec<u8>> {
+pub async fn read_file_as_bytes(path: &std::path::Path) -> Result<Vec<u8>> {
     // print current directory
     let mut buf = Vec::new();
     let mut file = tokio::fs::File::open(path).await.context("couldn't open file")?;

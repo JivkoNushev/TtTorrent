@@ -141,7 +141,7 @@ impl TorrentFile {
 
 // TorrentFile methods
 impl TorrentFile {
-    pub async fn new(torrent_file_name: &str) -> Result<TorrentFile> {
+    pub async fn new(torrent_file_name: &std::path::Path) -> Result<TorrentFile> {
         let torrent_file = read_file_as_bytes(torrent_file_name).await.context("couldn't read file as bytes")?;
         let bencoded_dict = TorrentParser::parse_torrent_file(&torrent_file)?;
 

@@ -82,14 +82,14 @@ impl TorrentHandle {
         })
     }
 
-    pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentContextState, connection_type: ConnectionType) -> Result<Self> {
+    pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentContextState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
         let pipe = CommunicationPipe {
             tx: sender.clone(),
             rx: receiver,
         };
 
-        let torrent = Torrent::from_state(client_id, pipe, torrent_state, connection_type.clone())?;
+        let torrent = Torrent::from_state(client_id, pipe, torrent_state, info_hash, connection_type.clone()).await?;
 
         let _torrent_name = torrent.torrent_context.torrent_name.clone();
         let torrent_info_hash = torrent.torrent_context.info_hash.clone();
@@ -154,14 +154,12 @@ impl Torrent {
             _ => serde_json::from_str(&client_state).unwrap(), // client state is always valid json
         };
         
+        let torrent_info_hash = torrent_context.info_hash.clone();
         let torrent_context = TorrentContextState::new(torrent_context).await;
         
-        let torrent_info_hash = torrent_context.info_hash.clone();
         let torrent_context = serde_json::to_value(torrent_context).unwrap(); // torrent context is always valid json
         
         client_state[torrent_info_hash.to_hex()] = torrent_context;
-
-        let client_state = serde_json::to_vec_pretty(&client_state).unwrap();
 
         let client_state = serde_json::to_string_pretty(&client_state).unwrap(); // client state is always valid json
 
@@ -174,7 +172,9 @@ impl Torrent {
 
 impl Torrent {
     pub async fn new(client_id: [u8; 20], self_pipe: CommunicationPipe, src: &str, dest: &str) -> Result<Self> {
-        let torrent_file = Arc::new(TorrentFile::new(&src).await.context("couldn't create TorrentFile")?);
+        let torrent_fle_path = std::path::Path::new(src);
+
+        let torrent_file = Arc::new(TorrentFile::new(torrent_fle_path).await.context("couldn't create TorrentFile")?);
         let torrent_info = Arc::new(TorrentInfo::new(&torrent_file)?);
         
         let torrent_name = std::path::Path::new(src)
@@ -265,18 +265,23 @@ impl Torrent {
     }
 
 
-    pub fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentContextState, connection_type: ConnectionType) -> Result<Self> {
+    pub async fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentContextState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
+        let torrent_file_path = format!("{}/{}.torrent", crate::STATE_TORRENT_FILES_PATH, torrent_state.torrent_name);
+        let path = std::path::Path::new(&torrent_file_path);
+
+        let torrent_file = TorrentFile::new(path).await.context("couldn't create TorrentFile")?;
+        
         let disk_torrent_context = DiskTorrentContext::new(
             self_pipe.tx.clone(),
             torrent_state.dest_path.clone(),
             torrent_state.torrent_name.clone(),
-            Arc::new(torrent_state.torrent_file.clone()),
+            Arc::new(torrent_file),
             Arc::new(torrent_state.torrent_info.clone()),
         );
         
         let disk_handle = DiskHandle::new(disk_torrent_context);
         
-        let torrent_context = TorrentContext::from_state(torrent_state, connection_type);
+        let torrent_context = TorrentContext::from_state(torrent_state, info_hash, connection_type).await?;
         Ok(Self {
             self_tx: self_pipe.tx,
 
@@ -339,8 +344,8 @@ impl Torrent {
         let tracker_response = tracker.regular_response(self.client_id.clone(), &self.torrent_context).await?;
 
         let peer_addresses = match crate::DEBUG_MODE {
-            true => vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}],
-            // true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}],
+            // true => vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}],
+            true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}],
             false => PeerAddress::from_tracker_response(tracker_response).await?
         };
 

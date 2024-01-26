@@ -4,7 +4,7 @@ use anyhow::{Result, Context};
 
 use crate::peer::peer_message::Handshake;
 use crate::peer::{ConnectionType, PeerMessage, PeerSession};
-use crate::torrent::{TorrentContextState, TorrentHandle};
+use crate::torrent::{Sha1Hash, TorrentContextState, TorrentHandle};
 use crate::messager::ClientMessage;
 use crate::utils::CommunicationPipe;
 
@@ -110,10 +110,18 @@ impl Client {
         let client_state = serde_json::from_str::<serde_json::Value>(&client_state)?;
        // println!("Loading client state");
 
-        for (_, val) in client_state.as_object().unwrap() { // client_state is always a valid json object
+        for (key, val) in client_state.as_object().unwrap() { // client_state is always a valid json object
             let torrent_state = serde_json::from_value::<TorrentContextState>(val.clone())?;
 
-            let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_state, ConnectionType::Outgoing).await?;
+            let info_hash = match Sha1Hash::from_hex(key) {
+                Ok(info_hash) => info_hash,
+                Err(e) => {
+                    tracing::error!("Failed to convert info hash from hex: {:?}", e);
+                    continue;
+                }
+            };
+
+            let torrent_handle = TorrentHandle::from_state(self.client_id, torrent_state, info_hash, ConnectionType::Outgoing).await?;
             self.torrent_handles.push(torrent_handle);
         }
 
