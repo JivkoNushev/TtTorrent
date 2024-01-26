@@ -32,7 +32,7 @@ pub enum TerminalClientMessage {
     Status{exit_code: ExitCode},
     Shutdown,
     Download{src: String, dst: String},
-    ListTorrents{client_id: u32},
+    ListTorrents,
     TorrentsInfo{torrents: Vec<TorrentContextState>},
-    TerminalClientClosed{client_id: u32},
+    TerminalClientClosed,
 }

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::peer::PieceBlock;
-use crate::torrent::{self, TorrentInfo};
+use crate::torrent::TorrentInfo;
 use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
 
 #[derive(Debug, Clone)]
@@ -298,6 +298,7 @@ impl Disk {
                 Some(message) = self.rx.recv() => {
                     match message {
                         ClientMessage::Shutdown => {
+                            tracing::info!("Shutting down disk writer");
                             break;
                         },
                         ClientMessage::DownloadedBlock{ piece_block } => {
@@ -311,7 +312,7 @@ impl Disk {
 
                             let handle = tokio::spawn(async move {
                                 if let Err(e) = writer_semaphore.acquire().await {
-                                    eprintln!("Semaphore Error: {}", e);
+                                    tracing::error!("Semaphore Error: {}", e);
                                     return;
                                 }
 
@@ -319,10 +320,11 @@ impl Disk {
                                 let piece = piece_block.piece_index as u32;
                                 
                                 torrent_blocks_count.lock().await.push(piece_block.block_index);
-                                println!("writing piece index '{}', offset '{}' to file", piece_block.piece_index, piece_block.offset);
+                                tracing::debug!("downloaded block index '{}', piece index '{}', offset '{}', size '{}'", piece_block.block_index, piece_block.piece_index, piece_block.offset, piece_block.size);
                                 
                                 if let Err(e) = Disk::write_to_file(&torrent_context, piece_block).await {
-                                    eprintln!("Disk writer error: {:?}", e);
+                                    tracing::error!("Disk writer error: {:?}", e);
+                                    return;
                                 }
                                 
                                 let mut has_piece = true;
@@ -335,13 +337,15 @@ impl Disk {
 
                                 if has_piece {
                                     if let Err(e) = torrent_context.tx.send(ClientMessage::Have { piece }).await {
-                                        eprintln!("Disk writer error: {:?}", e);
+                                        tracing::error!("Disk writer error: {:?}", e);
+                                        return;
                                     }
                                 }
                                 
                                 if torrent_blocks_count.lock().await.len() == torrent_context.torrent_info.blocks_count {
                                     if let Err(e) = torrent_context.tx.send(ClientMessage::FinishedDownloading).await {
-                                        eprintln!("Disk writer error: {:?}", e);
+                                        tracing::error!("Disk writer error: {:?}", e);
+                                        return;
                                     }
                                 }
                             });
@@ -354,7 +358,7 @@ impl Disk {
 
                             let handle = tokio::spawn(async move {
                                 if let Err(e) = reader_semaphore.acquire().await {
-                                    eprintln!("Semaphore Error: {}", e);
+                                    tracing::error!("Semaphore Error: {}", e);
                                     return;
                                 }
                                 
@@ -362,11 +366,12 @@ impl Disk {
                                 match Disk::read_block(&torrent_context, piece_block).await {
                                     Ok(piece_block) => {
                                         if let Err(e) = tx.send(ClientMessage::RequestedBlock{ piece_block }).await {
-                                            eprintln!("Disk reader error: {:?}", e);
+                                            tracing::error!("Disk reader error: {:?}", e);
+                                            return;
                                         }
                                     },
                                     Err(e) => {
-                                        eprintln!("Disk reader error: {:?}", e);
+                                        tracing::error!("Disk reader error: {:?}", e);
                                     }
                                 };
                             });
@@ -410,7 +415,7 @@ impl DiskHandle {
         let disk_writer = Disk::new(rx, torrent_context);
         let join_handle = tokio::spawn(async move {
             if let Err(e) = disk_writer.run().await {
-               // println!("Disk writer error: {:?}", e);
+               tracing::error!("Disk writer error: {:?}", e);
             }
         });
 

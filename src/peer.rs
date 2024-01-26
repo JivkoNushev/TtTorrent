@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::messager::ClientMessage;
 use crate::torrent::{Sha1Hash, TorrentInfo};
-use crate::utils::{AsBytes, CommunicationPipe};
+use crate::utils::CommunicationPipe;
 
 pub mod peer_address;
 pub use peer_address::PeerAddress;  
@@ -185,6 +185,8 @@ impl Peer {
 
     async fn keep_alive(&mut self, peer_session: &mut PeerSession) -> Result<()> {
         peer_session.send(PeerMessage::KeepAlive).await?;
+        tracing::debug!("Sending keep alive to peer: '{self}'");
+
         Ok(())
     }
 
@@ -200,12 +202,10 @@ impl Peer {
     async fn interested(&mut self, peer_session: &mut PeerSession) -> Result<()> {
         peer_session.interested().await?;
         self.peer_context.am_interested = true;
-        //// println!("Interested in peer: '{self}'");
         Ok(())
     }
 
     async fn not_interested(&mut self, peer_session: &mut PeerSession) -> Result<()> {
-        //// println!("Not interested in peer: '{self}'");
         peer_session.not_interested().await?;
         self.peer_context.am_interested = false;
         Ok(())
@@ -268,7 +268,7 @@ impl Peer {
                     });
 
                     peer_session.send(PeerMessage::Request(piece_index as u32, offset as u32, size as u32)).await?;
-                    println!("Requesting block {} from peer: '{self}' with piece index {}, offset {} and size {}", block_index, piece_index, offset, size);
+                    tracing::debug!("Requesting block {} from peer: '{self}' with piece index {}, offset {} and size {}", block_index, piece_index, offset, size)
                 },
                 None => {
                     return Ok(());
@@ -290,13 +290,21 @@ impl Peer {
         Ok(peer_session)
     }
 
+    #[tracing::instrument(
+        name = "Peer::run",
+        skip(self),
+        fields(
+            peer_address = %self.peer_context.ip,
+            connection_type = ?connection_type,
+        )
+    )]
     pub async fn run(mut self, connection_type: ConnectionType, peer_session: Option<PeerSession>) -> Result<()> {
         let mut peer_session = match peer_session {
             Some(peer_session) => peer_session,
             None => self.get_peer_session(connection_type).await?,
         };
-            
-        println!("Connected to peer: '{self}'");
+        
+        tracing::info!("Peer '{self}' connected");
 
         // handshake with peer
         self.handshake(&mut peer_session).await?;
@@ -333,8 +341,6 @@ impl Peer {
                                 seeding_blocks.retain(|block| block.block_index != piece_block.block_index);
                                 
                                 *self.torrent_context.uploaded.lock().await += piece_block.data.len() as u64;
-                                let message = PeerMessage::Piece(piece_block.piece_index as u32, piece_block.offset as u32, piece_block.data.clone());
-                                println!("Sending message: {:?}", message.as_bytes());
                                 peer_session.send(PeerMessage::Piece(piece_block.piece_index as u32, piece_block.offset as u32, piece_block.data)).await?;
                             }
                         },
@@ -356,8 +362,8 @@ impl Peer {
                             }
 
                             downloading_blocks.retain(|block| block != &piece_block);
-                            println!("Canceling block {} from peer: '{self}' with piece index {}, offset {} and size {}", block_index, index, begin, length);
                             peer_session.send(PeerMessage::Cancel(index, begin, length)).await?;
+                            tracing::debug!("Canceling block {} from peer: '{self}' with piece index {}, offset {} and size {}", block_index, index, begin, length);
                         },
                         ClientMessage::Have{piece} => {
                             if !self.peer_context.having_pieces.contains(&(piece as usize)) {
@@ -404,6 +410,7 @@ impl Peer {
                         },
                         PeerMessage::Request(index, begin, length) => {
                             if self.peer_context.am_choking || !self.peer_context.interested {
+                                tracing::error!("Peer '{self}' sent request when I am choking or they are not interested");
                                 return Err(anyhow!("Peer '{self}' sent request when I am choking or they are not interested"));
                             }
                             
@@ -420,6 +427,7 @@ impl Peer {
                             };
 
                             if seeding_blocks.contains(&seeding_block) {
+                                tracing::error!("Peer '{self}' sent request for block that is already being seeded");
                                 return Err(anyhow!("Peer '{self}' sent request for block that is already being seeded"));
                             }
 
@@ -429,6 +437,7 @@ impl Peer {
                         },
                         PeerMessage::Piece(index, begin, block) => {
                             if !self.peer_context.am_interested || self.peer_context.choking {
+                                tracing::error!("Peer '{self}' sent piece block when I am not interested or they are choking");
                                 return Err(anyhow!("Peer '{self}' sent piece block when I am not interested or they are choking"));
                             }
 
@@ -445,10 +454,12 @@ impl Peer {
                             };
 
                             if downloading_blocks.is_empty() {
+                                tracing::error!("Peer '{self}' received piece block when no piece block was requested");
                                 return Err(anyhow!("Peer '{self}' received piece block when no piece block was requested"));
                             }
 
                             if !downloading_blocks.contains(&piece_block) {
+                                tracing::error!("Peer '{self}' sent wrong piece");
                                 return Err(anyhow!("Peer '{self}' sent wrong piece"));
                             }
 
@@ -470,6 +481,7 @@ impl Peer {
                             continue;
                         },
                         _ => {
+                            tracing::error!("Peer '{self}' sent invalid message");
                             return Err(anyhow!("Peer '{self}' sent invalid message"));
                         }
                     }
@@ -505,6 +517,7 @@ impl Peer {
             // file is fully downloaded and peer doesn't want to download as well
             if !self.peer_context.am_interested && self.peer_context.having_pieces.len() == self.torrent_context.torrent_info.pieces_count {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                tracing::info!("Peer '{self}' disconnected");
                 self.torrent_context.tx.send(ClientMessage::PeerDisconnected{peer_address: self.peer_context.ip}).await?;
                 break;
             }

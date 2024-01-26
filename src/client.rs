@@ -3,8 +3,8 @@ use tokio::sync::{mpsc, oneshot};
 use anyhow::{Result, Context};
 
 use crate::peer::peer_message::Handshake;
-use crate::peer::{ConnectionType, PeerHandle, PeerMessage, PeerSession};
-use crate::torrent::{Sha1Hash, TorrentContextState, TorrentHandle};
+use crate::peer::{ConnectionType, PeerMessage, PeerSession};
+use crate::torrent::{TorrentContextState, TorrentHandle};
 use crate::messager::ClientMessage;
 use crate::utils::CommunicationPipe;
 
@@ -27,7 +27,7 @@ impl ClientHandle {
 
         let join_handle = tokio::spawn(async move {
             if let Err(e) = client.run().await {
-                eprintln!("Client error: {:?}", e);
+                tracing::error!("Client::run failed: {:?}", e);
             }
         });
 
@@ -45,36 +45,36 @@ impl ClientHandle {
 
     pub async fn client_download_torrent(&mut self, src: String, dst: String) -> Result<()> {
         self.tx
-        .send(ClientMessage::Download{src, dst})
-        .await
-        .context("couldn't send a download message to the client")?;
+            .send(ClientMessage::Download{src, dst})
+            .await
+            .context("couldn't send a download message to the client")?;
 
         Ok(())
     }
 
     pub async fn client_shutdown(&mut self) -> Result<()> {
         self.tx
-        .send(ClientMessage::Shutdown)
-        .await
-        .context("couldn't send a shutdown message to the client")?;
+            .send(ClientMessage::Shutdown)
+            .await
+            .context("couldn't send a shutdown message to the client")?;
 
         Ok(())
     }
 
     pub async fn client_list_torrents(&mut self) -> Result<()> {
         self.tx
-        .send(ClientMessage::SendTorrentsInfo)
-        .await
-        .context("couldn't send a send torrent info message to the client")?;
+            .send(ClientMessage::SendTorrentsInfo)
+            .await
+            .context("couldn't send a send torrent info message to the client")?;
 
         Ok(())
     }
 
     pub async fn client_terminal_closed(&mut self) -> Result<()> {
         self.tx
-        .send(ClientMessage::TerminalClientClosed)
-        .await
-        .context("couldn't send a terminal client closed message to the client")?;
+            .send(ClientMessage::TerminalClientClosed)
+            .await
+            .context("couldn't send a terminal client closed message to the client")?;
 
         Ok(())
     }
@@ -131,51 +131,76 @@ impl Client {
     pub async fn run(mut self) -> Result<()> {
         tracing::event!(tracing::Level::INFO, "Client starting");
 
+        // load the client state
+        self.load_state().await?;
+        
         let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(crate::INTERVAL_SECS));
         let mut sending_to_terminal_client = false;
 
-        // load the client state
-        self.load_state().await?;
-
         let seeding_socket = tokio::net::TcpListener::bind("0.0.0.0:".to_owned() + crate::SEEDING_PORT).await?;
-
+        
         loop {
             tokio::select! {
                 biased;
+
                 Some(msg) = self.pipe.rx.recv() => {
                     match msg {
                         ClientMessage::Shutdown => {
                             for torrent_handle in &mut self.torrent_handles {
-                                let _ = torrent_handle.shutdown().await;
+                                if let Err(e) = torrent_handle.shutdown().await {
+                                    tracing::error!("Failed to shutdown torrent handle: {:?}", e);
+                                }
                             }
                             break;
                         },
                         ClientMessage::Download{src, dst} => {
-                            let torrent_handle = TorrentHandle::new(self.client_id, &src, &dst).await?;
+                            let torrent_handle = match TorrentHandle::new(self.client_id, &src, &dst).await {
+                                Ok(handle) => handle,
+                                Err(e) => {
+                                    tracing::error!("Failed to create torrent handle: {:?}", e);
+                                    continue;
+                                }
+                            };
+
                             self.torrent_handles.push(torrent_handle);
                         },
                         ClientMessage::SendTorrentsInfo => {
                             sending_to_terminal_client = true;
-                            println!("Sending torrents true");
+                            tracing::debug!("Sending torrents info to terminal clients");
                         },
                         ClientMessage::TerminalClientClosed => {
                             sending_to_terminal_client = false;
+                            tracing::debug!("Stopped sending torrents info to terminal clients");
                         },
-                        _ => {}
+                        _ => {
+                            tracing::warn!("Received unimportant message in client: {:?}", msg);
+                        },
                     }
                 }
                 Ok((socket, _)) = seeding_socket.accept() => {
-                    // TODO: use handshake::default
-                    let mut peer_session = PeerSession::new(socket, ConnectionType::Incoming, Handshake::new(Sha1Hash([0; 20]), [0; 20])).await;
+                    let mut peer_session = PeerSession::new(socket, ConnectionType::Incoming, Handshake::default()).await;
 
-                    let handshake = peer_session.recv_handshake().await?;
-                    let handshake = PeerMessage::as_handshake(&handshake)?;
-
-                    peer_session.peer_handshake = handshake;
+                    peer_session.peer_handshake = match peer_session.recv_handshake().await {
+                        Ok(handshake) => {
+                            match PeerMessage::as_handshake(&handshake) {
+                                Ok(handshake) => handshake,
+                                Err(e) => {
+                                    tracing::error!("Failed to convert peer message to handshake: {:?}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to receive handshake from peer incoming connection: {:?}", e);
+                            continue;
+                        }
+                    };
 
                     for torrent_handle in self.torrent_handles.iter_mut() {
-                        if torrent_handle.torrent_info_hash == Sha1Hash::new(&peer_session.peer_handshake.info_hash) {
-                            torrent_handle.add_peer_session(peer_session).await?;
+                        if torrent_handle.torrent_info_hash.as_bytes() == &peer_session.peer_handshake.info_hash {
+                            if let Err(e) = torrent_handle.add_peer_session(peer_session).await {
+                                tracing::error!("Failed to add peer session to torrent handle: {:?}", e);
+                            }
                             break;
                         }
                     }
@@ -190,33 +215,42 @@ impl Client {
 
                     for torrent_handle in &mut self.torrent_handles {
                         let (tx, rx) = oneshot::channel();
-                        torrent_handle.send_torrent_info(tx).await?;
+                        if let Err(e) = torrent_handle.send_torrent_info(tx).await {
+                            tracing::error!("Failed to send torrent info to torrent handle: {:?}", e);
+                            continue;
+                        }
 
                         torrent_rxs.push(rx);
                     }
 
                     for rx in torrent_rxs {
-                        let torrent_state = rx.await?;
+                        let torrent_state = match rx.await {
+                            Ok(state) => state,
+                            Err(e) => {
+                                tracing::error!("Failed to receive torrent state from torrent handle: {:?}", e);
+                                continue;
+                            }
+                        };
+
                         torrent_states.push(torrent_state);
                     }
 
                     if !torrent_states.is_empty() {
-                        self.pipe.tx.send(ClientMessage::TorrentsInfo{torrents: torrent_states}).await?;
+                        if let Err(e) = self.pipe.tx.send(ClientMessage::TorrentsInfo{torrents: torrent_states}).await {
+                            tracing::error!("Failed to send torrents info to terminal client: {:?}", e);
+                        }
                     }
-                }
-                else => {
-                    break;
                 }
             }
         }
 
         for torrent_handle in self.torrent_handles {
             if let Err(e) = torrent_handle.join().await {
-                eprintln!("Failed to join torrent handle: {:?}", e);
+                tracing::error!("Failed to join torrent handle: {:?}", e);
             }
         }
 
-        println!("Client stopping");
+        tracing::event!(tracing::Level::INFO, "Client gracefull shutdown");
 
         Ok(())
     }

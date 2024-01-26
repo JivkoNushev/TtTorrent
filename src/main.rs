@@ -5,38 +5,32 @@ use torrent_client::client::ClientHandle;
 use torrent_client::messager::{TerminalClientMessage, ClientMessage, ExitCode};
 use torrent_client::utils::valid_src_and_dst;
 
+use std::path::Path;
+
 mod terminal_utils;
 use crate::terminal_utils::TerminalClient;
 
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    // ------------------------ setup tracing ------------------------
     let subscriber = tracing_subscriber::fmt()
-        // Use a more compact, abbreviated log format
-        .compact()
-        // Display source code file paths
-        .with_file(true)
-        // Display source code line numbers
-        .with_line_number(true)
-        // Display the thread ID an event was recorded on
-        .with_thread_ids(true)
-        // Don't display the event's target (module path)
-        .with_target(false)
-        // Build the subscriber
+        .with_max_level(torrent_client::TRACING_LEVEL)
+        .pretty()
         .finish();
 
-    // use that subscriber to process traces emitted after this point
     tracing::subscriber::set_global_default(subscriber)?;
-    
+
     // ------------------------ create socket for client ------------------------
 
-    // remove socket if it exists and create new one
-    let path = std::path::Path::new(torrent_client::SOCKET_PATH);
+    let sock_path = Path::new(torrent_client::SOCKET_PATH);
 
-    let _ = tokio::fs::remove_file(path).await;
-    let client_socket = LocalSocketListener::bind(path).context("couldn't bind to local socket")?;
+    // remove socket if it exists and create new one
+    let _ = tokio::fs::remove_file(sock_path).await;
+    let client_socket = LocalSocketListener::bind(sock_path).context("couldn't bind to local socket")?;
 
     let mut terminal_client_sockets: Vec<TerminalClient> = Vec::new();
+
     // ------------------------ create client ------------------------
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(torrent_client::MAX_CHANNEL_SIZE);
     let mut client = ClientHandle::new(tx);
@@ -48,17 +42,25 @@ async fn main() -> Result<()> {
         tokio::select! {
             biased;
             _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Ctrl-C received, shutting down");
                 break;
             },
             Ok(socket) = client_socket.accept() => {
-                println!("new terminal client connected");
-                let mut terminal_client = TerminalClient{socket, client_id: 0};
+                tracing::debug!("Terminal Client connection established");
+                let pid = match socket.peer_pid() {
+                    Ok(pid) => pid,
+                    Err(e) => {
+                        tracing::error!("Failed to get pid of Terminal Client: {}", e);
+                        continue;
+                    }
+                };
 
+                let mut terminal_client = TerminalClient{socket, pid};
                 let message = match terminal_client.recv_message().await {
                     Ok(message) => message,
                     Err(e) => {
-                        terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != terminal_client.client_id);
-                        eprintln!("Failed to read from local socket: {}", e);
+                        terminal_client_sockets.retain(|client| client.pid != terminal_client.pid);
+                        tracing::error!("Failed to receive message from Terminal Client {}: {}", terminal_client.pid, e);
                         continue;
                     }
                 };
@@ -69,27 +71,30 @@ async fn main() -> Result<()> {
                     },
                     TerminalClientMessage::Download{src, dst} => {
                         if !valid_src_and_dst(&src, &dst) {
-                            terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::InvalidSrcOrDst }).await?;
-                            return Err(anyhow!("Invalid src or dst"));
+                            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::InvalidSrcOrDst }).await {
+                                tracing::error!("Failed to send status message to Terminal Client {}: {}", terminal_client.pid, e);
+                            }
+                            tracing::error!("Invalid torrent file source path or destination received: {} {}", src, dst);
                         }
                         if let Err(e) = client.client_download_torrent(src, dst).await {
-                            terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::InvalidSrcOrDst }).await?;
+                            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::InvalidSrcOrDst }).await {
+                                tracing::error!("Failed to send status message to Terminal Client {}: {}", terminal_client.pid, e);
+                            }
                             return Err(anyhow!("Failed to send download message to client: {}", e));
                         }
 
-                        terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::SUCCESS }).await?;
+                        if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::SUCCESS }).await {
+                            tracing::error!("Failed to send status message to Terminal Client {}: {}", terminal_client.pid, e);
+                        }
                     },
-                    TerminalClientMessage::ListTorrents{client_id} => {
-                        println!("client id: {}", client_id);
+                    TerminalClientMessage::ListTorrents => {
                         if terminal_client_sockets.is_empty() {
                             client.client_list_torrents().await?;
                         }
-
-                        terminal_client.client_id = client_id;
                         terminal_client_sockets.push(terminal_client);
                     },
-                    TerminalClientMessage::TerminalClientClosed{client_id} => {
-                        terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != client_id);
+                    TerminalClientMessage::TerminalClientClosed => {
+                        terminal_client_sockets.retain(|client| client.pid != terminal_client.pid);
 
                         if terminal_client_sockets.is_empty() {
                             client.client_terminal_closed().await?;
@@ -97,31 +102,33 @@ async fn main() -> Result<()> {
                     },
                     _ => {}
                 }
-
-                println!("terminal client disconnected");
+                tracing::debug!("Terminal Client connection closed");
             },
             Some(client_message) = rx.recv() => {
                 match client_message {
                     ClientMessage::TorrentsInfo{torrents} => {
                         let message = TerminalClientMessage::TorrentsInfo{torrents};
+
+                        let mut clients_to_retain = Vec::new();
                         for terminal_client in terminal_client_sockets.iter_mut() {
                             if let Err(e) = terminal_client.send_message(&message).await {
-                                terminal_client_sockets.retain(|terminal_client| terminal_client.client_id != terminal_client.client_id);
-                                
-                                if terminal_client_sockets.is_empty() {
-                                    client.client_terminal_closed().await?;
-                                }
-                                
-                                eprintln!("Failed to write to local socket: {}", e);
-                                break;
+                                clients_to_retain.push(terminal_client.pid);
+                                tracing::error!("Failed to send torrents info message to Terminal Client {}: {}", terminal_client.pid, e);                                  
                             }
+                        }
+
+                        terminal_client_sockets.retain(|client| !clients_to_retain.contains(&client.pid));
+
+                        if terminal_client_sockets.is_empty() {
+                            client.client_terminal_closed().await?;
                         }
                     },
                     ClientMessage::Shutdown => {
+                        tracing::info!("Received shutdown message in main loop, shutting down");
                         break;
                     },
                     _ => {
-                        eprintln!("Received invalid message from client");
+                        tracing::error!("Received invalid message from client");
                     }
                 }
             },
@@ -129,7 +136,7 @@ async fn main() -> Result<()> {
     }
 
     client.client_shutdown().await?;
-    let _ = tokio::fs::remove_file(path).await;
+    let _ = tokio::fs::remove_file(sock_path).await;
 
     client.join().await?;
 

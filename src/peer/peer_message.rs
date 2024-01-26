@@ -4,7 +4,7 @@ use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use crate::torrent::Sha1Hash;
 use crate::utils::{AsBytes, is_zero_aligned};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Handshake {
     pub protocol_len: u8,
     pub protocol: [u8; 19],
@@ -213,7 +213,7 @@ impl PeerSession {
     }
 
     pub async fn handshake(&mut self, info_hash: Sha1Hash, client_id: [u8; 20], bitfield: Vec<u8>) -> Result<()> {
-        let peer_id = match self.connection_type {
+        match self.connection_type {
             ConnectionType::Outgoing => {
                 self.outgoing_handshake(info_hash.clone(), client_id).await?;
                 let incoming_handshake = self.incoming_handshake(info_hash).await?;
@@ -221,7 +221,6 @@ impl PeerSession {
                 self.peer_handshake = incoming_handshake;
             }
             ConnectionType::Incoming => {
-                // let incoming_handshake = self.incoming_handshake(info_hash.clone()).await?;
                 self.outgoing_handshake(info_hash, client_id).await?;
             }
         };

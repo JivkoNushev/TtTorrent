@@ -12,7 +12,7 @@ use torrent_client::torrent::TorrentContextState;
 
 pub struct TerminalClient {
     pub socket: LocalSocketStream,
-    pub client_id: u32,
+    pub pid: u32,
 }
 
 impl TerminalClient {
@@ -241,7 +241,7 @@ async fn main() {
         exit(0);
     }
 
-    let mut terminal_client = TerminalClient{socket: create_client_socket().await, client_id: std::process::id()};
+    let mut terminal_client = TerminalClient{socket: create_client_socket().await, pid: std::process::id()};
 
     match args[1].as_str() {
         "download" => {
@@ -279,7 +279,7 @@ async fn main() {
                 exit(1);
             }
 
-            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::ListTorrents{client_id: terminal_client.client_id}).await {
+            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::ListTorrents).await {
                 eprintln!("Failed to send list torrents message to client: {}", e);
                 exit(1);
             }

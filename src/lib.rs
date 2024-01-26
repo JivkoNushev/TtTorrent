@@ -7,6 +7,7 @@ pub mod disk;
 pub mod utils;
 
 pub const DEBUG_MODE: bool = true;
+pub const TRACING_LEVEL: tracing::Level = tracing::Level::DEBUG;
 pub const MAX_CHANNEL_SIZE: usize = 100;
 pub const INTERVAL_SECS: u64 = 3;
 pub const BLOCK_SIZE: usize = 1 << 14;
