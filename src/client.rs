@@ -120,7 +120,17 @@ impl Client {
         Ok(())
     }
 
+
+    #[tracing::instrument(
+        name = "ClientHandler::run",
+        skip(self),
+        fields(
+            client_id = String::from_utf8(self.client_id.to_vec()).unwrap_or_else(|_| "invalid client id".to_string())
+        ),
+    )]
     pub async fn run(mut self) -> Result<()> {
+        tracing::event!(tracing::Level::INFO, "Client starting");
+
         let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(crate::INTERVAL_SECS));
         let mut sending_to_terminal_client = false;
 
