@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::messager::ClientMessage;
 use crate::torrent::{Sha1Hash, TorrentInfo};
-use crate::utils::CommunicationPipe;
+use crate::utils::{AsBytes, CommunicationPipe};
 
 pub mod peer_address;
 pub use peer_address::PeerAddress;  
@@ -331,8 +331,10 @@ impl Peer {
                         ClientMessage::RequestedBlock{piece_block} => {
                             if seeding_blocks.iter().any(|block| block.block_index == piece_block.block_index) {
                                 seeding_blocks.retain(|block| block.block_index != piece_block.block_index);
-
-                                *self.torrent_context.uploaded.lock().await += piece_block.size as u64;
+                                
+                                *self.torrent_context.uploaded.lock().await += piece_block.data.len() as u64;
+                                let message = PeerMessage::Piece(piece_block.piece_index as u32, piece_block.offset as u32, piece_block.data.clone());
+                                println!("Sending message: {:?}", message.as_bytes());
                                 peer_session.send(PeerMessage::Piece(piece_block.piece_index as u32, piece_block.offset as u32, piece_block.data)).await?;
                             }
                         },
@@ -455,7 +457,7 @@ impl Peer {
                             piece_block.data = block;
 
                             // send it to the client and remove it from the downloading blocks
-                            *self.torrent_context.downloaded.lock().await += piece_block.size as u64;
+                            *self.torrent_context.downloaded.lock().await += piece_block.data.len() as u64;
                             self.disk_tx.send(ClientMessage::DownloadedBlock{ piece_block }).await?;
                         },
                         PeerMessage::Cancel(index, begin, length) => {

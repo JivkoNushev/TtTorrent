@@ -63,7 +63,11 @@ impl AsBytes for PeerMessage {
                 data
             },
             PeerMessage::Bitfield(bitfield) => {
-                let mut data = vec![0, 0, 0, 1 + bitfield.len() as u8, 5];
+                let size = (1 + bitfield.len()) as u32;
+                let mut data = Vec::new();
+                
+                data.extend_from_slice(size.to_be_bytes().as_ref());
+                data.push(5);
                 data.extend_from_slice(&bitfield);
 
                 data
@@ -77,7 +81,11 @@ impl AsBytes for PeerMessage {
                 data
             },
             PeerMessage::Piece(index, begin, block) => {
-                let mut data = vec![0, 0, 0, 9 + block.len() as u8, 7];
+                let size = (9 + block.len()) as u32;
+                let mut data = Vec::new();
+
+                data.extend_from_slice(size.to_be_bytes().as_ref());
+                data.push(7);
                 data.extend_from_slice(&index.to_be_bytes());
                 data.extend_from_slice(&begin.to_be_bytes());
                 data.extend_from_slice(&block);
