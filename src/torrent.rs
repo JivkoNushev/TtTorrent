@@ -223,7 +223,7 @@ impl Torrent {
             Arc::clone(&torrent_info),
         );
 
-        let disk_handle = DiskHandle::new(torrent_context, blocks_left.len());
+        let disk_handle = DiskHandle::new(torrent_context);
         
 
         let needed = BlockPicker::new(blocks_left, pieces_left, Arc::clone(&torrent_info));
@@ -269,7 +269,7 @@ impl Torrent {
         );
         let torrent_blocks_count = torrent_state.needed.needed_blocks.len();
         
-        let disk_handle = DiskHandle::new(disk_torrent_context, torrent_blocks_count);
+        let disk_handle = DiskHandle::new(disk_torrent_context);
         
         let torrent_context = TorrentContext::from_state(torrent_state, connection_type);
         Ok(Self {
@@ -308,8 +308,8 @@ impl Torrent {
                 self.torrent_context.info_hash.clone(),
                 Arc::clone(&self.torrent_context.needed),
                 Arc::clone(&self.torrent_context.bitfield),
-                Arc::clone(&self.torrent_context.downloaded),
                 Arc::clone(&self.torrent_context.uploaded),
+                Arc::clone(&self.torrent_context.downloaded),
             );
 
             let peer_handle = PeerHandle::new(
@@ -402,9 +402,11 @@ impl Torrent {
                         ClientMessage::Have { piece } => {
                             self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
 
-                            for peer_handle in &mut self.peer_handles {
-                                let _ = peer_handle.have(piece as u32).await;
-                            }                          
+
+                            // FIX: This blocks the program ??
+                            // for peer_handle in &mut self.peer_handles {
+                            //     let _ = peer_handle.have(piece).await;
+                            // }                          
                         },
                         ClientMessage::Request { piece_block, tx } => {
                             self.disk_handle.read_block(piece_block, tx).await.context("sending to disk handle")?;

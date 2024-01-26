@@ -1,6 +1,6 @@
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{mpsc, Mutex, Semaphore};
 use anyhow::{anyhow, Result};
 
 use std::collections::BTreeMap;
@@ -45,16 +45,16 @@ impl DiskTorrentContext {
 
 struct Disk {
     rx: mpsc::Receiver<ClientMessage>,
-    torrent_blocks_count: usize,
+    torrent_blocks_count: Arc<Mutex<Vec<usize>>>,
 
     torrent_context: Arc<DiskTorrentContext>,
 }
 
 impl Disk {
-    pub fn new(rx: mpsc::Receiver<ClientMessage>, torrent_context: DiskTorrentContext, torrent_blocks_count: usize) -> Self {
+    pub fn new(rx: mpsc::Receiver<ClientMessage>, torrent_context: DiskTorrentContext) -> Self {
         Self {
             rx,
-            torrent_blocks_count,
+            torrent_blocks_count: Arc::new(Mutex::new(Vec::new())),
 
             torrent_context: Arc::new(torrent_context),
         }
@@ -200,7 +200,6 @@ impl Disk {
 
             tokio::fs::create_dir_all(file_dir).await.unwrap(); // file_dir is always a directory
             
-            println!("not writing: {:?}", file_path);
             let mut fd = tokio::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -302,31 +301,52 @@ impl Disk {
                             break;
                         },
                         ClientMessage::DownloadedBlock{ piece_block } => {
-                            if self.torrent_blocks_count == 0 {
+                            if self.torrent_blocks_count.lock().await.len() == self.torrent_context.torrent_info.blocks_count {
                                 continue;
                             }
 
-                            // TODO: maybe save the pieces indexes somewhere and if the client crashes download them again
                             let writer_semaphore = Arc::clone(&writer_semaphore);
                             let torrent_context = Arc::clone(&self.torrent_context);
+                            let torrent_blocks_count = Arc::clone(&self.torrent_blocks_count);
 
                             let handle = tokio::spawn(async move {
                                 if let Err(e) = writer_semaphore.acquire().await {
                                     eprintln!("Semaphore Error: {}", e);
                                     return;
                                 }
+
+                                let block_numbers_in_current_piece = (piece_block.piece_index * torrent_context.torrent_info.blocks_in_piece..piece_block.piece_index * torrent_context.torrent_info.blocks_in_piece + torrent_context.torrent_info.get_blocks_in_specific_piece(piece_block.piece_index)).collect::<Vec<usize>>();
+                                let piece = piece_block.piece_index as u32;
+                                
+                                torrent_blocks_count.lock().await.push(piece_block.block_index);
                                 println!("writing piece index '{}', offset '{}' to file", piece_block.piece_index, piece_block.offset);
+                                
                                 if let Err(e) = Disk::write_to_file(&torrent_context, piece_block).await {
                                     eprintln!("Disk writer error: {:?}", e);
+                                }
+                                
+                                let mut has_piece = true;
+                                for block in block_numbers_in_current_piece {
+                                    if !torrent_blocks_count.lock().await.contains(&block) {
+                                        has_piece = false;
+                                        break
+                                    }
+                                };
+
+                                if has_piece {
+                                    if let Err(e) = torrent_context.tx.send(ClientMessage::Have { piece }).await {
+                                        eprintln!("Disk writer error: {:?}", e);
+                                    }
+                                }
+                                
+                                if torrent_blocks_count.lock().await.len() == torrent_context.torrent_info.blocks_count {
+                                    if let Err(e) = torrent_context.tx.send(ClientMessage::FinishedDownloading).await {
+                                        eprintln!("Disk writer error: {:?}", e);
+                                    }
                                 }
                             });
 
                             writer_handles.push(handle);
-
-                            self.torrent_blocks_count -= 1;
-                            if self.torrent_blocks_count == 0 {
-                                self.torrent_context.tx.send(ClientMessage::FinishedDownloading).await?;
-                            }
                         },
                         ClientMessage::Request{ piece_block, tx } => {
                             let reader_semaphore = Arc::clone(&reader_semaphore);
@@ -382,12 +402,12 @@ pub struct DiskHandle {
 }
 
 impl DiskHandle {
-    pub fn new(torrent_context: DiskTorrentContext, torrent_blocks_count: usize) -> Self {
+    pub fn new(torrent_context: DiskTorrentContext) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
         let torrent_name = torrent_context.torrent_name.clone();
 
-        let disk_writer = Disk::new(rx, torrent_context, torrent_blocks_count);
+        let disk_writer = Disk::new(rx, torrent_context);
         let join_handle = tokio::spawn(async move {
             if let Err(e) = disk_writer.run().await {
                // println!("Disk writer error: {:?}", e);

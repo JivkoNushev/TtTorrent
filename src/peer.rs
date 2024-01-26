@@ -332,6 +332,7 @@ impl Peer {
                             if seeding_blocks.iter().any(|block| block.block_index == piece_block.block_index) {
                                 seeding_blocks.retain(|block| block.block_index != piece_block.block_index);
 
+                                *self.torrent_context.uploaded.lock().await += piece_block.size as u64;
                                 peer_session.send(PeerMessage::Piece(piece_block.piece_index as u32, piece_block.offset as u32, piece_block.data)).await?;
                             }
                         },

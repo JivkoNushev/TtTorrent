@@ -51,4 +51,10 @@ impl TorrentInfo {
 
         if length > 0 { length as usize } else { self.block_length }
     }
+
+    pub fn get_blocks_in_specific_piece(&self, index: usize) -> usize {
+        let piece_length = self.get_specific_piece_length(index);
+
+        piece_length.div_ceil(self.block_length)
+    }
 }
