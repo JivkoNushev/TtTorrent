@@ -68,6 +68,8 @@ async fn main() -> Result<()> {
                 match message {
                     TerminalClientMessage::Shutdown => {
                         client.client_shutdown().await?;
+                        tracing::info!("Received shutdown message in main loop, shutting down");
+                        break;
                     },
                     TerminalClientMessage::Download{src, dst} => {
                         if !valid_src_and_dst(&src, &dst) {

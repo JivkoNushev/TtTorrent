@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use futures::{AsyncBufReadExt, AsyncWriteExt, AsyncReadExt};
 use interprocess::local_socket::tokio::LocalSocketStream;
 use anyhow::{anyhow, Result};
@@ -229,14 +231,14 @@ async fn main() {
         // TODO: doesn't work on unix
 
         // start target\debug\tttorrent-daemon.exe not as a child process but as a daemon
-        let path = format!("{}/target/debug/tttorrent-daemon.exe", std::env::current_dir().unwrap().to_str().unwrap());
+        let path = format!("{}/target/debug/tttorrent-daemon", std::env::current_dir().unwrap().to_str().unwrap());
         let daemon_path = std::path::Path::new(&path);
 
         let _ = Command::new(daemon_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
 
         exit(0);
     }
@@ -288,6 +290,18 @@ async fn main() {
                 eprintln!("Failed to list torrents: {}", e);
                 exit(1);
             }
+        },
+        "stop" => {
+            if args.len() != 2 {
+                eprintln!("[Error] Invalid number of arguments provided");
+                println!("Usage: tttorrent stop");
+
+                exit(1);
+            }
+
+            while let Ok(_) = terminal_client.send_message(&TerminalClientMessage::Shutdown).await {}
+            
+            println!("Stopping client daemon...");
         },
         _ => {
             eprintln!("[Error] Invalid command");
