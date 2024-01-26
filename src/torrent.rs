@@ -161,6 +161,8 @@ impl Torrent {
         
         client_state[torrent_info_hash.to_hex()] = torrent_context;
 
+        let client_state = serde_json::to_vec_pretty(&client_state).unwrap();
+
         let client_state = serde_json::to_string_pretty(&client_state).unwrap(); // client state is always valid json
 
         tokio::fs::write(state_file, client_state).await.context("couldn't write to client state file")?;
@@ -186,11 +188,11 @@ impl Torrent {
         // not downloaded piece indexes
         let pieces_left = {
             let torrent_dict = torrent_file.get_bencoded_dict_ref().try_into_dict()?;
-            let info_dict = match torrent_dict.get("info") {
+            let info_dict = match torrent_dict.get(&b"info".to_vec()) {
                 Some(info_dict) => info_dict,
                 None => return Err(anyhow!("Could not get info dict from torrent file ref: {}", torrent_name))
             };
-            let pieces = info_dict.get_from_dict("pieces")?;
+            let pieces = info_dict.get_from_dict(b"pieces")?;
 
             let pieces = match pieces {
                 BencodedValue::ByteSha1Hashes(pieces) => pieces,

@@ -164,7 +164,7 @@ pub struct Tracker {
 
 impl Tracker {
     pub fn from_torrent_file(torrent_file: &TorrentFile) -> Result<Tracker> {
-        let tracker_announce = torrent_file.get_bencoded_dict_ref().get_from_dict("announce")?;
+        let tracker_announce = torrent_file.get_bencoded_dict_ref().get_from_dict(b"announce")?;
     
         let tracker_announce = match tracker_announce {
             BencodedValue::ByteString(tracker_announce) => tracker_announce,

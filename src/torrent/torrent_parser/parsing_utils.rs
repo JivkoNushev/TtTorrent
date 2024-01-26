@@ -41,10 +41,7 @@ pub fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Result<Vec<u8>> {
         bencoded_string.push(b':');
 
         // append key
-        let mut key = key
-            .clone()
-            .as_bytes()
-            .to_vec();
+        let mut key = key.clone();
 
         bencoded_string.append(&mut key);
 
@@ -285,7 +282,7 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> Result<Bencode
     *cur_index += 1;
 
     let mut dict = BTreeMap::new();
-    let mut key = String::new();
+    let mut key = Vec::new();
     loop {
         if torrent_file_len <= *cur_index {
             return Err(anyhow!("Invalid torrent file: too short"));
@@ -313,10 +310,10 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> Result<Bencode
                 *cur_index += word_len_chars_len + 1; // + 1 for the ':' byte
         
                 if key.is_empty() {
-                    key = String::from_utf8(torrent_file[*cur_index..*cur_index + word_len].to_vec())?;
+                    key = torrent_file[*cur_index..*cur_index + word_len].to_vec();
                 }
                 else {
-                    if key == "pieces" {
+                    if key == b"pieces" {
                         if word_len % 20 != 0 {
                             return Err(anyhow!("[Error] Invalid number of bytes in pieces"));
                         }
@@ -334,7 +331,7 @@ pub fn create_dict(torrent_file: &[u8], cur_index: &mut usize) -> Result<Bencode
 
                         dict.insert(key.clone(), BencodedValue::ByteSha1Hashes(sha1_hashes));
                     }
-                    else if key == "peers" {
+                    else if key == b"peers" {
                         if word_len % 6 != 0 {
                             return Err(anyhow!("[Error] Invalid number of bytes in peers"));
                         }
