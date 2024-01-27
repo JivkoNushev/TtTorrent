@@ -1,5 +1,6 @@
 use percent_encoding::percent_encode;
 use serde::{Serialize, Deserialize};
+use anyhow::{anyhow, Result};
 
 use crate::utils::UrlEncodable;
 
@@ -16,6 +17,14 @@ impl UrlEncodable for Sha1Hash {
 impl Sha1Hash {
     pub fn new(hash: &[u8; 20]) -> Sha1Hash {
         Sha1Hash(*hash)
+    }
+
+    pub fn from_hex(hex: &str) -> Result<Sha1Hash> {
+        let bytes = hex::decode(hex)?;
+        if bytes.len() != 20 {
+            return Err(anyhow!("invalid sha1 hash length"));
+        }
+        Ok(Sha1Hash(bytes.try_into().unwrap()))
     }
 
     pub fn as_bytes(&self) -> &[u8; 20] {

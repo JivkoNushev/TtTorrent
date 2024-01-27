@@ -1,5 +1,6 @@
 use serde::{Serialize, Deserialize};
 use tokio::sync::Mutex;
+use anyhow::{Context, Result};
 
 use std::sync::Arc;
 
@@ -13,8 +14,6 @@ pub struct TorrentContextState {
     pub src_path: String,
     pub dest_path: String,
     pub torrent_name: String,
-    pub torrent_file: TorrentFile,
-    pub info_hash: Sha1Hash,
     pub needed: BlockPickerState,
     pub bitfield: Vec<u8>,
     pub peers: Vec<PeerAddress>,
@@ -32,8 +31,6 @@ impl TorrentContextState {
             src_path: torrent_context.src_path,
             dest_path: torrent_context.dest_path,
             torrent_name: torrent_context.torrent_name,
-            torrent_file: (*torrent_context.torrent_file).clone(),
-            info_hash: torrent_context.info_hash,
             needed,
             bitfield: torrent_context.bitfield.lock().await.clone(),
             peers: torrent_context.peers,
@@ -65,17 +62,23 @@ pub struct TorrentContext {
 }
 
 impl TorrentContext {
-    pub fn from_state(torrent_state: TorrentContextState, connection_type: ConnectionType) -> Self {
+    pub async fn from_state(torrent_state: TorrentContextState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
         let needed = BlockPicker::from_state(torrent_state.needed);
 
-        Self {
+        let torrent_file_path = format!("{}/{}.torrent", crate::STATE_TORRENT_FILES_PATH, torrent_state.torrent_name);
+        let path = std::path::Path::new(&torrent_file_path);
+
+        let torrent_file = TorrentFile::new(path).await.context("couldn't create TorrentFile")?;
+
+
+        Ok(Self {
             connection_type,
 
             src_path: torrent_state.src_path,
             dest_path: torrent_state.dest_path,
             torrent_name: torrent_state.torrent_name,
-            torrent_file: Arc::new(torrent_state.torrent_file),
-            info_hash: torrent_state.info_hash,
+            torrent_file: Arc::new(torrent_file),
+            info_hash: info_hash,
             needed: Arc::new(Mutex::new(needed)),
             bitfield: Arc::new(Mutex::new(torrent_state.bitfield)),
             peers: torrent_state.peers,
@@ -84,6 +87,6 @@ impl TorrentContext {
 
             downloaded: Arc::new(Mutex::new(torrent_state.downloaded)),
             uploaded: Arc::new(Mutex::new(torrent_state.uploaded)),
-        }
+        })
     }
 }

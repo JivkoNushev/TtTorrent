@@ -11,7 +11,7 @@ use super::Sha1Hash;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BencodedValue {
     /// Represents a Bencoded dictionary (key-value pairs).
-    Dict(BTreeMap<String, BencodedValue>),
+    Dict(BTreeMap<Vec<u8>, BencodedValue>),
 
     /// Represents a Bencoded list of values.
     List(Vec<BencodedValue>),
@@ -30,7 +30,7 @@ pub enum BencodedValue {
 }
 
 impl BencodedValue {
-    pub fn try_into_dict(&self) -> Result<&BTreeMap<String, BencodedValue>> {
+    pub fn try_into_dict(&self) -> Result<&BTreeMap<Vec<u8>, BencodedValue>> {
         match self {
             BencodedValue::Dict(d) => Ok(d),
             _ => Err(anyhow!("Trying to convert a non-bencoded dictionary"))
@@ -65,7 +65,7 @@ impl BencodedValue {
         }
     }
 
-    pub fn insert_into_dict(&mut self, key: String, value: BencodedValue) {
+    pub fn insert_into_dict(&mut self, key: Vec<u8>, value: BencodedValue) {
         if let BencodedValue::Dict(d) = self {
             d.insert(key, value);
         }
@@ -77,7 +77,7 @@ impl BencodedValue {
         }
     }
 
-    pub fn get_from_dict(&self, key: &str) -> Result<BencodedValue> {
+    pub fn get_from_dict(&self, key: &[u8]) -> Result<BencodedValue> {
         let dict = self.try_into_dict()?;
 
         match dict.get(key) {
@@ -101,11 +101,11 @@ impl BencodedValue {
             Err(_) => return false
         };
 
-        if ["announce", "info"].iter().any(|key| !dict.contains_key(*key)) {
+        if [b"announce".to_vec(), b"info".to_vec()].iter().any(|key| !dict.contains_key(key)) {
             return false;
         }
 
-        let info = match dict.get("info") {
+        let info = match dict.get(&b"info".to_vec()) {
             Some(info) => {
                 match info {
                     BencodedValue::Dict(info) => info,
@@ -119,17 +119,17 @@ impl BencodedValue {
             }
         };
 
-        if ["name", "piece length", "pieces"].iter().any(|key| !info.contains_key(*key)) {
+        if [b"name".to_vec(), b"piece length".to_vec(), b"pieces".to_vec()].iter().any(|key| !info.contains_key(key)) {
             return false;
         }
 
-        if  ["files", "length"].iter().all(|key| !info.contains_key(*key)) ||
-            ["files", "length"].iter().all(|key| info.contains_key(*key)) {
+        if  [b"files".to_vec(), b"length".to_vec()].iter().all(|key| !info.contains_key(key)) ||
+            [b"files".to_vec(), b"length".to_vec()].iter().all(|key| info.contains_key(key)) {
             return false;
         }
 
-        if info.contains_key("files") {
-            let files = match info.get("files") {
+        if info.contains_key(&b"files".to_vec()) {
+            let files = match info.get(&b"files".to_vec()) {
                 Some(files) => {
                     match files {
                         BencodedValue::List(files) => files,
@@ -147,7 +147,7 @@ impl BencodedValue {
             .iter()
             .all(|file| {
                 match file {
-                    BencodedValue::Dict(d) => ["length", "path"].iter().all(|key| d.contains_key(*key)),
+                    BencodedValue::Dict(d) => [&b"length".to_vec(), &b"path".to_vec()].iter().all(|key| d.contains_key(&key.to_vec())),
                     _ => false
                 }
             });

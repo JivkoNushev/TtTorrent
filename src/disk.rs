@@ -77,16 +77,16 @@ impl Disk {
         Ok(piece_size)
     }
 
-    fn get_files(torrent_context: &DiskTorrentContext) -> Result<Vec<BTreeMap<String, BencodedValue>>> {
+    fn get_files(torrent_context: &DiskTorrentContext) -> Result<Vec<BTreeMap<Vec<u8>, BencodedValue>>> {
         let torrent_dict = torrent_context.torrent_file.get_bencoded_dict_ref().try_into_dict()?;
-        let info_dict = match torrent_dict.get("info") {
+        let info_dict = match torrent_dict.get(&b"info".to_vec()) {
             Some(info_dict) => info_dict,
             None => return Err(anyhow!("Could not get info dict from torrent file ref: {}", torrent_context.torrent_name))
         };
         
         let mut all_files = Vec::new();
 
-        if let Ok(files_dict) = info_dict.get_from_dict("files") {
+        if let Ok(files_dict) = info_dict.get_from_dict(b"files") {
             let files = files_dict.try_into_list()?;
 
             for file in files {
@@ -95,16 +95,16 @@ impl Disk {
             }
         }
         else {
-            let file_name = info_dict.get_from_dict("name")?;
+            let file_name = info_dict.get_from_dict(b"name")?;
             let file_name = file_name.try_into_byte_string()?;
 
-            let length = info_dict.get_from_dict("length")?;
+            let length = info_dict.get_from_dict(b"length")?;
             let length = length.try_into_integer()?;
 
             let mut file_dict = BTreeMap::new();
             let path = BencodedValue::List(vec![BencodedValue::ByteString(file_name.clone())]);
-            file_dict.insert("path".to_string(), path);
-            file_dict.insert("length".to_string(), BencodedValue::Integer(length.clone()));
+            file_dict.insert(b"path".to_vec(), path);
+            file_dict.insert(b"length".to_vec(), BencodedValue::Integer(length.clone()));
             all_files.push(file_dict);
         }
 
@@ -117,12 +117,12 @@ impl Disk {
         let mut files_to_download = files_to_download
             .iter()
             .map(|file| {
-                let size = match file.get("length") {
+                let size = match file.get(&b"length".to_vec()) {
                     Some(BencodedValue::Integer(size)) => *size as u64,
                     _ => return Err(anyhow!("Error: couldn't get file size"))
                 };
 
-                let path = match file.get("path") {
+                let path = match file.get(&b"path".to_vec()) {
                     Some(BencodedValue::List(path_list)) => {
                         path_list
                             .iter()
@@ -146,7 +146,7 @@ impl Disk {
 
                 let path = path.join("/");
 
-                let _md5sum = match file.get("md5sum") {
+                let _md5sum = match file.get(&b"md5sum".to_vec()) {
                     Some(BencodedValue::ByteString(md5sum)) => Some(md5sum.clone()),
                     _ => None
                 };

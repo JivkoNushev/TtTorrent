@@ -35,11 +35,11 @@ impl PeerAddress {
         let bencoded_response = TorrentParser::parse_tracker_response(&bencoded_response)?;
         let bencoded_dict = bencoded_response.try_into_dict()?;
 
-        match bencoded_dict.get("peers") {
+        match bencoded_dict.get(&b"peers".to_vec()) {
             Some(BencodedValue::ByteAddresses(byte_addresses)) => Ok(byte_addresses.to_vec()),
             Some(BencodedValue::Dict(_peer_dict)) => todo!(),
             _ => {
-                if let Some(failure) = bencoded_dict.get("failure reason") {
+                if let Some(failure) = bencoded_dict.get(&b"failure reason".to_vec()) {
                     // TODO: better capture error no peers found
                     Err(anyhow!("Failure reason: {}", String::from_utf8(failure.try_into_byte_string()?.to_vec())?))
                 }
