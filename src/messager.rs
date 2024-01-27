@@ -12,7 +12,7 @@ pub enum ExitCode {
 #[derive(Debug)]
 pub enum ClientMessage {
     Shutdown,
-    Download{src: String, dst: String},
+    AddTorrent{src: String, dst: String},
     DownloadedBlock{piece_block: PieceBlock},
     FinishedDownloading,
     SendTorrentInfo{tx: oneshot::Sender<TorrentContextState>},
@@ -31,7 +31,7 @@ pub enum ClientMessage {
 pub enum TerminalClientMessage {
     Status{exit_code: ExitCode},
     Shutdown,
-    Download{src: String, dst: String},
+    AddTorrent{src: String, dst: String},
     ListTorrents,
     TorrentsInfo{torrents: Vec<TorrentContextState>},
     TerminalClientClosed,

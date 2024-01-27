@@ -43,11 +43,11 @@ impl ClientHandle {
         Ok(())
     }
 
-    pub async fn client_download_torrent(&mut self, src: String, dst: String) -> Result<()> {
+    pub async fn client_add_torrent(&mut self, src: String, dst: String) -> Result<()> {
         self.tx
-            .send(ClientMessage::Download{src, dst})
+            .send(ClientMessage::AddTorrent{src, dst})
             .await
-            .context("couldn't send a download message to the client")?;
+            .context("couldn't send an add message to the client")?;
 
         Ok(())
     }
@@ -161,7 +161,7 @@ impl Client {
                             }
                             break;
                         },
-                        ClientMessage::Download{src, dst} => {
+                        ClientMessage::AddTorrent{src, dst} => {
                             let torrent_handle = match TorrentHandle::new(self.client_id, &src, &dst).await {
                                 Ok(handle) => handle,
                                 Err(e) => {

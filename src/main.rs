@@ -71,18 +71,18 @@ async fn main() -> Result<()> {
                         tracing::info!("Received shutdown message in main loop, shutting down");
                         break;
                     },
-                    TerminalClientMessage::Download{src, dst} => {
+                    TerminalClientMessage::AddTorrent{src, dst} => {
                         if !valid_src_and_dst(&src, &dst) {
                             if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::InvalidSrcOrDst }).await {
                                 tracing::error!("Failed to send status message to Terminal Client {}: {}", terminal_client.pid, e);
                             }
                             tracing::error!("Invalid torrent file source path or destination received: {} {}", src, dst);
                         }
-                        if let Err(e) = client.client_download_torrent(src, dst).await {
+                        if let Err(e) = client.client_add_torrent(src, dst).await {
                             if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::InvalidSrcOrDst }).await {
                                 tracing::error!("Failed to send status message to Terminal Client {}: {}", terminal_client.pid, e);
                             }
-                            return Err(anyhow!("Failed to send download message to client: {}", e));
+                            return Err(anyhow!("Failed to send an add message to client: {}", e));
                         }
 
                         if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Status { exit_code: ExitCode::SUCCESS }).await {

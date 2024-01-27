@@ -86,7 +86,7 @@ fn check_dir(path: &PathBuf) -> bool {
     std::fs::create_dir_all(path).is_ok()
 }
 
-fn check_download_arguments(torrent_path: &PathBuf, dest_path: &PathBuf) -> Result<()> {
+fn check_add_arguments(torrent_path: &PathBuf, dest_path: &PathBuf) -> Result<()> {
     if !check_file(torrent_path) {
         return Err(anyhow!("Invalid torrent file path"));
     }
@@ -142,7 +142,7 @@ Commands:
 
         stop - Stop the client daemon
 
-        download <torrent_path> <dest_path> - Download a torrent file
+        add <torrent_path> <dest_path> - add a torrent file
 
         shutdown - Shutdown the client
 
@@ -154,24 +154,24 @@ Commands:
     );
 }
 
-async fn download(mut client: TerminalClient, src: &str, dest: &str) -> Result<()> {
+async fn add(mut client: TerminalClient, src: &str, dest: &str) -> Result<()> {
     let mut torrent_path = PathBuf::from(src);
     let mut dest_path = PathBuf::from(dest);
 
-    check_download_arguments(&mut torrent_path, &mut dest_path)?;
+    check_add_arguments(&mut torrent_path, &mut dest_path)?;
     let torrent_path = PathBuf::from(torrent_path).canonicalize()?;
     let dest_path = PathBuf::from(dest_path).canonicalize()?;
 
     let torrent_path = torrent_path.to_str().unwrap().to_string();
     let dest_path = dest_path.to_str().unwrap().to_string();
     
-    client.send_message(&TerminalClientMessage::Download{src: torrent_path, dst: dest_path}).await?;
+    client.send_message(&TerminalClientMessage::AddTorrent{src: torrent_path, dst: dest_path}).await?;
 
     match client.recv_message().await? {
         TerminalClientMessage::Status{exit_code} => {
             match exit_code {
                 torrent_client::messager::ExitCode::SUCCESS => {
-                    println!("Download started");
+                    println!("Torrent added");
                 },
                 torrent_client::messager::ExitCode::InvalidSrcOrDst => {
                     return Err(anyhow!("Invalid src or dst"));
@@ -246,15 +246,15 @@ async fn main() {
     let mut terminal_client = TerminalClient{socket: create_client_socket().await, pid: std::process::id()};
 
     match args[1].as_str() {
-        "download" => {
+        "add" => {
             if args.len() < 4 || args.len() > 4 {
                 eprintln!("[Error] Invalid number of arguments provided");
-                println!("Usage: tttorrent download <torrent_path> <dest_path>");
+                println!("Usage: tttorrent add <torrent_path> <dest_path>");
                 exit(1);
             }
 
-            if let Err(e) = download(terminal_client, &args[2], &args[3]).await {
-                eprintln!("Failed to download torrent: {}", e);
+            if let Err(e) = add(terminal_client, &args[2], &args[3]).await {
+                eprintln!("Failed to add torrent: {}", e);
                 exit(1);
             }
         },
