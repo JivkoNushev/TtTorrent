@@ -472,10 +472,11 @@ impl Peer {
                             self.disk_tx.send(ClientMessage::DownloadedBlock{ piece_block }).await?;
                         },
                         PeerMessage::Cancel(index, begin, length) => {
-                            unimplemented!("Peer '{self}' sent cancel: {index}, {begin}, {length}")
+                            seeding_blocks.retain(|block| !(block.piece_index == index as usize && block.offset == begin as usize && block.size == length as usize));
                         },
                         PeerMessage::Port(port) => {
-                            unimplemented!("Peer '{self}' sent port: {port}")
+                            tracing::warn!("Peer '{self}' sent port: {port}, ignoring it");
+                            continue;
                         },
                         PeerMessage::KeepAlive => {
                             continue;
