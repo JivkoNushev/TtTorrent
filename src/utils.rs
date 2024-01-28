@@ -85,3 +85,13 @@ pub fn is_zero_aligned(buf: &[u8]) -> bool {
         && suffix.iter().all(|&x| x == 0)
         && aligned.iter().all(|&x| x == 0)
 }
+
+pub fn generate_random_client_id() -> [u8; 20] {
+    let mut client_id = [0u8; 20];
+    client_id[0..10].copy_from_slice(b"TtT-1-0-0-");
+    getrandom(&mut client_id[10..]).expect("Failed to generate random client id");
+
+    tracing::debug!("Generated client id: {:?}", client_id);
+
+    client_id
+}

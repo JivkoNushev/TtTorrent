@@ -160,7 +160,6 @@ impl Peer {
             am_choking: true,
             interested: false,
             choking: true,
-            // having_pieces: Vec::new(),
             bitfield: Vec::new(),
         };
 
@@ -255,14 +254,12 @@ impl Peer {
             Some(peer_session) => peer_session,
             None => self.get_peer_session(connection_type).await?,
         };
-        
         tracing::info!("Peer '{self}' connected");
 
         // handshake with peer
         self.handshake(&mut peer_session).await?;
 
-
-        let mut end_game_blocks: Vec<Block> = Vec::new();
+        // let mut end_game_blocks: Vec<Block> = Vec::new();
 
         let mut downloading_blocks: Vec<Block> = Vec::new();
         let mut seeding_blocks: Vec<Block> = Vec::new();
@@ -313,10 +310,6 @@ impl Peer {
                             }
                         },
                         ClientMessage::Have{piece} => {
-                            // if !self.peer_context.having_pieces[piece as usize] {
-                            //     peer_session.send(PeerMessage::Have(piece)).await?;
-                            // }
-
                             if 0 == self.peer_context.bitfield[piece as usize / 8] & 1 << (7 - piece % 8) {
                                 peer_session.send(PeerMessage::Have(piece)).await?;
                             }
@@ -341,37 +334,28 @@ impl Peer {
                             self.choke(&mut peer_session).await?;
                         },
                         PeerMessage::Have(index) => {
-                            // self.peer_context.having_pieces[index as usize] = true;
                             self.peer_context.bitfield[index as usize / 8] |= 1 << (7 - index % 8);
                         },
                         PeerMessage::Bitfield(bitfield) => {
-                            // let mut bitfield_iter = tokio_stream::iter(bitfield).enumerate();
-                            
-                            // let mut pieces = Vec::new();
-                            // while let Some((i, byte)) = bitfield_iter.next().await {
-                            //     for j in 0..8 {
-                            //         if 0 < byte & (1 << (7 - j)) {
-                            //             pieces.push(true);
-                            //         }
-                            //         else {
-                            //             pieces.push(false);
-                            //         }
-                            //     }
-                            // }
-                            // self.peer_context.having_pieces = pieces;
-
                             self.peer_context.bitfield = bitfield;
                         },
                         PeerMessage::Request(index, begin, length) => {
+                            if  self.torrent_context.torrent_info.pieces_count as u32 <= index ||
+                                begin + length > self.torrent_context.torrent_info.get_specific_piece_length(index) as u32 {
+                                tracing::error!("Peer '{self}' sent an invalid request");
+                                return Err(anyhow!("Peer '{self}' sent an invalid request"));
+                            }
+
                             if self.peer_context.am_choking || !self.peer_context.interested {
                                 tracing::error!("Peer '{self}' sent request when I am choking or they are not interested");
                                 return Err(anyhow!("Peer '{self}' sent request when I am choking or they are not interested"));
                             }
 
-                            // TODO: check if I have the piece
+                            if self.torrent_context.bitfield.lock().await[index as usize / 8] & 1 << (7 - index % 8) == 0 {
+                                tracing::error!("Peer '{self}' sent request for piece that I don't have");
+                                return Err(anyhow!("Peer '{self}' sent request for piece that I don't have"));
+                            }
 
-                            // TODO: check if the request is valid
-                            
                             let block_index = {
                                 index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(crate::BLOCK_SIZE as u32) as usize
                             };
@@ -395,12 +379,16 @@ impl Peer {
 
                         },
                         PeerMessage::Piece(index, begin, block) => {
+                            if  self.torrent_context.torrent_info.pieces_count as u32 <= index ||
+                                begin + block.len() as u32 > self.torrent_context.torrent_info.get_specific_piece_length(index) as u32 {
+                                tracing::error!("Peer '{self}' sent an invalid request");
+                                return Err(anyhow!("Peer '{self}' sent an invalid request"));
+                            }
+                            
                             if !self.peer_context.am_interested || self.peer_context.choking {
                                 tracing::error!("Peer '{self}' sent piece block when I am not interested or they are choking");
                                 return Err(anyhow!("Peer '{self}' sent piece block when I am not interested or they are choking"));
                             }
-                            // TODO: check if the request is valid
-
 
                             if downloading_blocks.is_empty() {
                                 tracing::error!("Peer '{self}' received piece block when no piece block was requested");
@@ -460,10 +448,6 @@ impl Peer {
 
             // if interested in downloading and unchoked
             if !self.peer_context.choking && self.peer_context.am_interested {
-                // if bitfield is empty then the peer has no pieces to download
-                // if self.peer_context.having_pieces.is_empty() {
-                //     continue;
-                // }
                 if crate::utils::is_zero_aligned(&self.peer_context.bitfield) {
                     continue;
                 }

@@ -6,19 +6,19 @@ use crate::peer::peer_message::Handshake;
 use crate::peer::{ConnectionType, PeerMessage, PeerSession};
 use crate::torrent::{Sha1Hash, TorrentContextState, TorrentHandle};
 use crate::messager::ClientMessage;
-use crate::utils::CommunicationPipe;
+use crate::utils::{CommunicationPipe, UrlEncodable};
 
 pub struct ClientHandle {
     tx: mpsc::Sender<ClientMessage>,
     join_handle: JoinHandle<()>,
 
-    id: [u8; 20],
+    _id: [u8; 20],
 }
 
 impl ClientHandle {
     pub fn new(tx: mpsc::Sender<ClientMessage>) -> Self {
-        // TODO: generate a random id
-        let id = "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap();
+        // let id = "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap();
+        let id = crate::utils::generate_random_client_id();
 
         let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
         
@@ -34,7 +34,7 @@ impl ClientHandle {
         Self {
             tx: sender,
             join_handle,
-            id,
+            _id: id,
         }
     }
 
@@ -133,7 +133,7 @@ impl Client {
         name = "ClientHandler::run",
         skip(self),
         fields(
-            client_id = String::from_utf8(self.client_id.to_vec()).unwrap_or_else(|_| "invalid client id".to_string())
+            client_id = self.client_id.as_url_encoded()
         ),
     )]
     pub async fn run(mut self) -> Result<()> {

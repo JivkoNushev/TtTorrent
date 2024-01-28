@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result, Context};
 
 use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash, TorrentFile };
-use crate::torrent::{TorrentContext, self};
+use crate::torrent::TorrentContext;
 
 use crate::utils::UrlEncodable;
 

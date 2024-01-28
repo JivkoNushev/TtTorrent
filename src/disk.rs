@@ -433,14 +433,14 @@ pub struct DiskHandle {
     pub tx: mpsc::Sender<ClientMessage>,
     join_handle: JoinHandle<()>,
 
-    torrent_name: String,
+    _torrent_name: String,
 }
 
 impl DiskHandle {
     pub fn new(torrent_context: DiskTorrentContext) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
-        let torrent_name = torrent_context.torrent_name.clone();
+        let _torrent_name = torrent_context.torrent_name.clone();
 
         let disk_writer = Disk::new(rx, torrent_context);
         let join_handle = tokio::spawn(async move {
@@ -452,7 +452,7 @@ impl DiskHandle {
         Self {
             tx,
             join_handle,
-            torrent_name,
+            _torrent_name,
         }
     }
 
