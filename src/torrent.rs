@@ -418,11 +418,13 @@ impl Torrent {
                             break;
                         },
                         ClientMessage::Have { piece } => {
-                            self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
                             // FIX: This blocks the program ??
                             // for peer_handle in &mut self.peer_handles {
                             //     let _ = peer_handle.have(piece).await;
-                            // }                          
+                            // }     
+
+                            tracing::debug!("Have piece: {}", piece);                     
+                            self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
                         },
                         ClientMessage::Request { block, tx } => {
                             if let Err(e) = self.disk_handle.read_block(block, tx).await.context("sending to disk handle") {

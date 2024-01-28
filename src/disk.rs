@@ -4,9 +4,9 @@ use tokio::sync::{mpsc, Mutex, Semaphore};
 use anyhow::{anyhow, Result};
 
 use std::collections::BTreeMap;
-use std::f32::consts::E;
 use std::sync::Arc;
 
+use crate::peer::block_picker::Piece;
 use crate::peer::Block;
 use crate::torrent::TorrentInfo;
 use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
@@ -46,8 +46,9 @@ impl DiskTorrentContext {
 
 struct Disk {
     rx: mpsc::Receiver<ClientMessage>,
-    torrent_blocks_count: Arc<Mutex<Vec<usize>>>,
-
+    
+    downloaded: Arc<Mutex<Vec<Piece>>>,
+    downloaded_pieces_count: Arc<Mutex<usize>>,
     torrent_context: Arc<DiskTorrentContext>,
 }
 
@@ -55,8 +56,9 @@ impl Disk {
     pub fn new(rx: mpsc::Receiver<ClientMessage>, torrent_context: DiskTorrentContext) -> Self {
         Self {
             rx,
-            torrent_blocks_count: Arc::new(Mutex::new(Vec::new())),
-
+            
+            downloaded: Arc::new(Mutex::new(Vec::new())),
+            downloaded_pieces_count: Arc::new(Mutex::new(0)),
             torrent_context: Arc::new(torrent_context),
         }
     }
@@ -313,55 +315,59 @@ impl Disk {
                             break;
                         },
                         ClientMessage::DownloadedBlock{ block } => {
-                            if self.torrent_blocks_count.lock().await.len() == self.torrent_context.torrent_info.blocks_count {
+                            if *self.downloaded_pieces_count.lock().await == self.torrent_context.torrent_info.pieces_count {
                                 continue;
                             }
 
                             let writer_semaphore = Arc::clone(&writer_semaphore);
+
                             let torrent_context = Arc::clone(&self.torrent_context);
-                            let torrent_blocks_count = Arc::clone(&self.torrent_blocks_count);
+                            let downloaded = Arc::clone(&self.downloaded);
+                            let downloaded_pieces_count = Arc::clone(&self.downloaded_pieces_count);
 
                             let handle = tokio::spawn(async move {
                                 if let Err(e) = writer_semaphore.acquire().await {
                                     tracing::error!("Semaphore Error: {}", e);
                                     return;
                                 }
-
-                                let block_numbers_in_current_piece = (block.index as usize * torrent_context.torrent_info.blocks_in_piece..block.index as usize * torrent_context.torrent_info.blocks_in_piece + torrent_context.torrent_info.get_specific_piece_block_count(block.index)).collect::<Vec<usize>>();
-                                let piece = block.index as u32;
-
-                                let block_number = block.number;
                                 
-                                tracing::debug!("downloaded block index '{}', piece index '{}', begin '{}', size '{}'", block.number, block.index, block.begin, block.length);
+                                let index = block.index;
+
+                                tracing::debug!("writing block index '{}', piece index '{}', begin '{}', size '{}'", block.number, block.index, block.begin, block.length);
                                 if let Err(e) = Disk::write_to_file(&torrent_context, block).await {
                                     tracing::error!("Disk writer error: {:?}", e);
                                     return;
                                 }
-                                
-                                let mut has_piece = true;
-                                for block in block_numbers_in_current_piece {
-                                    if !torrent_blocks_count.lock().await.contains(&block) {
-                                        has_piece = false;
-                                        break
-                                    }
-                                };
+                                tracing::trace!("finished writing block");
 
-                                if has_piece {
-                                    if let Err(e) = torrent_context.tx.send(ClientMessage::Have { piece }).await {
-                                        tracing::error!("Disk writer error: {:?}", e);
-                                        return;
+                                {
+                                    let mut downloaded_guard = downloaded.lock().await;
+                                    if let Some(piece) = downloaded_guard.iter_mut().find(|piece| piece.index == index) {
+                                        piece.block_count += 1;
+                                        if piece.block_count == torrent_context.torrent_info.get_specific_piece_block_count(piece.index) {
+                                            if let Err(e) = torrent_context.tx.send(ClientMessage::Have { piece: piece.index }).await {
+                                                tracing::error!("Disk writer error: {:?}", e);
+                                                return;
+                                            }
+                                            *downloaded_pieces_count.lock().await += 1;
+                                        }
+                                    }
+                                    else {
+                                        downloaded_guard.push(Piece {
+                                            index,
+                                            block_count: 1,
+                                        });
                                     }
                                 }
-
-                                let mut torrent_blocks_count_guard = torrent_blocks_count.lock().await;
-                                torrent_blocks_count_guard.push(block_number);
-                                if torrent_blocks_count_guard.len() == torrent_context.torrent_info.blocks_count {
+                                
+                                if *downloaded_pieces_count.lock().await == torrent_context.torrent_info.pieces_count {
+                                    tracing::info!("Finished downloading torrent");
                                     if let Err(e) = torrent_context.tx.send(ClientMessage::FinishedDownloading).await {
                                         tracing::error!("Disk writer error: {:?}", e);
                                         return;
                                     }
                                 }
-                                tracing::trace!("finished writing block");
+                                
                             });
 
                             writer_handles.push(handle);
