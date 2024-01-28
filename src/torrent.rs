@@ -401,18 +401,18 @@ impl Torrent {
                             tracing::info!("Shutting down torrent '{}'", self.torrent_context.torrent_name);
                             for peer_handle in &mut self.peer_handles {
                                 if let Err(e) = peer_handle.shutdown().await {
-                                    tracing::error!("Failed to send shutdown message to peer: {}", e);
+                                    tracing::warn!("Failed to send shutdown message to peer {}: {}", peer_handle.peer_address, e);
                                 }
                             }
 
                             if let Err(e) = self.disk_handle.shutdown().await {
-                                tracing::error!("Failed to send shutdown message to disk handle: {}", e);
+                                tracing::warn!("Failed to send shutdown message to disk handle: {}", e);
                             }
 
                             if let Some(ref mut tracker) = tracker {
                                 // TODO: is this to be called before the handles are joined?
                                 if let Err(e) = self.tracker_stopped(tracker).await {
-                                    tracing::error!("Failed to send stopped message to tracker: {}", e);
+                                    tracing::warn!("Failed to send stopped message to tracker: {}", e);
                                 }
                             }
                             break;
@@ -538,7 +538,7 @@ impl Torrent {
 
                         }
                         _ => {
-                            tracing::error!("Peer '{}' error: {}", peer_addr, err);
+                            tracing::warn!("Peer '{}' error: {}", peer_addr, err);
                         }
                     }
                 }

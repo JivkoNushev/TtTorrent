@@ -344,6 +344,7 @@ impl Disk {
                                     let mut downloaded_guard = downloaded.lock().await;
                                     if let Some(piece) = downloaded_guard.iter_mut().find(|piece| piece.index == index) {
                                         piece.block_count += 1;
+
                                         if piece.block_count == torrent_context.torrent_info.get_specific_piece_block_count(piece.index) {
                                             if let Err(e) = torrent_context.tx.send(ClientMessage::Have { piece: piece.index }).await {
                                                 tracing::error!("Disk writer error: {:?}", e);
@@ -353,15 +354,24 @@ impl Disk {
                                         }
                                     }
                                     else {
-                                        downloaded_guard.push(Piece {
+                                        let piece = Piece {
                                             index,
                                             block_count: 1,
-                                        });
+                                        };
+
+                                        if piece.block_count == torrent_context.torrent_info.get_specific_piece_block_count(piece.index) {
+                                            if let Err(e) = torrent_context.tx.send(ClientMessage::Have { piece: piece.index }).await {
+                                                tracing::error!("Disk writer error: {:?}", e);
+                                                return;
+                                            }
+                                            *downloaded_pieces_count.lock().await += 1;
+                                        }
+
+                                        downloaded_guard.push(piece);
                                     }
                                 }
                                 
                                 if *downloaded_pieces_count.lock().await == torrent_context.torrent_info.pieces_count {
-                                    tracing::info!("Finished downloading torrent");
                                     if let Err(e) = torrent_context.tx.send(ClientMessage::FinishedDownloading).await {
                                         tracing::error!("Disk writer error: {:?}", e);
                                         return;

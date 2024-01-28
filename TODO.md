@@ -34,3 +34,5 @@ let message = serde_json::to_string(&message).context("Failed to serialize messa
 message = message + '\n';
 
 ON torrent_error the state should be removed
+
+make downloading and seeding better

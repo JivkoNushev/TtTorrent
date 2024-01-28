@@ -481,7 +481,7 @@ impl Peer {
             // file is fully downloaded and peer doesn't want to download as well
             if !self.peer_context.am_interested && !self.peer_context.interested {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                tracing::info!("Peer '{self}' disconnected");
+                tracing::info!("Peer '{self}' disconnecting");
                 self.torrent_context.tx.send(ClientMessage::PeerDisconnected{peer_address: self.peer_context.ip}).await?;
                 break;
             }
