@@ -190,7 +190,7 @@ impl Tracker {
 
     pub async fn regular_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
         // if no pieces have been downloaded, send a started request
-        let request = if torrent_context.needed.lock().await.needed_blocks.len() == torrent_context.torrent_info.blocks_count {
+        let request = if torrent_context.needed.lock().await.pieces.len() == torrent_context.torrent_info.pieces_count {
             self.started_request(client_id, torrent_context)?
         }
         else {

@@ -3,9 +3,11 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 use anyhow::{anyhow, Result, Context};
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::messager::ClientMessage;
+use crate::peer::block_picker::Piece;
 use crate::peer::{BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
@@ -199,28 +201,17 @@ impl Torrent {
                 _ => return Err(anyhow!("Could not get pieces from info dict ref in torrent file: {}", torrent_name))
             };
 
-            let pieces_left = (0..pieces.len()).collect::<Vec<usize>>();
+            let pieces_left = (0u32..pieces.len() as u32)
+                .map(|index| (index, Piece {
+                    index,
+                    block_count: torrent_info.get_specific_piece_block_count(index),
+                })).collect::<HashMap<u32, Piece>>().into_iter()
+                .map(|(_, piece)| piece).collect::<Vec<Piece>>();
 
             pieces_left
         };
+
         let pieces_count = pieces_left.len();
-        
-        let blocks_left = {
-            let mut blocks_left = Vec::new();
-            let blocks_in_piece = torrent_file.get_piece_size(0)?.div_ceil(crate::BLOCK_SIZE);
-            
-            for piece in pieces_left.iter() {
-                let piece_size = torrent_file.get_piece_size(*piece)?;
-                let blocks_count = piece_size.div_ceil(crate::BLOCK_SIZE);
-                
-                for block in 0..blocks_count {
-                    let block_index = *piece * blocks_in_piece + block;
-                    blocks_left.push(block_index);
-                }
-            }
-            
-            blocks_left
-        };
         
         let torrent_context = DiskTorrentContext::new(
             self_pipe.tx.clone(),
@@ -232,7 +223,7 @@ impl Torrent {
 
         let disk_handle = DiskHandle::new(torrent_context);
 
-        let needed = BlockPicker::new(blocks_left, pieces_left, Arc::clone(&torrent_info));
+        let needed = BlockPicker::new(pieces_left, Arc::clone(&torrent_info));
 
         let torrent_context = TorrentContext {
             connection_type: ConnectionType::Outgoing,
@@ -391,7 +382,6 @@ impl Torrent {
         };
 
         // ------------------------------ connect to peers --------------------------------
-        
         if let Some(ref mut tracker) = tracker {
             // connect to peers from tracker response
             if let Err(e) = self.connect_to_peers(tracker).await {
@@ -400,7 +390,6 @@ impl Torrent {
         }
         
         // ------------------------------ main loop --------------------------------
-
         // let mut last_blocks = Vec::new();
         loop {
             tokio::select! {
@@ -435,8 +424,8 @@ impl Torrent {
                             //     let _ = peer_handle.have(piece).await;
                             // }                          
                         },
-                        ClientMessage::Request { piece_block, tx } => {
-                            if let Err(e) = self.disk_handle.read_block(piece_block, tx).await.context("sending to disk handle") {
+                        ClientMessage::Request { block, tx } => {
+                            if let Err(e) = self.disk_handle.read_block(block, tx).await.context("sending to disk handle") {
                                 tracing::error!("Failed to send block request to disk handle: {}", e);
                             }
                         },
@@ -515,7 +504,7 @@ impl Torrent {
                 },
                 _ = tokio::time::sleep(std::time::Duration::from_secs(120)) => {
                     // connect to more peers with better tracker request
-                    if self.torrent_context.needed.lock().await.needed_blocks.len() > 0 {
+                    if !self.torrent_context.needed.lock().await.is_empty() {
                         if let Some(ref mut tracker) = tracker {
                             // connect to peers from tracker response
                             if let Err(e) = self.connect_to_peers(tracker).await {

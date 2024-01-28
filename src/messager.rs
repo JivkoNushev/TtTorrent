@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{torrent::TorrentContextState, peer::{PeerAddress, PeerSession, PieceBlock}};
+use crate::{torrent::TorrentContextState, peer::{Block, PeerAddress, PeerSession}};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ExitCode {
@@ -13,7 +13,7 @@ pub enum ExitCode {
 pub enum ClientMessage {
     Shutdown,
     AddTorrent{src: String, dst: String},
-    DownloadedBlock{piece_block: PieceBlock},
+    DownloadedBlock{block: Block},
     FinishedDownloading,
     SendTorrentInfo{tx: oneshot::Sender<TorrentContextState>},
     TorrentsInfo{torrents: Vec<TorrentContextState>},
@@ -21,8 +21,8 @@ pub enum ClientMessage {
     AddPeerSession{peer_session: PeerSession},
     TerminalClientClosed,
     PeerDisconnected{peer_address: PeerAddress},
-    Request{piece_block: PieceBlock, tx: mpsc::Sender<ClientMessage>},
-    RequestedBlock{piece_block: PieceBlock},
+    Request{block: Block, tx: mpsc::Sender<ClientMessage>},
+    RequestedBlock{block: Block},
     Cancel{index: u32, begin: u32, length: u32},
     Have{piece: u32},
 }

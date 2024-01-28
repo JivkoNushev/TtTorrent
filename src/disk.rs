@@ -4,9 +4,10 @@ use tokio::sync::{mpsc, Mutex, Semaphore};
 use anyhow::{anyhow, Result};
 
 use std::collections::BTreeMap;
+use std::f32::consts::E;
 use std::sync::Arc;
 
-use crate::peer::PieceBlock;
+use crate::peer::Block;
 use crate::torrent::TorrentInfo;
 use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
 
@@ -168,21 +169,29 @@ impl Disk {
         Ok(files_to_download)
     }
 
-    async fn write_to_file(torrent_context: &DiskTorrentContext, piece_block: PieceBlock) -> Result<()> {
+    async fn write_to_file(torrent_context: &DiskTorrentContext, block: Block) -> Result<()> {
         let files = Disk::get_files_to_download(&torrent_context).await?;
 
-        let mut block_start = (piece_block.piece_index * Disk::get_piece_size(&torrent_context, 0)? + piece_block.offset) as u64;
+        let data = match block.data {
+            Some(data) => data,
+            None => {
+                tracing::error!("Trying to write block with no data");
+                return Err(anyhow!("Trying to write block with no data"));
+            }
+        };
+
+        let mut block_start = (block.index * Disk::get_piece_size(&torrent_context, 0)? as u32 + block.begin) as u64;
 
         let mut file_index= 0;
-        let mut file_offset = 0;
+        let mut file_begin = 0;
         
-        let mut bytes_left = piece_block.size as u64;
+        let mut bytes_left = block.length as u64;
         while bytes_left > 0 {
             for (i, file) in files.iter().enumerate() {
                 // if this piece is in this file
                 if file.start <= block_start && block_start < file.start + file.size {
                     file_index = i;
-                    file_offset = block_start - file.start;
+                    file_begin = block_start - file.start;
     
                     break;
                 }
@@ -208,18 +217,18 @@ impl Disk {
                 .await?;
 
 
-            let bytes_to_write = if file.size - file_offset > bytes_left  {
+            let bytes_to_write = if file.size - file_begin > bytes_left  {
                 bytes_left
             } else {
-                file.size - file_offset
+                file.size - file_begin
             };
             
-            fd.seek(std::io::SeekFrom::Start(file_offset)).await?;
+            fd.seek(std::io::SeekFrom::Start(file_begin)).await?;
 
-            let written_bytes = piece_block.size as u64 - bytes_left;
+            let written_bytes = block.length as u64 - bytes_left;
 
             fd.write_all(
-                &piece_block.data[written_bytes as usize..(written_bytes + bytes_to_write) as usize]
+                &data[written_bytes as usize..(written_bytes + bytes_to_write) as usize]
             ).await?;
 
             block_start += bytes_to_write;
@@ -230,23 +239,23 @@ impl Disk {
         Ok(())
     }
 
-    async fn read_block(torrent_context: &DiskTorrentContext, mut piece_block: PieceBlock) -> Result<PieceBlock> {
-        piece_block.data.clear();
+    async fn read_block(torrent_context: &DiskTorrentContext, mut block: Block) -> Result<Block> {
+        let mut data = Vec::new();
 
         let files = Disk::get_files_to_download(&torrent_context).await?;
 
-        let mut block_start = (piece_block.piece_index * Disk::get_piece_size(&torrent_context, 0)? + piece_block.offset) as u64;
+        let mut block_start = (block.index * Disk::get_piece_size(&torrent_context, 0)? as u32 + block.begin) as u64;
 
         let mut file_index= 0;
-        let mut file_offset = 0;
+        let mut file_begin = 0;
         
-        let mut bytes_left = piece_block.size as u64;
+        let mut bytes_left = block.length as u64;
         while bytes_left > 0 {
             for (i, file) in files.iter().enumerate() {
                 // if this piece is in this file
                 if file.start <= block_start && block_start < file.start + file.size {
                     file_index = i;
-                    file_offset = block_start - file.start;
+                    file_begin = block_start - file.start;
     
                     break;
                 }
@@ -263,26 +272,28 @@ impl Disk {
                 .open(file_path)
                 .await?;
 
-            let bytes_to_read = if file.size - file_offset > bytes_left  {
+            let bytes_to_read = if file.size - file_begin > bytes_left  {
                 bytes_left
             } else {
-                file.size - file_offset
+                file.size - file_begin
             };
             
-            fd.seek(std::io::SeekFrom::Start(file_offset)).await?;
+            fd.seek(std::io::SeekFrom::Start(file_begin)).await?;
 
             let mut buffer = vec![0u8; bytes_to_read as usize];
 
             fd.read_exact(&mut buffer).await?;
 
-            piece_block.data.extend(buffer);
+            data.extend(buffer);
 
             block_start += bytes_to_read;
             bytes_left -= bytes_to_read;
             file_index += 1;
         }
 
-        Ok(piece_block)
+        block.data = Some(data);
+
+        Ok(block)
     }
 
     async fn run(mut self) -> Result<()> {
@@ -301,7 +312,7 @@ impl Disk {
                             tracing::info!("Shutting down disk writer");
                             break;
                         },
-                        ClientMessage::DownloadedBlock{ piece_block } => {
+                        ClientMessage::DownloadedBlock{ block } => {
                             if self.torrent_blocks_count.lock().await.len() == self.torrent_context.torrent_info.blocks_count {
                                 continue;
                             }
@@ -316,13 +327,13 @@ impl Disk {
                                     return;
                                 }
 
-                                let block_numbers_in_current_piece = (piece_block.piece_index * torrent_context.torrent_info.blocks_in_piece..piece_block.piece_index * torrent_context.torrent_info.blocks_in_piece + torrent_context.torrent_info.get_blocks_in_specific_piece(piece_block.piece_index)).collect::<Vec<usize>>();
-                                let piece = piece_block.piece_index as u32;
+                                let block_numbers_in_current_piece = (block.index as usize * torrent_context.torrent_info.blocks_in_piece..block.index as usize * torrent_context.torrent_info.blocks_in_piece + torrent_context.torrent_info.get_specific_piece_block_count(block.index)).collect::<Vec<usize>>();
+                                let piece = block.index as u32;
+
+                                let block_number = block.number;
                                 
-                                torrent_blocks_count.lock().await.push(piece_block.block_index);
-                                tracing::debug!("downloaded block index '{}', piece index '{}', offset '{}', size '{}'", piece_block.block_index, piece_block.piece_index, piece_block.offset, piece_block.size);
-                                
-                                if let Err(e) = Disk::write_to_file(&torrent_context, piece_block).await {
+                                tracing::debug!("downloaded block index '{}', piece index '{}', begin '{}', size '{}'", block.number, block.index, block.begin, block.length);
+                                if let Err(e) = Disk::write_to_file(&torrent_context, block).await {
                                     tracing::error!("Disk writer error: {:?}", e);
                                     return;
                                 }
@@ -341,18 +352,21 @@ impl Disk {
                                         return;
                                     }
                                 }
-                                
-                                if torrent_blocks_count.lock().await.len() == torrent_context.torrent_info.blocks_count {
+
+                                let mut torrent_blocks_count_guard = torrent_blocks_count.lock().await;
+                                torrent_blocks_count_guard.push(block_number);
+                                if torrent_blocks_count_guard.len() == torrent_context.torrent_info.blocks_count {
                                     if let Err(e) = torrent_context.tx.send(ClientMessage::FinishedDownloading).await {
                                         tracing::error!("Disk writer error: {:?}", e);
                                         return;
                                     }
                                 }
+                                tracing::trace!("finished writing block");
                             });
 
                             writer_handles.push(handle);
                         },
-                        ClientMessage::Request{ piece_block, tx } => {
+                        ClientMessage::Request{ block, tx } => {
                             let reader_semaphore = Arc::clone(&reader_semaphore);
                             let torrent_context = Arc::clone(&self.torrent_context);
 
@@ -362,10 +376,10 @@ impl Disk {
                                     return;
                                 }
                                 
-                                println!("seeding piece index '{}', offset '{}' to file", piece_block.piece_index, piece_block.offset);
-                                match Disk::read_block(&torrent_context, piece_block).await {
-                                    Ok(piece_block) => {
-                                        if let Err(e) = tx.send(ClientMessage::RequestedBlock{ piece_block }).await {
+                                println!("seeding piece index '{}', begin '{}' to file", block.index, block.begin);
+                                match Disk::read_block(&torrent_context, block).await {
+                                    Ok(block) => {
+                                        if let Err(e) = tx.send(ClientMessage::RequestedBlock{ block }).await {
                                             tracing::error!("Disk reader error: {:?}", e);
                                             return;
                                         }
@@ -441,13 +455,13 @@ impl DiskHandle {
         Ok(())
     }
 
-    pub async fn write_block(&mut self, piece_block: PieceBlock) -> Result<()> {
-        self.tx.send(ClientMessage::DownloadedBlock{ piece_block }).await?;
+    pub async fn write_block(&mut self, block: Block) -> Result<()> {
+        self.tx.send(ClientMessage::DownloadedBlock{ block }).await?;
         Ok(())
     }
 
-    pub async fn read_block(&mut self, piece_block: PieceBlock, tx: mpsc::Sender<ClientMessage>) -> Result<()> {
-        self.tx.send(ClientMessage::Request{ piece_block, tx }).await?;
+    pub async fn read_block(&mut self, block: Block, tx: mpsc::Sender<ClientMessage>) -> Result<()> {
+        self.tx.send(ClientMessage::Request{ block, tx }).await?;
         Ok(())
     }
 }

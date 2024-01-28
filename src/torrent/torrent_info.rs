@@ -32,8 +32,8 @@ impl TorrentInfo {
         })
     }
 
-    pub fn get_specific_piece_length(&self, index: usize) -> usize {
-        if self.pieces_count - 1 != index {
+    pub fn get_specific_piece_length(&self, index: u32) -> usize {
+        if self.pieces_count as u32 - 1 != index {
             return self.piece_length;
         }
 
@@ -42,8 +42,8 @@ impl TorrentInfo {
         if length > 0 { length as usize } else { self.piece_length }
     }
 
-    pub fn get_specific_block_length(&self, index: usize) -> usize {
-        if self.blocks_count - 1 != index {
+    pub fn get_specific_block_length(&self, index: u32) -> usize {
+        if self.blocks_count as u32 - 1 != index {
             return self.block_length;
         }
 
@@ -52,7 +52,7 @@ impl TorrentInfo {
         if length > 0 { length as usize } else { self.block_length }
     }
 
-    pub fn get_blocks_in_specific_piece(&self, index: usize) -> usize {
+    pub fn get_specific_piece_block_count(&self, index: u32) -> usize {
         let piece_length = self.get_specific_piece_length(index);
 
         piece_length.div_ceil(self.block_length)

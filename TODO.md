@@ -32,3 +32,5 @@ better than
 
 let message = serde_json::to_string(&message).context("Failed to serialize message")?;
 message = message + '\n';
+
+ON torrent_error the state should be removed
