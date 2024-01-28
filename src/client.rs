@@ -162,7 +162,7 @@ impl Client {
                             break;
                         },
                         ClientMessage::AddTorrent{src, dst} => {
-                            let torrent_handle = match TorrentHandle::new(self.client_id, &src, &dst).await {
+                            let mut torrent_handle = match TorrentHandle::new(self.client_id, &src, &dst).await {
                                 Ok(handle) => handle,
                                 Err(e) => {
                                     tracing::error!("Failed to create torrent handle: {:?}", e);
@@ -170,7 +170,14 @@ impl Client {
                                 }
                             };
 
-                            self.torrent_handles.push(torrent_handle);
+                            if self.torrent_handles.iter().any(|handle| handle.torrent_info_hash == torrent_handle.torrent_info_hash) {
+                                torrent_handle.shutdown().await?;
+                                torrent_handle.join().await?;
+                                continue;
+                            }
+                            else {
+                                self.torrent_handles.push(torrent_handle);
+                            }
                         },
                         ClientMessage::SendTorrentsInfo => {
                             sending_to_terminal_client = true;

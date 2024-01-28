@@ -70,7 +70,6 @@ impl TorrentContext {
 
         let torrent_file = TorrentFile::new(path).await.context("couldn't create TorrentFile")?;
 
-
         Ok(Self {
             connection_type,
 
