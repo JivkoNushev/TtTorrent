@@ -332,7 +332,8 @@ impl Peer {
                             }
                         },
                         ClientMessage::Have{piece} => {
-                            if 0 == self.peer_context.bitfield[piece as usize / 8] & 1 << (7 - piece % 8) {
+                            tracing::trace!("Peer '{self}' received have message for piece {}", piece);
+                            if !self.peer_context.bitfield.is_empty() &&  0 == self.peer_context.bitfield[piece as usize / 8] & 1 << (7 - piece % 8) {
                                 peer_session.send(PeerMessage::Have(piece)).await?;
                             }
                         },
