@@ -23,7 +23,7 @@ pub enum ClientMessage {
     PeerDisconnected{peer_address: PeerAddress},
     Request{block: Block, tx: mpsc::Sender<ClientMessage>},
     RequestedBlock{block: Block},
-    Cancel{index: u32, begin: u32, length: u32},
+    Cancel{block: Block},
     Have{piece: u32},
 }
 

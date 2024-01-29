@@ -118,8 +118,8 @@ impl PeerHandle {
         self.join_handle.await?
     }
 
-    pub async fn cancel(&mut self, index: u32, begin: u32, length: u32) -> Result<()> {
-        self.tx.send(ClientMessage::Cancel{index, begin, length}).await?;
+    pub async fn cancel(&mut self, block: Block) -> Result<()> {
+        self.tx.send(ClientMessage::Cancel{ block }).await?;
         Ok(())
     }
 
@@ -214,18 +214,40 @@ impl Peer {
         Ok(())
     }
 
-    async fn request(&mut self, peer_session: &mut PeerSession, downloading_blocks: &mut Vec<Block>) -> Result<()> {
-        while downloading_blocks.len() < crate::BLOCK_REQUEST_COUNT {
-            match self.torrent_context.needed.lock().await.pick_random(&self.peer_context.bitfield).await? {
-                Some(block) => {
-                    peer_session.send(PeerMessage::Request(block.index as u32, block.begin as u32, block.length as u32)).await?;
-                    tracing::debug!("Requested block {} from peer: '{self}' with piece index {}, offset {} and size {}", block.number, block.index, block.begin, block.length);
-                    
-                    downloading_blocks.push(block);
-                },
-                None => return Ok(())
+    async fn request(&mut self, peer_session: &mut PeerSession, downloading_blocks: &mut Vec<Block>, end_game_blocks: &mut Vec<Block>) -> Result<()> {
+        if self.torrent_context.needed.lock().await.block_count() > crate::BLOCK_REQUEST_COUNT {
+            while downloading_blocks.len() < crate::BLOCK_REQUEST_COUNT {
+                match self.torrent_context.needed.lock().await.pick_random(&self.peer_context.bitfield).await? {
+                    Some(block) => {
+                        peer_session.send(PeerMessage::Request(block.index, block.begin, block.length)).await?;
+                        tracing::debug!("Requested block {} from peer: '{self}' with piece index {}, offset {} and size {}", block.number, block.index, block.begin, block.length);
+                        
+                        downloading_blocks.push(block);
+                    },
+                    None => return Ok(())
+                }
             }
         }
+        else {
+            if downloading_blocks.is_empty() {
+                match self.torrent_context.needed.lock().await.get_end_game_blocks(&self.peer_context.bitfield).await? {
+                    Some(blocks) => {
+                        for block in blocks {
+                            peer_session.send(PeerMessage::Request(block.index, block.begin, block.length)).await?;
+                            tracing::debug!("Requested end game block {} from peer: '{self}' with piece index {}, offset {} and size {}", block.number, block.index, block.begin, block.length);
+                            
+                            if !end_game_blocks.iter().any(|b| b.number == block.number) {
+                                end_game_blocks.push(block.clone());
+                            }
+
+                            downloading_blocks.push(block);
+                        }
+                    },
+                    None => return Ok(())
+                }
+            }
+        }
+        
 
         Ok(())
     }
@@ -259,11 +281,11 @@ impl Peer {
         // handshake with peer
         self.handshake(&mut peer_session).await?;
 
-        // let mut end_game_blocks: Vec<Block> = Vec::new();
-
+        let mut end_game_blocks: Vec<Block> = Vec::new();
         let mut downloading_blocks: Vec<Block> = Vec::new();
         let mut seeding_blocks: Vec<Block> = Vec::new();
         loop {
+            tracing::trace!("Peer '{self}' waiting for message");
             tokio::select! {
                 biased;
                 Some(msg) = self.rx.recv() => {
@@ -313,7 +335,13 @@ impl Peer {
                             if 0 == self.peer_context.bitfield[piece as usize / 8] & 1 << (7 - piece % 8) {
                                 peer_session.send(PeerMessage::Have(piece)).await?;
                             }
-                        }
+                        },
+                        ClientMessage::Cancel{ block } => {
+                            if let Some(block_index) = downloading_blocks.iter().position(|b| b.index == block.index && b.begin == block.begin && b.length == block.length) {
+                                downloading_blocks.remove(block_index);
+                                peer_session.send(PeerMessage::Cancel(block.index, block.begin, block.length)).await?;
+                            }
+                        },
                         _ => {}
                     }
                 }
@@ -390,33 +418,36 @@ impl Peer {
                                 return Err(anyhow!("Peer '{self}' sent piece block when I am not interested or they are choking"));
                             }
 
-                            if downloading_blocks.is_empty() {
-                                tracing::error!("Peer '{self}' received piece block when no piece block was requested");
-                                return Err(anyhow!("Peer '{self}' received piece block when no piece block was requested"));
+                            tracing::trace!("Peer '{self}' received block with index {}, begin {} and length {}", index, begin, block.len());
+
+                            if downloading_blocks.iter().any(|b| b.index == index && b.begin == begin) {
+                                let block_index = {
+                                    index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(crate::BLOCK_SIZE as u32) as usize
+                                };
+                                let block = Block {
+                                    index: index,
+                                    begin: begin,
+                                    length: block.len() as u32,
+    
+                                    number: block_index,
+                                    data: Some(block),
+                                };
+
+                                tracing::trace!("Peer '{self}' retaining block: {}", block.number);
+                                downloading_blocks.retain(|b| b.number != block_index);
+
+                                if end_game_blocks.iter().any(|b| b.number == block.number) {
+                                    tracing::trace!("Peer '{self}' received an end game block: {}", block.number);
+                                    tracing::trace!("Peer '{self}' sending block to torrent task: {}", block.number);
+                                    self.torrent_context.tx.send(ClientMessage::Cancel{ block }).await?;
+                                }
+                                else {
+                                    *self.torrent_context.downloaded.lock().await += block.length as u64;
+                                    tracing::trace!("Peer '{self}' sending block to disk task: {}", block.number);
+
+                                    self.disk_tx.send(ClientMessage::DownloadedBlock{ block }).await?;
+                                }
                             }
-
-                            if !downloading_blocks.iter().any(|b| b.index == index && b.begin == begin) {
-                                tracing::error!("Peer '{self}' sent wrong piece");
-                                return Err(anyhow!("Peer '{self}' sent wrong piece"));
-                            }
-
-                            let block_index = {
-                                index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(crate::BLOCK_SIZE as u32) as usize
-                            };
-
-                            let block = Block {
-                                index: index,
-                                begin: begin,
-                                length: block.len() as u32,
-
-                                number: block_index,
-                                data: Some(block),
-                            };
-
-                            downloading_blocks.retain(|b| b.number != block_index);
-
-                            *self.torrent_context.downloaded.lock().await += block.length as u64;
-                            self.disk_tx.send(ClientMessage::DownloadedBlock{ block }).await?;
                         },
                         PeerMessage::Cancel(index, begin, length) => {
                             seeding_blocks.retain(|block| !(block.index == index && block.begin == begin && block.length == length));
@@ -457,7 +488,7 @@ impl Peer {
                         self.not_interested(&mut peer_session).await?;
                     }
                     else {
-                        self.request(&mut peer_session, &mut downloading_blocks).await?;
+                        self.request(&mut peer_session, &mut downloading_blocks, &mut end_game_blocks).await?;
                     }
                 }
             }

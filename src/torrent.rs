@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::messager::ClientMessage;
 use crate::peer::block_picker::Piece;
-use crate::peer::{BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
+use crate::peer::{Block, BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
 use crate::tracker::Tracker;
 use crate::peer::peer_message::ConnectionType;
 use crate::disk::{DiskHandle, DiskTorrentContext};
@@ -335,8 +335,9 @@ impl Torrent {
         let tracker_response = tracker.regular_response(self.client_id.clone(), &self.torrent_context).await?;
 
         let peer_addresses = match crate::DEBUG_MODE {
-            true => vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}],
+            // true => vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}],
             // true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}],
+            true => vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}, PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}],
             false => PeerAddress::from_tracker_response(tracker_response).await?
         };
 
@@ -390,7 +391,7 @@ impl Torrent {
         }
         
         // ------------------------------ main loop --------------------------------
-        // let mut last_blocks = Vec::new();
+        let mut end_game_blocks: Vec<Block> = Vec::new();
         loop {
             tokio::select! {
                 biased;
@@ -418,13 +419,54 @@ impl Torrent {
                             break;
                         },
                         ClientMessage::Have { piece } => {
-                            // FIX: This blocks the program ??
+                            // TODO: This blocks the program ??
                             // for peer_handle in &mut self.peer_handles {
                             //     let _ = peer_handle.have(piece).await;
                             // }     
 
                             tracing::debug!("Have piece: {}", piece);                     
                             self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
+                        },
+                        ClientMessage::Cancel { block } => {
+                            if !end_game_blocks.iter().any(|b| b.index == block.index && b.begin == block.begin && b.length == block.length){
+                                
+                                let block_copy = Block {
+                                    index: block.index,
+                                    begin: block.begin,
+                                    length: block.length,
+
+                                    number: 0, // doesn't matter
+                                    data: None, // None is simpler to copy
+                                };
+
+                                {
+                                    // removing piece from block picker when all blocks are downloaded
+                                    let end_game_current_piece_blocks_count = end_game_blocks.iter().filter(|b| b.index == block.index).count() + 1;
+                                    
+                                    let mut needed_guard = self.torrent_context.needed.lock().await;
+                                    let position = match needed_guard.pieces.iter().position(|p| p.index == block.index) {
+                                        Some(position) => position,
+                                        None => {
+                                            tracing::error!("Block picker already removed end game piece {}.", block.index);
+                                            continue;
+                                        }
+                                    };
+
+                                    if end_game_current_piece_blocks_count == needed_guard.pieces[position].block_count {
+                                        needed_guard.pieces.remove(position);
+                                    }   
+                                }
+
+                                *self.torrent_context.downloaded.lock().await += block.length as u64;
+                                self.disk_handle.write_block(block).await?;
+
+                                // for peer_handle in &mut self.peer_handles {
+                                //     if let Err(e) = peer_handle.cancel(block_copy.clone()).await {
+                                //         tracing::warn!("Failed to send cancel message to peer {}: {}", peer_handle.peer_address, e);
+                                //     }
+                                // }
+                                end_game_blocks.push(block_copy);
+                            }
                         },
                         ClientMessage::Request { block, tx } => {
                             if let Err(e) = self.disk_handle.read_block(block, tx).await.context("sending to disk handle") {
