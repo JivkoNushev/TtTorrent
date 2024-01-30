@@ -47,7 +47,7 @@ impl TrackerRequest {
     async fn new(announce: String, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<TrackerRequest> {
         let info_hash = torrent_context.info_hash.clone();
         let peer_id = client_id;
-        let port = 6881;
+        let port = crate::SEEDING_PORT;
 
         // calculate uploaded, downloaded, and left
         let uploaded = torrent_context.uploaded.lock().await.clone();
@@ -124,7 +124,7 @@ impl TrackerRequest {
     fn start(announce: String, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<TrackerRequest> {
         let info_hash = torrent_context.info_hash.clone();
         let peer_id = client_id;
-        let port = 6881;
+        let port = crate::SEEDING_PORT;
         let uploaded = 0;
         let downloaded = 0;
         let left = torrent_context.torrent_file.get_torrent_length()?;

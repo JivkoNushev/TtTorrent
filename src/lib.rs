@@ -22,4 +22,4 @@ pub const BLOCK_REQUEST_COUNT: usize = 5;
 pub const SOCKET_PATH: &str = "client_state/TtTClient.sock";
 pub const STATE_FILE_PATH: &str = "client_state/TtTClient.state";
 pub const STATE_TORRENT_FILES_PATH: &str = "client_state/torrent_files";
-pub const SEEDING_PORT: &str = "6969";
+pub const SEEDING_PORT: u16 = 6881;

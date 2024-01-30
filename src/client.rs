@@ -145,7 +145,7 @@ impl Client {
         let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(crate::INTERVAL_SECS));
         let mut sending_to_terminal_client = false;
 
-        let seeding_socket = tokio::net::TcpListener::bind("0.0.0.0:".to_owned() + crate::SEEDING_PORT).await?;
+        let seeding_socket = tokio::net::TcpListener::bind("0.0.0.0:".to_owned() + &crate::SEEDING_PORT.to_string()).await?;
         
         loop {
             tokio::select! {
