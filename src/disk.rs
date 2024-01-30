@@ -1,7 +1,7 @@
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
 use tokio::sync::{mpsc, Mutex, Semaphore};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -209,7 +209,7 @@ impl Disk {
                 None => return Err(anyhow!("Invalid torrent file path"))
             };
 
-            tokio::fs::create_dir_all(file_dir).await.unwrap(); // file_dir is always a directory
+            tokio::fs::create_dir_all(file_dir).await.context("creating the directories").unwrap(); // file_dir is always a directory
             
             let mut fd = tokio::fs::OpenOptions::new()
                 .read(true)

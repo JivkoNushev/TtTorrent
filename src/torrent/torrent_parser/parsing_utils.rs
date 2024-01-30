@@ -4,19 +4,6 @@ use std::collections::BTreeMap;
 use crate::peer::PeerAddress;
 use crate::torrent::torrent_file::{BencodedValue, Sha1Hash};
 
-pub fn parse_tracker_response_(torrent_file: &[u8]) -> Result<BencodedValue> {
-    create_dict(torrent_file, &mut 0)
-}
-
-pub fn parse_torrent_file_(torrent_file: &[u8]) -> Result<BencodedValue> {
-    let dict = create_dict(torrent_file, &mut 0)?;
-    if !dict.torrent_file_is_valid() {
-        return Err(anyhow!("[Error] Invalid dictionary: doesn't have all the required keys"));
-    }
-
-    Ok(dict)
-}
-
 pub fn parse_to_torrent_file_(torrent_file: &BencodedValue) -> Result<Vec<u8>> {
     to_bencoded_dict(torrent_file)
 }

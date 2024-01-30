@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use crate::messager::ClientMessage;
 use crate::peer::block_picker::Piece;
-use crate::peer::{Block, BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
-use crate::tracker::Tracker;
+use crate::peer::{peer_address, Block, BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
+use crate::tracker::{Tracker, TrackerEvent};
 use crate::peer::peer_message::ConnectionType;
 use crate::disk::{DiskHandle, DiskTorrentContext};
 use crate::utils::CommunicationPipe;
@@ -332,34 +332,44 @@ impl Torrent {
     }
 
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
-        let tracker_response = tracker.regular_response(self.client_id.clone(), &self.torrent_context).await?;
-
         let peer_addresses = match crate::DEBUG_MODE {
-            // true => vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}],
-            // true => vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}],
-            true => vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}, PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}],
-            false => PeerAddress::from_tracker_response(tracker_response).await?
+            true => {
+                // vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}]
+                // vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
+                vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}, PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
+            },
+            false => {
+                let tracker_response = match self.torrent_context.needed.lock().await.pieces.len() == self.torrent_context.torrent_info.pieces_count {
+                    true => tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Started).await?,
+                    false => tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::None).await?,
+                };
+                PeerAddress::from_tracker_response(tracker_response).await?
+            }
         };
-
         // println!("peer addresses: {:?}", peer_addresses);
+
         let peer_addresses = peer_addresses.into_iter().rev().take(10).collect();
+
         self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone()).await?;
 
         Ok(())
     }
 
     pub async fn tracker_stopped(&mut self, tracker: &mut Tracker) -> Result<()> {
-        let _ = tracker.stopped_response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
+        if !crate::DEBUG_MODE {
+            tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Stopped).await.context("couldn't get tracker response")?;
+        }
 
         Ok(())
     }
 
     async fn tracker_completed(&mut self, tracker: &mut Tracker) -> Result<()> {
-        let _ = tracker.completed_response(self.client_id.clone(), &self.torrent_context).await.context("couldn't get tracker response")?;
+        if !crate::DEBUG_MODE {
+            tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Completed).await.context("couldn't get tracker response")?;
+        }
 
         Ok(())
     }   
-
 
     #[tracing::instrument(
         name = "Torrent::run",

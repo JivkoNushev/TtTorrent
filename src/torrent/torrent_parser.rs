@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use crate::torrent::torrent_file::BencodedValue;
 
@@ -7,17 +7,23 @@ use parsing_utils::*;
 pub struct TorrentParser {}
 
 impl TorrentParser {
-    pub fn parse_torrent_file(torrent_file: &[u8]) -> Result<BencodedValue> {
-        parse_torrent_file_(torrent_file)
-    } 
+    pub fn parse_from_bytes(bytes: &[u8]) -> Result<BencodedValue> {
+        create_dict(bytes, &mut 0)
+    }
 
     pub fn parse_to_torrent_file(torrent_file: &BencodedValue) -> Result<Vec<u8>> {
         parse_to_torrent_file_(torrent_file)
     }
 
-    pub fn parse_tracker_response(torrent_file: &[u8]) -> Result<BencodedValue> {
-        parse_tracker_response_(torrent_file)
-    }
+    pub fn parse_torrent_file(bytes: &[u8]) -> Result<BencodedValue> {
+        let bencoded_torrent_file = TorrentParser::parse_from_bytes(bytes)?;
+
+        if !bencoded_torrent_file.torrent_file_is_valid() {
+            return Err(anyhow!("[Error] Invalid dictionary: doesn't have all the required keys"));
+        }
+    
+        Ok(bencoded_torrent_file)
+    } 
 }
 
 mod torrent_parser_tests {
@@ -237,13 +243,13 @@ mod torrent_parser_tests {
     #[test]
     fn test_to_bencoded_dict() {
         let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
-        let dict: BencodedValue = parse_torrent_file_(torrent_file).unwrap();
+        let dict: BencodedValue = TorrentParser::parse_from_bytes(torrent_file).unwrap();
 
         let torrent_file = parse_to_torrent_file_(&dict).unwrap();
 
         let new_torrent_file = String::from_utf8(torrent_file).unwrap();
 
-        let _new_dict: BencodedValue = parse_torrent_file_(new_torrent_file.as_bytes()).unwrap();
+        let _new_dict: BencodedValue = TorrentParser::parse_from_bytes(new_torrent_file.as_bytes()).unwrap();
 
         assert!(true);
     }

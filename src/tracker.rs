@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result, Context};
+use anyhow::{anyhow, Context, Result};
 
 use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash, TorrentFile };
-use crate::torrent::TorrentContext;
+use crate::torrent::{TorrentContext, TorrentParser};
 
 use crate::utils::UrlEncodable;
 
@@ -44,12 +44,11 @@ pub struct TrackerRequest {
 }
 
 impl TrackerRequest {
-    async fn new(announce: String, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<TrackerRequest> {
+    async fn new(tracker: &Tracker, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<TrackerRequest> {
+        let announce = tracker.announce.clone();
         let info_hash = torrent_context.info_hash.clone();
         let peer_id = client_id;
         let port = crate::SEEDING_PORT;
-
-        // calculate uploaded, downloaded, and left
         let uploaded = torrent_context.uploaded.lock().await.clone();
         let downloaded = torrent_context.downloaded.lock().await.clone();
         let left = torrent_context.torrent_file.get_torrent_length()? - downloaded;
@@ -59,7 +58,12 @@ impl TrackerRequest {
         let ip = None;
         let numwant = None;
         let key = None;
-        let trackerid = None;
+        let trackerid = tracker.last_response.as_ref().and_then(|last_response| {
+            match last_response.get_from_dict(b"trackerid") {
+                Ok(BencodedValue::ByteString(tracker_id)) => Some(tracker_id.as_url_encoded()),
+                _ => None
+            }
+        });
 
         Ok(TrackerRequest {
             announce,
@@ -120,39 +124,6 @@ impl TrackerRequest {
 
         Ok(url)
     }
-
-    fn start(announce: String, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<TrackerRequest> {
-        let info_hash = torrent_context.info_hash.clone();
-        let peer_id = client_id;
-        let port = crate::SEEDING_PORT;
-        let uploaded = 0;
-        let downloaded = 0;
-        let left = torrent_context.torrent_file.get_torrent_length()?;
-        let compact = 1;
-        let no_peer_id = 0;
-        let event = TrackerEvent::Started;
-        let ip = None;
-        let numwant = None;
-        let key = None;
-        let trackerid = None;
-
-        Ok(TrackerRequest {
-            announce,
-            info_hash,
-            peer_id,
-            port,
-            uploaded,
-            downloaded,
-            left,
-            compact,
-            no_peer_id,
-            event,
-            ip,
-            numwant,
-            key,
-            trackerid,
-        })
-    }
 }
 
 
@@ -160,6 +131,7 @@ impl TrackerRequest {
 #[derive(Debug, Clone)]
 pub struct Tracker {
     announce: String,
+    last_response: Option<BencodedValue>,
 }
 
 impl Tracker {
@@ -175,56 +147,43 @@ impl Tracker {
     
         Ok(Tracker {
             announce,
+            last_response: None,
         })
     }
 
-    fn started_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<String> {
-        let request = TrackerRequest::start(self.announce.clone(), client_id, torrent_context)?;
-        request.as_url()
-    }
+    pub async fn response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<BencodedValue> {
+        let request = TrackerRequest::new(self, client_id, torrent_context, tracker_event).await.context("creating tracker request")?.as_url()?;
+        
+        println!("request: {}", request);
+        let response = reqwest::get(request).await.context("invalid tracker url")?;
 
-    async fn new_request(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<String> {
-        let request = TrackerRequest::new(self.announce.clone(), client_id, torrent_context, tracker_event).await?;
-        request.as_url()
-    }
+        
+        let response_bytes = response.bytes().await.context("error getting response bytes")?; 
+        println!("response: {}", response_bytes.to_vec().as_url_encoded());
+        let bencoded_response = TorrentParser::parse_from_bytes(&response_bytes).context("creating bencoded response")?;
 
-    pub async fn regular_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
-        // if no pieces have been downloaded, send a started request
-        let request = if torrent_context.needed.lock().await.pieces.len() == torrent_context.torrent_info.pieces_count {
-            self.started_request(client_id, torrent_context)?
+        crate::utils::print_bencoded_value(&bencoded_response);
+
+        let last_tracker_id = self.last_response.as_ref().and_then(|last_response| {
+            match last_response.get_from_dict(b"trackerid") {
+                Ok(BencodedValue::ByteString(tracker_id)) => Some(tracker_id),
+                _ => None
+            }
+        });
+
+        self.last_response = Some(bencoded_response.clone());
+
+        if let Err(_) = bencoded_response.get_from_dict(b"trackerid") {
+            self.last_response.as_mut().and_then(|last_response| {
+                if let Some(last_tracker_id) = last_tracker_id {
+                    last_response.insert_into_dict(b"trackerid".to_vec(), BencodedValue::ByteString(last_tracker_id));
+                }
+
+                Some(())
+            });
         }
-        else {
-            self.new_request(client_id, torrent_context, TrackerEvent::None).await?
-        };
 
-        let response = match crate::DEBUG_MODE {
-            true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
-            false => reqwest::get(request).await.context("invalid tracker url")?
-        };
 
-        Ok(response)
-    }
-
-    pub async fn stopped_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
-        let request = self.new_request(client_id, torrent_context, TrackerEvent::Stopped).await?;
-
-        let response = match crate::DEBUG_MODE {
-            true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
-            false => reqwest::get(request).await.context("invalid tracker url")?
-        };
-
-        Ok(response)
-
-    }
-
-    pub async fn completed_response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext) -> Result<reqwest::Response> {
-        let request = self.new_request(client_id, torrent_context, TrackerEvent::Completed).await?;
-
-        let response = match crate::DEBUG_MODE {
-            true => reqwest::get("https://1.1.1.1").await.context("error with debug request")?,
-            false => reqwest::get(request).await.context("invalid tracker url")?
-        };
-
-        Ok(response)
+        Ok(bencoded_response)
     }
 }

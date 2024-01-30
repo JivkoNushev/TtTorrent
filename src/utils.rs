@@ -3,7 +3,8 @@ use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
 use anyhow::{anyhow, Result, Context};
 
-use crate::torrent::torrent_file::Sha1Hash;
+use crate::torrent::torrent_file::bencoded_value::BencodedValue;
+use crate::torrent::torrent_file::{bencoded_value, Sha1Hash};
 use crate::messager::TerminalClientMessage;
 
 pub struct CommunicationPipe {
@@ -16,6 +17,12 @@ pub trait UrlEncodable {
 }
 
 impl UrlEncodable for [u8;20] {
+    fn as_url_encoded(&self) -> String {
+        percent_encoding::percent_encode(self, percent_encoding::NON_ALPHANUMERIC).to_string()
+    }
+}
+
+impl UrlEncodable for Vec<u8> {
     fn as_url_encoded(&self) -> String {
         percent_encoding::percent_encode(self, percent_encoding::NON_ALPHANUMERIC).to_string()
     }
@@ -94,4 +101,42 @@ pub fn generate_random_client_id() -> [u8; 20] {
     tracing::debug!("Generated client id: {:?}", client_id);
 
     client_id
+}
+
+pub fn print_bencoded_value(bencoded_value: &BencodedValue) {
+    match bencoded_value {
+        BencodedValue::ByteString(byte_string) => {
+            print!("Byte String: ");
+            print_as_string(byte_string);
+        },
+        BencodedValue::Integer(byte_integer) => {
+            println!("Byte Integer: {}", byte_integer);
+        },
+        BencodedValue::List(byte_list) => {
+            println!("Byte List: ");
+            for byte_value in byte_list {
+                print_bencoded_value(byte_value);
+            }
+        },
+        BencodedValue::Dict(byte_dict) => {
+            println!("Byte Dict: ");
+            for (key, value) in byte_dict {
+                print!("Key: ");
+                print_as_string(key);
+                print!("Value: ");
+                print_bencoded_value(value);
+            }
+        },
+        BencodedValue::ByteSha1Hashes(byte_sha1_hashes) => {
+            println!("Byte Sha1 Hashes: ");
+            for byte_sha1_hash in byte_sha1_hashes {
+                print!("Byte Sha1 Hash: ");
+                print_as_string(&byte_sha1_hash.as_bytes().to_vec());
+            }
+        },
+        _ => {
+            println!("Invalid bencoded value");
+        }
+
+    }
 }
