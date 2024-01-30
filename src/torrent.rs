@@ -346,7 +346,6 @@ impl Torrent {
                 PeerAddress::from_tracker_response(tracker_response).await?
             }
         };
-        // println!("peer addresses: {:?}", peer_addresses);
 
         let peer_addresses = peer_addresses.into_iter().rev().take(10).collect();
 
@@ -576,18 +575,16 @@ impl Torrent {
                 if let Some(err) = err.downcast_ref::<tokio::io::Error>() {
                     match err.kind() {
                         tokio::io::ErrorKind::UnexpectedEof => {
-                            // println!("Peer '{peer_addr}' closed the connection");
                             self.torrent_context.peers.retain(|peer| peer != &peer_addr);
+                            tracing::debug!("Peer '{}' UnexpectedEof", peer_addr);
                         }
                         tokio::io::ErrorKind::ConnectionReset => {
-                            // println!("Peer '{peer_addr}' disconnected");
                             self.torrent_context.peers.retain(|peer| peer != &peer_addr);
-
+                            tracing::debug!("Peer '{}' ConnectionReset", peer_addr);
                         }
                         tokio::io::ErrorKind::ConnectionAborted => {
-                            // println!("Peer '{peer_addr}' was disconnected");
                             self.torrent_context.peers.retain(|peer| peer != &peer_addr);
-
+                            tracing::debug!("Peer '{}' ConnectionAborted", peer_addr);
                         }
                         _ => {
                             tracing::warn!("Peer '{}' error: {}", peer_addr, err);

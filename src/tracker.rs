@@ -153,16 +153,13 @@ impl Tracker {
 
     pub async fn response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<BencodedValue> {
         let request = TrackerRequest::new(self, client_id, torrent_context, tracker_event).await.context("creating tracker request")?.as_url()?;
+        tracing::debug!("request: {}", request);
         
-        println!("request: {}", request);
         let response = reqwest::get(request).await.context("invalid tracker url")?;
-
-        
         let response_bytes = response.bytes().await.context("error getting response bytes")?; 
-        println!("response: {}", response_bytes.to_vec().as_url_encoded());
+        tracing::debug!("response: {:?}", response_bytes.to_vec().as_url_encoded()); 
+        
         let bencoded_response = TorrentParser::parse_from_bytes(&response_bytes).context("creating bencoded response")?;
-
-        crate::utils::print_bencoded_value(&bencoded_response);
 
         let last_tracker_id = self.last_response.as_ref().and_then(|last_response| {
             match last_response.get_from_dict(b"trackerid") {
