@@ -327,8 +327,14 @@ impl Torrent {
         Ok(())
     }
 
-    pub async fn load_state(&mut self) -> Result<()> {
-        self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone()).await
+    pub fn load_state(&mut self) {
+
+        // I could try to connect to the peers from the previous session but I don't think it's worth it
+        // because the tracker will return me the best peers to connect to
+        // self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone()).await
+        
+        // removing the previous peers who participated
+        self.torrent_context.peers.clear();
     }
 
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
@@ -380,7 +386,7 @@ impl Torrent {
         )
     )]
     pub async fn run(mut self) -> Result<()> {
-        self.load_state().await?;
+        self.load_state();
 
         // ------------------------------ create tracker --------------------------------
         let mut tracker = match Tracker::from_torrent_file(&self.torrent_context.torrent_file) {
