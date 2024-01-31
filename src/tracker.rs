@@ -40,7 +40,7 @@ pub struct TrackerRequest {
     ip: Option<String>,
     numwant: Option<u32>,
     key: Option<String>,
-    trackerid: Option<String>,
+    tracker_id: Option<String>,
 }
 
 impl TrackerRequest {
@@ -58,8 +58,8 @@ impl TrackerRequest {
         let ip = None;
         let numwant = None;
         let key = None;
-        let trackerid = tracker.last_response.as_ref().and_then(|last_response| {
-            match last_response.get_from_dict(b"trackerid") {
+        let tracker_id = tracker.last_response.as_ref().and_then(|last_response| {
+            match last_response.get_from_dict(b"tracker id") {
                 Ok(BencodedValue::ByteString(tracker_id)) => Some(tracker_id.as_url_encoded()),
                 _ => None
             }
@@ -79,7 +79,7 @@ impl TrackerRequest {
             ip,
             numwant,
             key,
-            trackerid,
+            tracker_id,
         })
     }
 
@@ -118,8 +118,8 @@ impl TrackerRequest {
             url.push_str(&format!("&key={}", key));
         }
 
-        if let Some(trackerid) = self.trackerid {
-            url.push_str(&format!("&trackerid={}", trackerid));
+        if let Some(tracker_id) = self.tracker_id {
+            url.push_str(&format!("&trackerid={}", tracker_id));
         }
 
         Ok(url)
@@ -162,7 +162,7 @@ impl Tracker {
         let bencoded_response = TorrentParser::parse_from_bytes(&response_bytes).context("creating bencoded response")?;
 
         let last_tracker_id = self.last_response.as_ref().and_then(|last_response| {
-            match last_response.get_from_dict(b"trackerid") {
+            match last_response.get_from_dict(b"tracker id") {
                 Ok(BencodedValue::ByteString(tracker_id)) => Some(tracker_id),
                 _ => None
             }
@@ -170,10 +170,10 @@ impl Tracker {
 
         self.last_response = Some(bencoded_response.clone());
 
-        if let Err(_) = bencoded_response.get_from_dict(b"trackerid") {
+        if let Err(_) = bencoded_response.get_from_dict(b"tracker id") {
             self.last_response.as_mut().and_then(|last_response| {
                 if let Some(last_tracker_id) = last_tracker_id {
-                    last_response.insert_into_dict(b"trackerid".to_vec(), BencodedValue::ByteString(last_tracker_id));
+                    last_response.insert_into_dict(b"tracker id".to_vec(), BencodedValue::ByteString(last_tracker_id));
                 }
 
                 Some(())

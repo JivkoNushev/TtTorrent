@@ -4,7 +4,7 @@ use getrandom::getrandom;
 use anyhow::{anyhow, Result, Context};
 
 use crate::torrent::torrent_file::bencoded_value::BencodedValue;
-use crate::torrent::torrent_file::{bencoded_value, Sha1Hash};
+use crate::torrent::torrent_file::Sha1Hash;
 use crate::messager::TerminalClientMessage;
 
 pub struct CommunicationPipe {

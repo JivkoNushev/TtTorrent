@@ -1,5 +1,5 @@
-use futures::StreamExt;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio_stream::StreamExt;
+use tokio::sync::{mpsc, oneshot, Mutex, };
 use tokio::task::JoinHandle;
 use anyhow::{anyhow, Result, Context};
 
@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::messager::ClientMessage;
 use crate::peer::block_picker::Piece;
-use crate::peer::{peer_address, Block, BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
+use crate::peer::{Block, BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
 use crate::tracker::{Tracker, TrackerEvent};
 use crate::peer::peer_message::ConnectionType;
 use crate::disk::{DiskHandle, DiskTorrentContext};

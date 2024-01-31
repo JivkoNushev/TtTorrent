@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 
 use std::fmt::Display;
 
-use crate::torrent::{TorrentParser, BencodedValue};
+use crate::torrent::BencodedValue;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerAddress {
