@@ -3,9 +3,13 @@ use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
 use anyhow::{anyhow, Result, Context};
 
-use crate::torrent::torrent_file::bencoded_value::BencodedValue;
-use crate::torrent::torrent_file::Sha1Hash;
 use crate::messager::TerminalClientMessage;
+
+pub mod sha1hash;
+pub use sha1hash::Sha1Hash;
+pub mod bencode;
+pub use bencode::BencodedValue;
+
 
 pub struct CommunicationPipe {
     pub tx: tokio::sync::mpsc::Sender<crate::messager::ClientMessage>,

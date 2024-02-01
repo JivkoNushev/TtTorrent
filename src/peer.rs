@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use crate::messager::ClientMessage;
 use crate::peer::block_picker::Piece;
-use crate::torrent::{Sha1Hash, TorrentInfo};
+use crate::torrent::TorrentInfo;
 use crate::utils::CommunicationPipe;
+use crate::utils::sha1hash::Sha1Hash;
 
 pub mod peer_address;
 pub use peer_address::PeerAddress;  

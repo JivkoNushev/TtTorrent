@@ -1,8 +1,10 @@
 use anyhow::{anyhow, Context, Result};
 
-use crate::torrent::torrent_file::{ BencodedValue, Sha1Hash, TorrentFile };
-use crate::torrent::{TorrentContext, TorrentParser};
+use crate::torrent::torrent_file::TorrentFile;
+use crate::torrent::TorrentContext;
 
+use crate::utils::sha1hash::Sha1Hash;
+use crate::utils::bencode::BencodedValue;
 use crate::utils::UrlEncodable;
 
 #[derive(Debug, Clone)]
@@ -171,7 +173,7 @@ impl Tracker {
         let response_bytes = response.bytes().await.context("error getting response bytes")?; 
         tracing::debug!("response: {:?}", response_bytes.to_vec().as_url_encoded()); 
         
-        let bencoded_response = TorrentParser::parse_from_bytes(&response_bytes).context("creating bencoded response")?;
+        let bencoded_response = BencodedValue::from_bytes(&response_bytes).context("creating bencoded response")?;
 
         let last_tracker_id = self.last_response.as_ref().and_then(|last_response| {
             match last_response.get_from_dict(b"tracker id") {

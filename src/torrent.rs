@@ -13,12 +13,11 @@ use crate::tracker::{Tracker, TrackerEvent};
 use crate::peer::peer_message::ConnectionType;
 use crate::disk::{DiskHandle, DiskTorrentContext};
 use crate::utils::CommunicationPipe;
+use crate::utils::sha1hash::Sha1Hash;
+use crate::utils::bencode::BencodedValue;
 
 pub mod torrent_file;
-pub use torrent_file::{TorrentFile, Sha1Hash, BencodedValue};
-
-pub mod torrent_parser;
-pub use torrent_parser::TorrentParser;
+pub use torrent_file::TorrentFile;
 
 pub mod torrent_info;
 pub use torrent_info::TorrentInfo;

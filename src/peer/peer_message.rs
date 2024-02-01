@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
-use crate::torrent::Sha1Hash;
 use crate::utils::{AsBytes, is_zero_aligned};
+use crate::utils::sha1hash::Sha1Hash;
 
 #[derive(Debug, Clone, Default)]
 pub struct Handshake {

@@ -7,6 +7,8 @@ use crate::peer::PeerAddress;
 
 use super::Sha1Hash;
 
+mod parsing;
+
 /// Represents a value in the Bencode format.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BencodedValue {
@@ -30,6 +32,14 @@ pub enum BencodedValue {
 }
 
 impl BencodedValue {
+    pub fn from_bytes(bytes: &[u8]) -> Result<BencodedValue> {
+        parsing::encode(&bytes)
+    }
+
+    pub fn as_bytes(&self) -> Result<Vec<u8>> {
+        parsing::decode(self)
+    }
+
     pub fn try_into_dict(&self) -> Result<&BTreeMap<Vec<u8>, BencodedValue>> {
         match self {
             BencodedValue::Dict(d) => Ok(d),
@@ -156,4 +166,3 @@ impl BencodedValue {
         true
     }
 }
-

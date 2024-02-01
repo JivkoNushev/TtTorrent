@@ -2,47 +2,44 @@ use anyhow::{anyhow, Result, Context};
 use serde::{Serialize, Deserialize};
 
 use crate::utils::{read_file_as_bytes, sha1_hash};
-use super::TorrentParser;
-
-pub mod bencoded_value;
-pub use bencoded_value::BencodedValue;
-
-pub mod sha1hash;
-pub use sha1hash::Sha1Hash;
+use crate::utils::sha1hash::Sha1Hash;
+use crate::utils::bencode::BencodedValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TorrentFile {
     bencoded_dict: BencodedValue,
 }
 
-// TorrentFile getters
 impl TorrentFile {
+    pub async fn new(torrent_file_name: &std::path::Path) -> Result<TorrentFile> {
+        let torrent_file_bytes = read_file_as_bytes(torrent_file_name).await.context("couldn't read file as bytes")?;
+        let bencoded_dict = BencodedValue::from_bytes(&torrent_file_bytes)?;
+
+        if !bencoded_dict.torrent_file_is_valid() {
+            return Err(anyhow!("[Error] Invalid dictionary: doesn't have all the required keys"));
+        }
+
+        Ok(TorrentFile { bencoded_dict })
+    }
+
     pub fn get_bencoded_dict_ref(&self) -> &BencodedValue {
         &self.bencoded_dict
     }
 
     pub fn get_piece_size(&self, piece_index: usize) -> Result<usize> {
-        let torrent_length = self.get_torrent_length()?;
         let piece_length = self.get_piece_length()?;
-        let pieces_count = self.get_pieces_count()?;
 
-        // TODO: make cleaner
-        if piece_index == pieces_count - 1 {
-            let size = (torrent_length % piece_length as u64) as usize;
-            if 0 == size {
-                Ok(piece_length)
-            }
-            else {
-                Ok(size)
-            }
+        if piece_index != self.get_pieces_count()? -1 {
+            return Ok(piece_length);
         }
-        else {
-            Ok(piece_length)
+
+        match self.get_torrent_length()? as usize % piece_length {
+            0 => Ok(piece_length),
+            size => Ok(size)
         }
     }
 
     pub fn get_block_length(&self) -> Result<usize> {
-        //TODO: maybe change block size based on torrent? don't know if its better
         Ok(crate::BLOCK_SIZE)
     }
 
@@ -57,6 +54,7 @@ impl TorrentFile {
     pub fn get_blocks_in_piece(&self) -> Result<usize> {
         let piece_size = self.get_piece_size(0)?;
         let block_size = self.get_block_length()?;
+        
         Ok(piece_size.div_ceil(block_size))
     }
 
@@ -77,7 +75,7 @@ impl TorrentFile {
         let info_dict = bencoded_dict.get_from_dict(b"info")?;
         match info_dict {
             BencodedValue::Dict(_) => {
-                let bencoded_info_dict = TorrentParser::parse_to_torrent_file(&info_dict)?;
+                let bencoded_info_dict = info_dict.as_bytes()?;
                 Ok(sha1_hash(bencoded_info_dict))
             },
             _ => Err(anyhow!("Invalid dictionary in info key when getting the tracker params"))
@@ -138,14 +136,3 @@ impl TorrentFile {
         Ok(total_size)
     }
 }
-
-// TorrentFile methods
-impl TorrentFile {
-    pub async fn new(torrent_file_name: &std::path::Path) -> Result<TorrentFile> {
-        let torrent_file = read_file_as_bytes(torrent_file_name).await.context("couldn't read file as bytes")?;
-        let bencoded_dict = TorrentParser::parse_torrent_file(&torrent_file)?;
-
-        Ok(TorrentFile { bencoded_dict })
-    }
-}
-

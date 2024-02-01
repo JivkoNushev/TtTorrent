@@ -4,9 +4,10 @@ use anyhow::{Result, Context};
 
 use crate::peer::peer_message::Handshake;
 use crate::peer::{ConnectionType, PeerMessage, PeerSession};
-use crate::torrent::{Sha1Hash, TorrentContextState, TorrentHandle};
+use crate::torrent::{TorrentContextState, TorrentHandle};
 use crate::messager::ClientMessage;
 use crate::utils::{CommunicationPipe, UrlEncodable};
+use crate::utils::sha1hash::Sha1Hash;
 
 pub struct ClientHandle {
     tx: mpsc::Sender<ClientMessage>,

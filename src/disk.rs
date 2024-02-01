@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::peer::block_picker::Piece;
 use crate::peer::Block;
 use crate::torrent::TorrentInfo;
-use crate::{messager::ClientMessage, torrent::{BencodedValue, TorrentFile}};
+use crate::{messager::ClientMessage, torrent::TorrentFile, utils::bencode::BencodedValue};
 
 #[derive(Debug, Clone)]
 struct DownloadableFile {

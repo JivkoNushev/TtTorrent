@@ -5,9 +5,10 @@ use anyhow::{Context, Result};
 use std::sync::Arc;
 
 use crate::peer::{PeerAddress, BlockPicker, BlockPickerState, ConnectionType};
+use crate::utils::sha1hash::Sha1Hash;
 
 use super::TorrentInfo;
-pub use super::torrent_file::{TorrentFile, Sha1Hash, BencodedValue};
+pub use super::torrent_file::TorrentFile;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TorrentContextState {

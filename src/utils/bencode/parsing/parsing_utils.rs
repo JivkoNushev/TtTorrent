@@ -2,10 +2,39 @@ use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
 
 use crate::peer::PeerAddress;
-use crate::torrent::torrent_file::{BencodedValue, Sha1Hash};
+use crate::utils::sha1hash::Sha1Hash;
 
-pub fn parse_to_torrent_file_(torrent_file: &BencodedValue) -> Result<Vec<u8>> {
-    to_bencoded_dict(torrent_file)
+use super::BencodedValue;
+
+pub fn parse_from_bencoded_value(bencoded_value: &BencodedValue) -> Result<Vec<u8>> {
+    match bencoded_value {
+        BencodedValue::Dict(_) => to_bencoded_dict(bencoded_value),
+        BencodedValue::List(_) => to_bencoded_list(bencoded_value),
+        BencodedValue::Integer(i) => Ok(("i".to_owned() + &i.to_string() + "e").as_bytes().to_vec()),
+        BencodedValue::ByteString(byte_string) => Ok(byte_string.clone()),
+        BencodedValue::ByteSha1Hashes(sha1hashes) => Ok(sha1hashes
+                                                                                .iter()
+                                                                                .map(|sha1hash| sha1hash.0.clone())
+                                                                                .flatten()
+                                                                                .collect::<Vec<u8>>()),
+        BencodedValue::ByteAddresses(_) => Err(anyhow!("Invalid BencodedValue type")),
+    }
+}
+
+pub fn parse_to_bencoded_value(torrent_file: &[u8]) -> Result<BencodedValue> {
+    match torrent_file[0] {
+        b'd' => create_dict(torrent_file, &mut 0),
+        b'l' => create_list(torrent_file, &mut 0),
+        b'i' => create_int(torrent_file, &mut 0),
+        _ => {
+            let word_len = parse_integer(&torrent_file[..])? as usize;
+            let word_len_chars_len = (word_len.checked_ilog10().unwrap_or(0) + 1) as usize;
+
+            let word = torrent_file[word_len_chars_len + 1..word_len_chars_len + 1 + word_len].to_vec();
+
+            Ok(BencodedValue::ByteString(word))
+        }
+    }
 }
 
 pub fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Result<Vec<u8>> {
