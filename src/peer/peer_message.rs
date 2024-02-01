@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
-use crate::utils::{AsBytes, is_zero_aligned};
+use crate::utils::is_zero_aligned;
 use crate::utils::sha1hash::Sha1Hash;
 
 #[derive(Debug, Clone, Default)]
@@ -49,8 +49,44 @@ pub enum PeerMessage {
     Handshake(Handshake),
 }
 
-impl AsBytes for PeerMessage {
-    fn as_bytes(&self) -> Vec<u8> {
+impl PeerMessage {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let message = match bytes[0] {
+            0 => Self::Choke,
+            1 => Self::Unchoke,
+            2 => Self::Interested,
+            3 => Self::NotInterested,
+            4 => Self::Have(u32::from_be_bytes(bytes[1..5].try_into().unwrap())),
+            5 => Self::Bitfield(bytes[1..].to_vec()),
+            6 => Self::Request(
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap()),
+                u32::from_be_bytes(bytes[5..9].try_into().unwrap()),
+                u32::from_be_bytes(bytes[9..13].try_into().unwrap()),
+            ),
+            7 => Self::Piece(
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap()),
+                u32::from_be_bytes(bytes[5..9].try_into().unwrap()),
+                bytes[9..].to_vec(),
+            ),
+            8 => Self::Cancel(
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap()),
+                u32::from_be_bytes(bytes[5..9].try_into().unwrap()),
+                u32::from_be_bytes(bytes[9..13].try_into().unwrap()),
+            ),
+            9 => Self::Port(u16::from_be_bytes(bytes[1..3].try_into().unwrap())),
+            19 => Self::Handshake(Handshake {
+                protocol_len: bytes[0],
+                protocol: bytes[1..20].try_into().unwrap(),
+                reserved: bytes[20..28].try_into().unwrap(),
+                info_hash: bytes[28..48].try_into().unwrap(),
+                peer_id: bytes[48..68].try_into().unwrap(),
+            }),
+            _ => return Err(anyhow::anyhow!("Invalid Peer message")),
+        };
+        Ok(message)
+    } 
+
+    fn to_vec(self) -> Vec<u8> {
         match self {
             PeerMessage::Choke => vec![0, 0, 0, 1, 0],
             PeerMessage::Unchoke => vec![0, 0, 0, 1, 1],
@@ -120,44 +156,6 @@ impl AsBytes for PeerMessage {
             },
         }
     }
-}
-
-impl PeerMessage {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        let message = match bytes[0] {
-            0 => Self::Choke,
-            1 => Self::Unchoke,
-            2 => Self::Interested,
-            3 => Self::NotInterested,
-            4 => Self::Have(u32::from_be_bytes(bytes[1..5].try_into().unwrap())),
-            5 => Self::Bitfield(bytes[1..].to_vec()),
-            6 => Self::Request(
-                u32::from_be_bytes(bytes[1..5].try_into().unwrap()),
-                u32::from_be_bytes(bytes[5..9].try_into().unwrap()),
-                u32::from_be_bytes(bytes[9..13].try_into().unwrap()),
-            ),
-            7 => Self::Piece(
-                u32::from_be_bytes(bytes[1..5].try_into().unwrap()),
-                u32::from_be_bytes(bytes[5..9].try_into().unwrap()),
-                bytes[9..].to_vec(),
-            ),
-            8 => Self::Cancel(
-                u32::from_be_bytes(bytes[1..5].try_into().unwrap()),
-                u32::from_be_bytes(bytes[5..9].try_into().unwrap()),
-                u32::from_be_bytes(bytes[9..13].try_into().unwrap()),
-            ),
-            9 => Self::Port(u16::from_be_bytes(bytes[1..3].try_into().unwrap())),
-            19 => Self::Handshake(Handshake {
-                protocol_len: bytes[0],
-                protocol: bytes[1..20].try_into().unwrap(),
-                reserved: bytes[20..28].try_into().unwrap(),
-                info_hash: bytes[28..48].try_into().unwrap(),
-                peer_id: bytes[48..68].try_into().unwrap(),
-            }),
-            _ => return Err(anyhow::anyhow!("Invalid Peer message")),
-        };
-        Ok(message)
-    } 
 
     pub fn new_handshake(info_hash: Sha1Hash, peer_id: [u8; 20]) -> Self {
         Self::Handshake(Handshake::new(info_hash, peer_id))
@@ -258,7 +256,7 @@ impl PeerSession {
     }
 
     pub async fn send(&mut self, peer_message: PeerMessage) -> Result<()> {
-        self.stream.write_all(&peer_message.as_bytes()).await?;
+        self.stream.write_all(&peer_message.to_vec()).await?;
         Ok(())
     }
 

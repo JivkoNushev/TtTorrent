@@ -1,12 +1,10 @@
-use sha1::{Sha1, Digest};
 use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
-use anyhow::{anyhow, Result, Context};
-
-use crate::messager::TerminalClientMessage;
+use anyhow::{Result, Context};
 
 pub mod sha1hash;
 pub use sha1hash::Sha1Hash;
+
 pub mod bencode;
 pub use bencode::BencodedValue;
 
@@ -32,20 +30,7 @@ impl UrlEncodable for Vec<u8> {
     }
 }
 
-pub trait AsBytes {
-    fn as_bytes(&self) -> Vec<u8>;
-}
-
-pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
-    let mut hasher = Sha1::new();
-    hasher.update(value);
-    let hash = hasher.finalize();
-    let hash = hash.as_slice().try_into().unwrap(); // sha1 hash is always 20 bytes in this case
-    Sha1Hash::new(hash)
-}   
-
 pub async fn read_file_as_bytes(path: &std::path::Path) -> Result<Vec<u8>> {
-    // print current directory
     let mut buf = Vec::new();
     let mut file = tokio::fs::File::open(path).await.context("couldn't open file")?;
 
@@ -56,14 +41,6 @@ pub async fn read_file_as_bytes(path: &std::path::Path) -> Result<Vec<u8>> {
 
 pub fn print_as_string(char_vec: &Vec<u8>) {
     println!("{}", char_vec.iter().map(|&c| c as char).collect::<String>());
-}
-
-pub fn rand_number_u32(min: u32, max: u32) -> Result<u32> {
-    let mut buffer = [0u8; 4];
-    if let Err(e) = getrandom(&mut buffer) {
-        return Err(anyhow!("Failed to generate random number: {}", e));
-    }
-    Ok(u32::from_ne_bytes(buffer) % (max - min) + min)
 }
 
 pub fn valid_src_and_dst(src: &str, dst: &str) -> bool {
@@ -81,12 +58,6 @@ pub fn valid_src_and_dst(src: &str, dst: &str) -> bool {
         Ok(_) => true,
         Err(_) => false
     }
-}
-
-pub fn create_message (message: &TerminalClientMessage) -> Vec<u8> {
-    let mut serialized_data = serde_json::to_string(message).expect("Serialization failed");
-    serialized_data.push('\n');
-    serialized_data.as_bytes().to_vec()
 }
 
 pub fn is_zero_aligned(buf: &[u8]) -> bool {
@@ -141,6 +112,5 @@ pub fn print_bencoded_value(bencoded_value: &BencodedValue) {
         _ => {
             println!("Invalid bencoded value");
         }
-
     }
 }

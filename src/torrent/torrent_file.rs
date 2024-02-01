@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result, Context};
 use serde::{Serialize, Deserialize};
 
-use crate::utils::{read_file_as_bytes, sha1_hash};
-use crate::utils::sha1hash::Sha1Hash;
+use crate::utils::read_file_as_bytes;
+use crate::utils::sha1hash::{Sha1Hash, sha1_hash};
 use crate::utils::bencode::BencodedValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

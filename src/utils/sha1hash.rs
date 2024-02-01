@@ -39,3 +39,13 @@ impl Sha1Hash {
         String::from_utf8_lossy(self.0.as_slice()).to_string()
     }
 }
+
+use sha1::Digest;
+pub fn sha1_hash(value: Vec<u8>) -> Sha1Hash {
+    let mut hasher = sha1::Sha1::new();
+    hasher.update(value);
+    let hash = hasher.finalize();
+    let hash = hash.as_slice().try_into().unwrap(); // sha1 hash is always 20 bytes in this case
+
+    Sha1Hash::new(hash)
+}   
