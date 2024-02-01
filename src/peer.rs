@@ -467,7 +467,7 @@ impl Peer {
                         }
                     }
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(120)) => {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(crate::CLIENT_KEEP_ALIVE_MESSAGE_INTERVAL_SECS)) => {
                     // 2 minutes without any message from peer elapsed, sending keep alive
                     self.keep_alive(&mut peer_session).await?;
                 }

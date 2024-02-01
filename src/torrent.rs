@@ -388,6 +388,8 @@ impl Torrent {
     pub async fn run(mut self) -> Result<()> {
         self.load_state();
 
+        let mut save_state_interval = tokio::time::interval(std::time::Duration::from_secs(crate::SAVE_STATE_INTERVAL_SECS));
+
         // ------------------------------ create tracker --------------------------------
         let mut tracker = match Tracker::from_torrent_file(&self.torrent_context.torrent_file) {
             Ok(tracker) => Some(tracker),
@@ -396,7 +398,7 @@ impl Torrent {
                 None
             }
         };
-
+        
         // ------------------------------ connect to peers --------------------------------
         if let Some(ref mut tracker) = tracker {
             // connect to peers from tracker response
@@ -404,6 +406,10 @@ impl Torrent {
                 tracing::error!("Failed to connect to peers: {}", e);
             }
         }
+
+        let interval = tracker.as_ref().and_then(|tracker| Some(tracker.get_interval())).unwrap_or(crate::TRACKER_REGULAR_REQUEST_INTERVAL_SECS);
+
+        let mut find_new_peers_interval = tokio::time::interval(std::time::Duration::from_secs(interval));
         
         // ------------------------------ main loop --------------------------------
         let mut end_game_blocks: Vec<Block> = Vec::new();
@@ -489,9 +495,6 @@ impl Torrent {
                             }
                         },
                         ClientMessage::FinishedDownloading => {
-                            if let Err(e) = Torrent::save_state(self.torrent_context.clone()).await.context("saving torrent state") {
-                                tracing::error!("Failed to save torrent state for torrent {}: {}", self.torrent_context.torrent_name, e);
-                            }
                             tracing::info!("Finished downloading torrent '{}'", self.torrent_context.torrent_name);
 
                             if let Some(ref mut tracker) = tracker {
@@ -561,7 +564,7 @@ impl Torrent {
                         _ => {}
                     }
                 },
-                _ = tokio::time::sleep(std::time::Duration::from_secs(120)) => {
+                _ = find_new_peers_interval.tick() => {
                     // connect to more peers with better tracker request
                     if !self.torrent_context.needed.lock().await.is_empty() {
                         if let Some(ref mut tracker) = tracker {
@@ -570,6 +573,11 @@ impl Torrent {
                                 tracing::error!("Failed to connect to peers: {}", e);
                             }
                         }
+                    }
+                },
+                _ = save_state_interval.tick() => {
+                    if let Err(e) = Torrent::save_state(self.torrent_context.clone()).await.context("saving torrent state") {
+                        tracing::error!("Failed to save torrent state for torrent {}: {}", self.torrent_context.torrent_name, e);
                     }
                 }
             }

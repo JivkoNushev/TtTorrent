@@ -135,6 +135,18 @@ pub struct Tracker {
 }
 
 impl Tracker {
+    pub fn get_interval(&self) -> u64 {
+        match self.last_response.as_ref().and_then(|last_response| {
+            match last_response.get_from_dict(b"interval") {
+                Ok(BencodedValue::Integer(interval)) => Some(interval),
+                _ => None
+            }
+        }) {
+            Some(interval) => interval as u64,
+            None => crate::TRACKER_REGULAR_REQUEST_INTERVAL_SECS
+        }
+    }
+
     pub fn from_torrent_file(torrent_file: &TorrentFile) -> Result<Tracker> {
         let tracker_announce = torrent_file.get_bencoded_dict_ref().get_from_dict(b"announce")?;
     
@@ -179,7 +191,6 @@ impl Tracker {
                 Some(())
             });
         }
-
 
         Ok(bencoded_response)
     }
