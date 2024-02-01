@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "tttorrent-client"
-path = "src/terminal_utils.rs"
+path = "src/terminal_client.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
