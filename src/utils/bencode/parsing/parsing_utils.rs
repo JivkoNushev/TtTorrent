@@ -18,7 +18,7 @@ pub fn parse_from_bencoded_value(bencoded_value: &BencodedValue) -> Result<Vec<u
                     .map(|sha1hash| sha1hash.0.clone())
                     .flatten()
                     .collect::<Vec<u8>>()
-            ),
+            )
         },
         BencodedValue::ByteAddresses(byte_addresses) => {
             Ok(

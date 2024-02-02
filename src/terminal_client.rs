@@ -6,7 +6,7 @@ use std::process::{exit, Command, Stdio};
 
 use torrent_client::messager::TerminalClientMessage;
 use torrent_client::torrent::TorrentContextState;
-use torrent_client::terminal_utils::{TerminalClient, create_client_socket};
+use torrent_client::utils::terminal::{TerminalClient, create_client_socket};
 
 fn check_file(path: &PathBuf) -> bool {
     path.exists() && path.is_file()

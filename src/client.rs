@@ -104,12 +104,11 @@ impl Client {
         let client_state = match tokio::fs::read_to_string(path).await {
             Ok(state) => state,
             Err(_) => {
-               // println!("No available client state");
+                tracing::info!("No state file found, starting with an empty state");
                 return Ok(());
             }
         };
         let client_state = serde_json::from_str::<serde_json::Value>(&client_state)?;
-       // println!("Loading client state");
 
         for (key, val) in client_state.as_object().unwrap() { // client_state is always a valid json object
             let torrent_state = serde_json::from_value::<TorrentContextState>(val.clone())?;
@@ -140,7 +139,6 @@ impl Client {
     pub async fn run(mut self) -> Result<()> {
         tracing::event!(tracing::Level::INFO, "Client starting");
 
-        // load the client state
         self.load_state().await?;
         
         let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(crate::SENDING_TO_UI_INTERVAL_SECS));

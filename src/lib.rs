@@ -5,7 +5,6 @@ pub mod peer;
 pub mod messager;
 pub mod disk;
 pub mod utils;
-pub mod terminal_utils;
 
 pub const DEBUG_MODE: bool = true;
 

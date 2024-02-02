@@ -8,6 +8,7 @@ pub use sha1hash::Sha1Hash;
 pub mod bencode;
 pub use bencode::BencodedValue;
 
+pub mod terminal;
 
 pub struct CommunicationPipe {
     pub tx: tokio::sync::mpsc::Sender<crate::messager::ClientMessage>,
