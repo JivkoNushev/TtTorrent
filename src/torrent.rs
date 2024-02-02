@@ -11,7 +11,7 @@ use crate::peer::block_picker::Piece;
 use crate::peer::{Block, BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
 use crate::tracker::{Tracker, TrackerEvent};
 use crate::peer::peer_message::ConnectionType;
-use crate::disk::{DiskHandle, DiskTorrentContext};
+use crate::disk_manager::{DiskManagerHandle, DiskTorrentContext};
 use crate::utils::CommunicationPipe;
 use crate::utils::sha1hash::Sha1Hash;
 use crate::utils::bencode::BencodedValue;
@@ -131,7 +131,7 @@ struct Torrent {
 
     rx: mpsc::Receiver<ClientMessage>,
     peer_handles: Vec<PeerHandle>,
-    disk_handle: DiskHandle,
+    disk_handle: DiskManagerHandle,
     
     torrent_context: TorrentContext,
     client_id: [u8; 20],
@@ -213,9 +213,9 @@ impl Torrent {
             torrent_name.to_string(),
             Arc::clone(&torrent_file),
             Arc::clone(&torrent_info),
-        );
+        )?;
 
-        let disk_handle = DiskHandle::new(torrent_context);
+        let disk_handle = DiskManagerHandle::new(torrent_context);
 
         let needed = BlockPicker::new(pieces_left, Arc::clone(&torrent_info));
 
@@ -262,9 +262,9 @@ impl Torrent {
             torrent_state.torrent_name.clone(),
             Arc::new(torrent_file),
             Arc::new(torrent_state.torrent_info.clone()),
-        );
+        )?;
         
-        let disk_handle = DiskHandle::new(disk_torrent_context);
+        let disk_handle = DiskManagerHandle::new(disk_torrent_context);
         
         let torrent_context = TorrentContext::from_state(torrent_state, info_hash, connection_type).await?;
         Ok(Self {
