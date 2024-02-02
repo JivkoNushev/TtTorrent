@@ -30,7 +30,6 @@ pub struct TorrentHandle {
     tx: mpsc::Sender<ClientMessage>,
     join_handle: JoinHandle<()>,
 
-    pub _torrent_name: String,
     pub torrent_info_hash: Sha1Hash,
 }
 
@@ -65,7 +64,6 @@ impl TorrentHandle {
             }
         };
 
-        let _torrent_name = torrent.torrent_context.torrent_name.clone();
         let torrent_info_hash = torrent.torrent_context.info_hash.clone();
 
         let join_handle = tokio::spawn(async move {
@@ -78,7 +76,6 @@ impl TorrentHandle {
             tx: sender,
             join_handle,
 
-            _torrent_name,
             torrent_info_hash,
         })
     }
@@ -92,7 +89,6 @@ impl TorrentHandle {
 
         let torrent = Torrent::from_state(client_id, pipe, torrent_state, info_hash, connection_type.clone()).await?;
 
-        let _torrent_name = torrent.torrent_context.torrent_name.clone();
         let torrent_info_hash = torrent.torrent_context.info_hash.clone();
 
         let join_handle = tokio::spawn(async move {
@@ -105,7 +101,6 @@ impl TorrentHandle {
             tx: sender,
             join_handle,
 
-            _torrent_name,
             torrent_info_hash,
         })
     }
@@ -230,7 +225,7 @@ impl Torrent {
             src_path: src.to_string(),
             dest_path: dest.to_string(),
             torrent_name: torrent_name.to_string(),
-            torrent_file: torrent_file,
+            torrent_file,
             info_hash,
             needed: Arc::new(Mutex::new(needed)),
             bitfield: Arc::new(Mutex::new(vec![0; pieces_count.div_ceil(8)])),
@@ -420,6 +415,13 @@ impl Torrent {
                     match msg {
                         ClientMessage::Shutdown => {
                             tracing::info!("Shutting down torrent '{}'", self.torrent_context.torrent_name);
+
+                            if let Some(ref mut tracker) = tracker {
+                                if let Err(e) = self.tracker_stopped(tracker).await {
+                                    tracing::warn!("Failed to send stopped message to tracker: {}", e);
+                                }
+                            }
+
                             for peer_handle in &mut self.peer_handles {
                                 if let Err(e) = peer_handle.shutdown().await {
                                     tracing::warn!("Failed to send shutdown message to peer {}: {}", peer_handle.peer_address, e);
@@ -428,13 +430,6 @@ impl Torrent {
 
                             if let Err(e) = self.disk_handle.shutdown().await {
                                 tracing::warn!("Failed to send shutdown message to disk handle: {}", e);
-                            }
-
-                            if let Some(ref mut tracker) = tracker {
-                                // TODO: is this to be called before the handles are joined?
-                                if let Err(e) = self.tracker_stopped(tracker).await {
-                                    tracing::warn!("Failed to send stopped message to tracker: {}", e);
-                                }
                             }
                             break;
                         },
@@ -479,18 +474,14 @@ impl Torrent {
 
                                 *self.torrent_context.downloaded.lock().await += block.length as u64;
                                 self.disk_handle.write_block(block).await?;
-
+                                
+                                // TODO: This breaks the program
                                 // for peer_handle in &mut self.peer_handles {
                                 //     if let Err(e) = peer_handle.cancel(block_copy.clone()).await {
                                 //         tracing::warn!("Failed to send cancel message to peer {}: {}", peer_handle.peer_address, e);
                                 //     }
                                 // }
                                 end_game_blocks.push(block_copy);
-                            }
-                        },
-                        ClientMessage::Request { block, tx } => {
-                            if let Err(e) = self.disk_handle.read_block(block, tx).await.context("sending to disk handle") {
-                                tracing::error!("Failed to send block request to disk handle: {}", e);
                             }
                         },
                         ClientMessage::FinishedDownloading => {

@@ -50,7 +50,7 @@ impl TrackerRequest {
         let announce = tracker.announce.clone();
         let info_hash = torrent_context.info_hash.clone();
         let peer_id = client_id;
-        let port = crate::SEEDING_PORT;
+        let port = crate::LISTENING_PORT;
         let uploaded = torrent_context.uploaded.lock().await.clone();
         let downloaded = torrent_context.downloaded.lock().await.clone();
         let left = torrent_context.torrent_file.get_torrent_length()? - downloaded;

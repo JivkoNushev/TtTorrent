@@ -25,4 +25,4 @@ pub const CLIENT_KEEP_ALIVE_MESSAGE_INTERVAL_SECS: u64 = 120;
 pub const SOCKET_PATH: &str = "client_state/TtTClient.sock";
 pub const STATE_FILE_PATH: &str = "client_state/TtTClient.state";
 pub const STATE_TORRENT_FILES_PATH: &str = "client_state/torrent_files";
-pub const SEEDING_PORT: u16 = 6881;
+pub const LISTENING_PORT: u16 = 6881;

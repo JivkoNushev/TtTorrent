@@ -405,8 +405,7 @@ impl Peer {
                             }
 
                             seeding_blocks.push(block.clone());
-                            self.torrent_context.tx.send(ClientMessage::Request{block, tx: self.self_tx.clone()}).await?;
-
+                            self.disk_tx.send(ClientMessage::Request{block, tx: self.self_tx.clone()}).await?;
                         },
                         PeerMessage::Piece(index, begin, block) => {
                             if  self.torrent_context.torrent_info.pieces_count as u32 <= index ||
