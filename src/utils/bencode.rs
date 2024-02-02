@@ -27,7 +27,7 @@ pub enum BencodedValue {
     /// Represents a Bencoded byte string as a list of SHA-1 hashes.
     ByteSha1Hashes(Vec<Sha1Hash>),
 
-    /// Represents a Bencoded byte string as a list of SHA-1 hashes.
+    /// Represents a Bencoded list of peer addresses.
     ByteAddresses(Vec<PeerAddress>),
 }
 

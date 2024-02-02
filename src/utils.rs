@@ -48,7 +48,7 @@ pub fn valid_src_and_dst(src: &str, dst: &str) -> bool {
     let directory = std::path::Path::new(dst);
     if  !torrent_file.exists()                              || 
         !torrent_file.is_file()                             || 
-        torrent_file.extension().is_none()               ||
+        torrent_file.extension().is_none()                  ||
         "torrent" != torrent_file.extension().unwrap()
     {
         return false;
