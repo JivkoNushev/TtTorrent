@@ -74,8 +74,6 @@ Commands:
 
         add <torrent_path> <dest_path> - add a torrent file
 
-        shutdown - Shutdown the client
-
         list - List all torrents
 
 
@@ -184,21 +182,6 @@ async fn main() {
                 eprintln!("Failed to add torrent: {}", e);
                 exit(1);
             }
-        },
-        "shutdown" => {
-            if args.len() != 2 {
-                eprintln!("[Error] Invalid number of arguments provided");
-                println!("Usage: tttorrent shutdown");
-
-                exit(1);
-            }
-
-            if let Err(e) = terminal_client.send_message(&TerminalClientMessage::Shutdown).await {
-                eprintln!("Failed to send shutdown message to client: {}", e);
-                exit(1);
-            }
-
-            println!("Shutting down client daemon...")
         },
         "list" => {
             if args.len() != 2 {
