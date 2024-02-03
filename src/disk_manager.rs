@@ -1,6 +1,6 @@
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
-use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio::sync::{mpsc, Mutex};
 use anyhow::{anyhow, Context, Result};
 
 use std::sync::Arc;
@@ -10,7 +10,17 @@ use crate::peer::Block;
 use crate::messager::ClientMessage;
 
 pub mod torrent_context;
-pub use torrent_context::{DiskTorrentContext, DownloadableFile};
+pub use torrent_context::DiskTorrentContext;
+
+#[derive(Debug, Clone)]
+pub struct DownloadableFile {
+    pub start: u64,
+    pub size: u64,
+    pub path: String,
+
+    // should be 32 HEX characters, but for future implementation
+    pub _md5sum: Option<Vec<u8>>
+}
 
 pub struct DiskManagerHandle {
     pub tx: mpsc::Sender<ClientMessage>,

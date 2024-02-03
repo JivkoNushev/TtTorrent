@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::{exit, Command, Stdio};
 
 use torrent_client::messager::TerminalClientMessage;
-use torrent_client::torrent::TorrentContextState;
+use torrent_client::torrent::TorrentState;
 use torrent_client::utils::terminal::{TerminalClient, create_client_socket};
 
 fn check_file(path: &PathBuf) -> bool {
@@ -36,7 +36,7 @@ fn calculate_percentage(pieces_count: usize, pieces_left: usize) -> f64 {
     (percentage * 100.0).round() / 100.0
 }
 
-fn print_torrent_infos(torrents: Vec<TorrentContextState>) {
+fn print_torrent_infos(torrents: Vec<TorrentState>) {
     print!("{}[2J", 27 as char);
 
     if torrents.is_empty() {
@@ -98,10 +98,10 @@ async fn add(mut client: TerminalClient, src: &str, dest: &str) -> Result<()> {
     match client.recv_message().await? {
         TerminalClientMessage::Status{exit_code} => {
             match exit_code {
-                torrent_client::messager::ExitCode::SUCCESS => {
+                torrent_client::utils::ExitCode::SUCCESS => {
                     println!("Torrent added");
                 },
-                torrent_client::messager::ExitCode::InvalidSrcOrDst => {
+                torrent_client::utils::ExitCode::InvalidSrcOrDst => {
                     return Err(anyhow!("Invalid src or dst"));
                 }
             }

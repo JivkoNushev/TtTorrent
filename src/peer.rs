@@ -1,12 +1,9 @@
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use anyhow::{anyhow, Result};
 
-use std::sync::Arc;
-
 use crate::messager::ClientMessage;
 use crate::peer::block_picker::Piece;
-use crate::torrent::TorrentInfo;
 use crate::utils::CommunicationPipe;
 use crate::utils::sha1hash::Sha1Hash;
 
@@ -14,51 +11,15 @@ pub mod peer_address;
 pub use peer_address::PeerAddress;  
 
 pub mod peer_message;
-pub use peer_message::{PeerMessage, PeerSession, ConnectionType};
+pub use peer_message::{PeerMessage, PeerSession, ConnectionType, Handshake};
 
 pub mod block_picker;
 pub use block_picker::{BlockPicker, BlockPickerState, Block};
 
-use self::peer_message::Handshake;
+pub mod context;
+pub use context::PeerTorrentContext;
+use context::PeerContext;
 
-pub struct PeerTorrentContext {
-    tx: mpsc::Sender<ClientMessage>,
-
-    pub torrent_info: Arc<TorrentInfo>,
-    pub info_hash: Sha1Hash,
-    pub needed: Arc<Mutex<BlockPicker>>,
-    pub bitfield: Arc<Mutex<Vec<u8>>>,
-
-    pub downloaded: Arc<Mutex<u64>>,
-    pub uploaded: Arc<Mutex<u64>>,
-}
-
-impl PeerTorrentContext {
-    pub fn new(tx: mpsc::Sender<ClientMessage>, torrent_info: Arc<TorrentInfo>, info_hash: Sha1Hash, needed: Arc<Mutex<BlockPicker>>, bitfield: Arc<Mutex<Vec<u8>>>, uploaded: Arc<Mutex<u64>>, downloaded: Arc<Mutex<u64>>) -> Self {
-        Self {
-            tx,
-
-            torrent_info,
-            info_hash,
-            needed,
-            bitfield,
-
-            downloaded,
-            uploaded,
-        }
-    }
-}
-
-struct PeerContext {
-    id: [u8;20],
-    ip: PeerAddress,
-    am_interested: bool,
-    am_choking: bool,
-    interested: bool,
-    choking: bool,
-    // having_pieces: Vec<usize>,
-    bitfield: Vec<u8>,
-}
 
 pub struct PeerHandle {
     tx: mpsc::Sender<ClientMessage>,
@@ -248,7 +209,6 @@ impl Peer {
                 }
             }
         }
-        
 
         Ok(())
     }

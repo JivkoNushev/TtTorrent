@@ -8,15 +8,7 @@ use crate::utils::bencode::BencodedValue;
 use crate::torrent::{TorrentFile, TorrentInfo};
 use crate::messager::ClientMessage;
 
-#[derive(Debug, Clone)]
-pub struct DownloadableFile {
-    pub start: u64,
-    pub size: u64,
-    pub path: String,
-
-    // should be 32 HEX characters, but for future implementation
-    pub _md5sum: Option<Vec<u8>>
-}
+use super::DownloadableFile;
 
 #[derive(Debug, Clone)]
 pub struct DiskTorrentContext {

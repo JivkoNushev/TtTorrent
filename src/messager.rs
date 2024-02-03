@@ -1,13 +1,10 @@
 use serde::{Serialize, Deserialize};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{torrent::TorrentContextState, peer::{Block, PeerAddress, PeerSession}};
+use crate::peer::{Block, PeerAddress, PeerSession};
+use crate::torrent::torrent_state::TorrentState;
+use crate::utils::ExitCode;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum ExitCode {
-    SUCCESS,
-    InvalidSrcOrDst,
-}
 
 #[derive(Debug)]
 pub enum ClientMessage {
@@ -15,8 +12,8 @@ pub enum ClientMessage {
     AddTorrent{src: String, dst: String},
     DownloadedBlock{block: Block},
     FinishedDownloading,
-    SendTorrentInfo{tx: oneshot::Sender<TorrentContextState>},
-    TorrentsInfo{torrents: Vec<TorrentContextState>},
+    SendTorrentInfo{tx: oneshot::Sender<TorrentState>},
+    TorrentsInfo{torrents: Vec<TorrentState>},
     SendTorrentsInfo,
     AddPeerSession{peer_session: PeerSession},
     TerminalClientClosed,
@@ -33,6 +30,6 @@ pub enum TerminalClientMessage {
     Shutdown,
     AddTorrent{src: String, dst: String},
     ListTorrents,
-    TorrentsInfo{torrents: Vec<TorrentContextState>},
+    TorrentsInfo{torrents: Vec<TorrentState>},
     TerminalClientClosed,
 }

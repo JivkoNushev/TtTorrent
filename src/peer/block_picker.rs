@@ -5,6 +5,10 @@ use std::sync::Arc;
 
 use crate::torrent::torrent_info::TorrentInfo;
 
+pub mod block_picker_state;
+pub use block_picker_state::BlockPickerState;
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Piece {
     pub index: u32,
@@ -20,22 +24,6 @@ pub struct Block {
     pub number: usize,
     pub data: Option<Vec<u8>>,
 }
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BlockPickerState {
-    pub pieces: Vec<Piece>,
-    pub torrent_info: TorrentInfo,  
-}
-
-impl BlockPickerState {
-    pub fn from_context(block_picker: BlockPicker) -> BlockPickerState {
-        BlockPickerState {
-            pieces: block_picker.pieces,
-            torrent_info: (*block_picker.torrent_info).clone(),
-        }
-    }
-}
-
 
 #[derive(Debug, Clone)]
 pub struct BlockPicker {

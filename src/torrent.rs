@@ -23,7 +23,10 @@ pub mod torrent_info;
 pub use torrent_info::TorrentInfo;
 
 pub mod torrent_state;
-pub use torrent_state::{TorrentContext, TorrentContextState};
+pub use torrent_state::TorrentState;
+
+pub mod torrent_context;
+pub use torrent_context::TorrentContext;
 
 
 pub struct TorrentHandle {
@@ -80,7 +83,7 @@ impl TorrentHandle {
         })
     }
 
-    pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentContextState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
+    pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
         let pipe = CommunicationPipe {
             tx: sender.clone(),
@@ -115,7 +118,7 @@ impl TorrentHandle {
         Ok(())
     }
 
-    pub async fn send_torrent_info(&mut self, tx: oneshot::Sender<TorrentContextState>) -> Result<()> {
+    pub async fn send_torrent_info(&mut self, tx: oneshot::Sender<TorrentState>) -> Result<()> {
         self.tx.send(ClientMessage::SendTorrentInfo{tx}).await?;
         Ok(())
     }
@@ -136,35 +139,6 @@ struct Torrent {
     torrent_context: TorrentContext,
     client_id: [u8; 20],
 }
-
-// static functions for Torrent
-impl Torrent {
-    async fn save_state(torrent_context: TorrentContext) -> Result<()> {
-        let state_file = std::path::Path::new(crate::STATE_FILE_PATH);
-        let client_state = match tokio::fs::read_to_string(state_file).await {
-            std::result::Result::Ok(client_state) => client_state,
-            Err(_) => String::new(),
-        };
-        let mut client_state: serde_json::Value = match client_state.len() {
-            0 => serde_json::json!({}),
-            _ => serde_json::from_str(&client_state).unwrap(), // client state is always valid json
-        };
-        
-        let torrent_info_hash = torrent_context.info_hash.clone();
-        let torrent_context = TorrentContextState::new(torrent_context).await;
-        
-        let torrent_context = serde_json::to_value(torrent_context).unwrap(); // torrent context is always valid json
-        
-        client_state[torrent_info_hash.to_hex()] = torrent_context;
-
-        let client_state = serde_json::to_string_pretty(&client_state).unwrap(); // client state is always valid json
-
-        tokio::fs::write(state_file, client_state).await.context("couldn't write to client state file")?;
-
-        Ok(())
-    }
-}
-
 
 impl Torrent {
     pub async fn new(client_id: [u8; 20], self_pipe: CommunicationPipe, src: &str, dest: &str) -> Result<Self> {
@@ -250,7 +224,7 @@ impl Torrent {
     }
 
 
-    pub async fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentContextState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
+    pub async fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
         let torrent_file_path = format!("{}/{}.torrent", crate::STATE_TORRENT_FILES_PATH, torrent_state.torrent_name);
         let path = std::path::Path::new(&torrent_file_path);
 
@@ -278,6 +252,31 @@ impl Torrent {
             client_id,
         })
     }   
+
+    async fn save_state(torrent_context: TorrentContext) -> Result<()> {
+        let state_file = std::path::Path::new(crate::STATE_FILE_PATH);
+        let client_state = match tokio::fs::read_to_string(state_file).await {
+            std::result::Result::Ok(client_state) => client_state,
+            Err(_) => String::new(),
+        };
+        let mut client_state: serde_json::Value = match client_state.len() {
+            0 => serde_json::json!({}),
+            _ => serde_json::from_str(&client_state).unwrap(), // client state is always valid json
+        };
+        
+        let torrent_info_hash = torrent_context.info_hash.clone();
+        let torrent_context = TorrentState::new(torrent_context).await;
+        
+        let torrent_context = serde_json::to_value(torrent_context).unwrap(); // torrent context is always valid json
+        
+        client_state[torrent_info_hash.to_hex()] = torrent_context;
+
+        let client_state = serde_json::to_string_pretty(&client_state).unwrap(); // client state is always valid json
+
+        tokio::fs::write(state_file, client_state).await.context("couldn't write to client state file")?;
+
+        Ok(())
+    }
 
     async fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) -> Result<()> {
         let old_peer_addresses = self.peer_handles
@@ -494,7 +493,7 @@ impl Torrent {
                             } 
                         },
                         ClientMessage::SendTorrentInfo { tx } => {
-                            let torrent_state = TorrentContextState::new(self.torrent_context.clone()).await;
+                            let torrent_state = TorrentState::new(self.torrent_context.clone()).await;
                             if let Err(e) = tx.send(torrent_state) {
                                 tracing::error!("Failed to send torrent context to client: {:?}", e);
                             }

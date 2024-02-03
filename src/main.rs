@@ -2,8 +2,8 @@ use anyhow::{Result, Context, anyhow};
 use interprocess::local_socket::tokio::LocalSocketListener;
 
 use torrent_client::client::ClientHandle;
-use torrent_client::messager::{TerminalClientMessage, ClientMessage, ExitCode};
-use torrent_client::utils::valid_src_and_dst;
+use torrent_client::messager::{TerminalClientMessage, ClientMessage};
+use torrent_client::utils::{ExitCode, valid_src_and_dst};
 use torrent_client::utils::terminal::TerminalClient;
 
 use std::path::Path;

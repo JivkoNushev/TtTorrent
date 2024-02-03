@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 use getrandom::getrandom;
 use anyhow::{Result, Context};
@@ -9,6 +10,12 @@ pub mod bencode;
 pub use bencode::BencodedValue;
 
 pub mod terminal;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ExitCode {
+    SUCCESS,
+    InvalidSrcOrDst,
+}
 
 pub struct CommunicationPipe {
     pub tx: tokio::sync::mpsc::Sender<crate::messager::ClientMessage>,

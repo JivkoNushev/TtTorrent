@@ -4,6 +4,7 @@ use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use crate::utils::is_zero_aligned;
 use crate::utils::sha1hash::Sha1Hash;
 
+
 #[derive(Debug, Clone, Default)]
 pub struct Handshake {
     pub protocol_len: u8,

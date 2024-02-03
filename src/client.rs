@@ -4,7 +4,7 @@ use anyhow::{Result, Context};
 
 use crate::peer::peer_message::Handshake;
 use crate::peer::{ConnectionType, PeerMessage, PeerSession};
-use crate::torrent::{TorrentContextState, TorrentHandle};
+use crate::torrent::{TorrentState, TorrentHandle};
 use crate::messager::ClientMessage;
 use crate::utils::{CommunicationPipe, UrlEncodable};
 use crate::utils::sha1hash::Sha1Hash;
@@ -111,7 +111,7 @@ impl Client {
         let client_state = serde_json::from_str::<serde_json::Value>(&client_state)?;
 
         for (key, val) in client_state.as_object().unwrap() { // client_state is always a valid json object
-            let torrent_state = serde_json::from_value::<TorrentContextState>(val.clone())?;
+            let torrent_state = serde_json::from_value::<TorrentState>(val.clone())?;
 
             let info_hash = match Sha1Hash::from_hex(key) {
                 Ok(info_hash) => info_hash,
