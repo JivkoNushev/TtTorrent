@@ -337,9 +337,9 @@ impl Torrent {
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
         let peer_addresses = match crate::DEBUG_MODE {
             true => {
-                // vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}]
+                vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6881".to_string()}]
                 // vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
-                vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}, PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
+                // vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}, PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
             },
             false => {
                 let tracker_response = match self.torrent_context.needed.lock().await.pieces.len() == self.torrent_context.torrent_info.pieces_count {
@@ -440,10 +440,9 @@ impl Torrent {
                             tracing::debug!("Have piece: {}", piece);                     
                             self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
 
-                            // TODO: This breaks the program
-                            // for peer_handle in &mut self.peer_handles {
-                            //     let _ = peer_handle.have(piece).await;
-                            // }   
+                            for peer_handle in &mut self.peer_handles {
+                                let _ = peer_handle.have(piece).await;
+                            }   
                         },
                         ClientMessage::Cancel { block } => {
                             if !end_game_blocks.iter().any(|b| b.index == block.index && b.begin == block.begin && b.length == block.length){
@@ -475,15 +474,13 @@ impl Torrent {
                                     }   
                                 }
 
-                                *self.torrent_context.downloaded.lock().await += block.length as u64;
                                 self.disk_handle.write_block(block).await?;
                                 
-                                // TODO: This breaks the program
-                                // for peer_handle in &mut self.peer_handles {
-                                //     if let Err(e) = peer_handle.cancel(block_copy.clone()).await {
-                                //         tracing::warn!("Failed to send cancel message to peer {}: {}", peer_handle.peer_address, e);
-                                //     }
-                                // }
+                                for peer_handle in &mut self.peer_handles {
+                                    if let Err(e) = peer_handle.cancel(block_copy.clone()).await {
+                                        tracing::warn!("Failed to send cancel message to peer {}: {}", peer_handle.peer_address, e);
+                                    }
+                                }
                                 end_game_blocks.push(block_copy);
                             }
                         },
