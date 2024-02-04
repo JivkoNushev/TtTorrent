@@ -177,8 +177,11 @@ impl Peer {
     }
 
     async fn request(&mut self, peer_session: &mut PeerSession, downloading_blocks: &mut Vec<Block>, end_game_blocks: &mut Vec<Block>) -> Result<()> {
+        tracing::trace!("before not end game block");
         if self.torrent_context.needed.lock().await.block_count() > crate::BLOCK_REQUEST_COUNT {
+            tracing::trace!("before while");
             while downloading_blocks.len() < crate::BLOCK_REQUEST_COUNT {
+                tracing::trace!("before pick random");
                 match self.torrent_context.needed.lock().await.pick_random(&self.peer_context.bitfield).await? {
                     Some(block) => {
                         peer_session.send(PeerMessage::Request(block.index, block.begin, block.length)).await?;
@@ -188,6 +191,7 @@ impl Peer {
                     },
                     None => return Ok(())
                 }
+                tracing::trace!("after pick random");
             }
         }
         else {
@@ -310,6 +314,7 @@ impl Peer {
                     }
                 }
                 peer_message = peer_session.recv() => {
+                    tracing::trace!("Peer '{self}' received message");
                     match peer_message? {
                         PeerMessage::Choke => {
                             self.peer_context.choking = true;
@@ -397,8 +402,8 @@ impl Peer {
                                     data: Some(block),
                                 };
 
-                                tracing::trace!("Peer '{self}' retaining block: {}", block.number);
-                                downloading_blocks.retain(|b| b.number != block_index);
+                                tracing::trace!("Peer '{self}' retaining block: {} {}", block.index, block.begin);
+                                downloading_blocks.retain(|b| !(b.index == index && b.begin == begin));
 
                                 if end_game_blocks.iter().any(|b| b.number == block.number) {
                                     tracing::trace!("Peer '{self}' received an end game block: {}", block.number);
@@ -434,6 +439,7 @@ impl Peer {
                 }
             }
 
+            tracing::trace!("after seelct");
             // send interested if there are pieces to download
             if !self.peer_context.am_interested && !self.torrent_context.needed.lock().await.is_empty() {
                 self.interested(&mut peer_session).await?;
@@ -441,10 +447,11 @@ impl Peer {
 
             // if interested in downloading and unchoked
             if !self.peer_context.choking && self.peer_context.am_interested {
+                tracing::trace!("in if");
+
                 if crate::utils::is_zero_aligned(&self.peer_context.bitfield) {
                     continue;
                 }
-
                 if self.torrent_context.needed.lock().await.is_empty() {
                     self.not_interested(&mut peer_session).await?;
                 }
@@ -452,6 +459,7 @@ impl Peer {
                     self.request(&mut peer_session, &mut downloading_blocks, &mut end_game_blocks).await?;
                 }
             }
+            tracing::trace!("after if");
 
             // file is fully downloaded and peer doesn't want to download as well
             if !self.peer_context.am_interested && !self.peer_context.interested {
@@ -460,6 +468,8 @@ impl Peer {
                 self.torrent_context.tx.send(ClientMessage::PeerDisconnected{peer_address: self.peer_context.ip}).await?;
                 break;
             }
+
+            tracing::trace!("end");
         }
 
         Ok(())  

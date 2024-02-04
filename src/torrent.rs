@@ -337,8 +337,8 @@ impl Torrent {
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
         let peer_addresses = match crate::DEBUG_MODE {
             true => {
-                vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6881".to_string()}]
-                // vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
+                // vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6881".to_string()}]
+                vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
                 // vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}, PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
             },
             false => {
@@ -440,9 +440,9 @@ impl Torrent {
                             tracing::debug!("Have piece: {}", piece);                     
                             self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
 
-                            // for peer_handle in &mut self.peer_handles {
-                            //     let _ = peer_handle.have(piece).await;
-                            // }   
+                            for peer_handle in &mut self.peer_handles {
+                                let _ = peer_handle.have(piece).await;
+                            }   
                         },
                         ClientMessage::Cancel { block } => {
                             if !end_game_blocks.iter().any(|b| b.index == block.index && b.begin == block.begin && b.length == block.length){
