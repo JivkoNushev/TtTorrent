@@ -1,4 +1,4 @@
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use anyhow::{anyhow, Result};
 
 use std::collections::BTreeMap;
@@ -17,12 +17,13 @@ pub struct DiskTorrentContext {
     pub dest_path: String,
     pub torrent_name: String,
     pub torrent_file: Arc<TorrentFile>,
+    pub downloaded: Arc<Mutex<u64>>,
     pub torrent_info: Arc<TorrentInfo>,
     pub files: Vec<DownloadableFile>,
 }
 
 impl DiskTorrentContext {
-    pub fn new(tx: mpsc::Sender<ClientMessage>, dest_path: String, torrent_name: String, torrent_file: Arc<TorrentFile>, torrent_info: Arc<TorrentInfo>) -> Result<DiskTorrentContext> {
+    pub fn new(tx: mpsc::Sender<ClientMessage>, dest_path: String, torrent_name: String, torrent_file: Arc<TorrentFile>, downloaded: Arc<Mutex<u64>>, torrent_info: Arc<TorrentInfo>) -> Result<DiskTorrentContext> {
         let files = get_files_to_download(&torrent_file)?;
         
         Ok(Self {
@@ -31,6 +32,7 @@ impl DiskTorrentContext {
             dest_path,
             torrent_name,
             torrent_file,
+            downloaded,
             torrent_info,
             files,
         })

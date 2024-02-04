@@ -238,12 +238,15 @@ impl DiskManager {
 
                             let handle = tokio::spawn(async move {
                                 let index = block.index;
+                                let length = block.length;
 
                                 tracing::debug!("writing block index '{}', piece index '{}', begin '{}', size '{}'", block.number, block.index, block.begin, block.length);
                                 if let Err(e) = DiskManager::write_to_file(&torrent_context, block).await {
                                     tracing::error!("Disk writer error: {:?}", e);
                                     return;
                                 }
+
+                                *torrent_context.downloaded.lock().await += length as u64;
                                 tracing::trace!("finished writing block");
 
                                 {
@@ -299,6 +302,7 @@ impl DiskManager {
                                             tracing::error!("Disk reader error: {:?}", e);
                                             return;
                                         }
+                                        tracing::trace!("finished reading block");
                                     },
                                     Err(e) => {
                                         tracing::error!("Disk reader error: {:?}", e);

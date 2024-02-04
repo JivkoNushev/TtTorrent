@@ -284,7 +284,6 @@ impl Peer {
                             if let Some(block_index) = seeding_blocks.iter().position(|b| b.number == block.number) {
                                 seeding_blocks.remove(block_index);
 
-                                *self.torrent_context.uploaded.lock().await += block.length as u64;
                                 peer_session.send(PeerMessage::Piece(block.index as u32, block.begin as u32, data)).await?;
                             }
                             else {
@@ -403,10 +402,12 @@ impl Peer {
                                     self.torrent_context.tx.send(ClientMessage::Cancel{ block }).await?;
                                 }
                                 else {
-                                    *self.torrent_context.downloaded.lock().await += block.length as u64;
-                                    tracing::trace!("Peer '{self}' sending block to disk task: {}", block.number);
+                                    let length = block.length as u64;
 
+                                    tracing::trace!("Peer '{self}' sending block to disk task: {}", block.number);
                                     self.disk_tx.send(ClientMessage::DownloadedBlock{ block }).await?;
+
+                                    *self.torrent_context.uploaded.lock().await += length;
                                 }
                             }
                         },

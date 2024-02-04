@@ -17,12 +17,11 @@ pub struct PeerTorrentContext {
     pub needed: Arc<Mutex<BlockPicker>>,
     pub bitfield: Arc<Mutex<Vec<u8>>>,
 
-    pub downloaded: Arc<Mutex<u64>>,
-    pub uploaded: Arc<Mutex<u64>>,
+    pub uploaded: Arc<Mutex<u64>>
 }
 
 impl PeerTorrentContext {
-    pub fn new(tx: mpsc::Sender<ClientMessage>, torrent_info: Arc<TorrentInfo>, info_hash: Sha1Hash, needed: Arc<Mutex<BlockPicker>>, bitfield: Arc<Mutex<Vec<u8>>>, uploaded: Arc<Mutex<u64>>, downloaded: Arc<Mutex<u64>>) -> Self {
+    pub fn new(tx: mpsc::Sender<ClientMessage>, torrent_info: Arc<TorrentInfo>, info_hash: Sha1Hash, needed: Arc<Mutex<BlockPicker>>, bitfield: Arc<Mutex<Vec<u8>>>, uploaded: Arc<Mutex<u64>>) -> Self {
         Self {
             tx,
 
@@ -30,8 +29,6 @@ impl PeerTorrentContext {
             info_hash,
             needed,
             bitfield,
-
-            downloaded,
             uploaded,
         }
     }

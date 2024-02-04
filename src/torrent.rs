@@ -180,12 +180,16 @@ impl Torrent {
         };
 
         let pieces_count = pieces_left.len();
+
+        let downloaded = Arc::new(Mutex::new(0));
+        let uploaded = Arc::new(Mutex::new(0));
         
         let torrent_context = DiskTorrentContext::new(
             self_pipe.tx.clone(),
             dest.to_string(),
             torrent_name.to_string(),
             Arc::clone(&torrent_file),
+            Arc::clone(&downloaded),
             Arc::clone(&torrent_info),
         )?;
 
@@ -207,8 +211,8 @@ impl Torrent {
 
             torrent_info,
 
-            downloaded: Arc::new(Mutex::new(0)),
-            uploaded: Arc::new(Mutex::new(0)),
+            downloaded,
+            uploaded,
         };
 
         Ok(Self {
@@ -235,6 +239,7 @@ impl Torrent {
             torrent_state.dest_path.clone(),
             torrent_state.torrent_name.clone(),
             Arc::new(torrent_file),
+            Arc::new(Mutex::new(torrent_state.downloaded)),
             Arc::new(torrent_state.torrent_info.clone()),
         )?;
         
@@ -302,8 +307,7 @@ impl Torrent {
                 self.torrent_context.info_hash.clone(),
                 Arc::clone(&self.torrent_context.needed),
                 Arc::clone(&self.torrent_context.bitfield),
-                Arc::clone(&self.torrent_context.uploaded),
-                Arc::clone(&self.torrent_context.downloaded),
+                Arc::clone(&self.torrent_context.uploaded)
             );
 
             let peer_handle = PeerHandle::new(
@@ -532,7 +536,6 @@ impl Torrent {
                                 Arc::clone(&self.torrent_context.needed),
                                 Arc::clone(&self.torrent_context.bitfield),
                                 Arc::clone(&self.torrent_context.uploaded),
-                                Arc::clone(&self.torrent_context.downloaded)
                             );
 
                             let peer_handle = match PeerHandle::from_session(
