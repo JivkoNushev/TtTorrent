@@ -7,11 +7,11 @@ edition = "2021"
 debug = 1
 
 [[bin]]
-name = "tttorrent-daemon"
+name = "tttorrent-client"
 path = "src/main.rs"
 
 [[bin]]
-name = "tttorrent-client"
+name = "tttorrent-ui"
 path = "src/terminal_client.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
