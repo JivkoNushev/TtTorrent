@@ -476,11 +476,11 @@ impl Torrent {
 
                                 self.disk_handle.write_block(block).await?;
                                 
-                                // for peer_handle in &mut self.peer_handles {
-                                //     if let Err(e) = peer_handle.cancel(block_copy.clone()).await {
-                                //         tracing::warn!("Failed to send cancel message to peer {}: {}", peer_handle.peer_address, e);
-                                //     }
-                                // }
+                                for peer_handle in &mut self.peer_handles {
+                                    if let Err(e) = peer_handle.cancel(block_copy.clone()).await {
+                                        tracing::warn!("Failed to send cancel message to peer {}: {}", peer_handle.peer_address, e);
+                                    }
+                                }
                                 end_game_blocks.push(block_copy);
                             }
                         },

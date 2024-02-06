@@ -313,9 +313,11 @@ impl Peer {
                         _ => {}
                     }
                 }
-                peer_message = peer_session.recv() => {
+                peer_message = peer_session.recv_message_size() => {
+                    let peer_message = peer_session.recv_message(peer_message?).await?;
+
                     tracing::trace!("Peer '{self}' received message");
-                    match peer_message? {
+                    match peer_message {
                         PeerMessage::Choke => {
                             self.peer_context.choking = true;
                         },
