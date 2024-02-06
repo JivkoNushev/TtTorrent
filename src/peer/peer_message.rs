@@ -290,8 +290,10 @@ impl PeerSession {
             self.stream.read_buf(&mut self.message_buffer).await?;
         }
 
-        self.message_buffer.clear();
-        PeerMessage::from_bytes(&self.message_buffer)
+        let message = PeerMessage::from_bytes(&self.message_buffer[4..message_size + 4]);
+        self.message_buffer = self.message_buffer[message_size + 4..].to_vec();
+        
+        message
     }
 
     pub async fn recv_handshake(&mut self) -> Result<PeerMessage> {
