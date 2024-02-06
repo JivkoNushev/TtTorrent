@@ -34,31 +34,38 @@ mod torrent_parser_tests {
     }
 
     #[test]
-    #[should_panic(expected = "Invalid integer: negative integer")]
     fn test_parse_integer_negative_int() {
         let input = b"-123";
-        let _result = parse_integer(input);
+        if let Err(e) = parse_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid integer: empty input")]
     fn test_parse_integer_empty_input() {
         let input = b"";
-        let _result = parse_integer(input);
+        if let Err(e) = parse_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid integer: leading zeros")]
     fn test_parse_integer_leading_zeros() {
         let input = b"0123";
-        let _result = parse_integer(input);
+        if let Err(e) = parse_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
-    #[should_panic(expected = "Invalid integer: parsing an non-number")]
+    #[should_panic(expected = "Invalid integer: parsing an empty number")]
     fn test_parse_integer_non_number() {
         let input = b"abc";
-        let _result = parse_integer(input);
+        if let Err(e) = parse_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
@@ -77,45 +84,56 @@ mod torrent_parser_tests {
     }
 
     #[test]
-    #[should_panic(expected = "Invalid bencoded integer: negative integer")]
     fn test_parse_bencoded_integer_negative_int() {
         let input = b"i-123e";
-        let _result = parse_bencoded_integer(input);
+        if let Err(e) = parse_bencoded_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: missing 'i' prefix")]
     fn test_parse_bencoded_integer_missing_i() {
         let input = b"123e";
-        let _result = parse_bencoded_integer(input);
+        if let Err(e) = parse_bencoded_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: missing 'e' suffix")]
     fn test_parse_bencoded_integer_missing_e() {
         let input = b"i123d";
-        let _result = parse_bencoded_integer(input);
+        if let Err(e) = parse_bencoded_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: parsing an empty number")]
     fn test_parse_bencoded_integer_empty_number() {
         let input = b"ie";
-        let _result = parse_bencoded_integer(input);
+        if let Err(e) = parse_bencoded_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: leading zeros")]
     fn test_parse_bencoded_integer_leading_zeros() {
         let input = b"i0123e";
-        let _result = parse_bencoded_integer(input);
+        if let Err(e) = parse_bencoded_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: empty input")]
     fn test_parse_bencoded_integer_empty_input() {
         let input = b"";
-        let _result = parse_bencoded_integer(input);
+        if let Err(e) = parse_bencoded_integer(input) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
@@ -130,7 +148,7 @@ mod torrent_parser_tests {
         let mut cur_index = 0;
         let result = create_int(input, &mut cur_index).unwrap();
         assert_eq!(result, BencodedValue::Integer(1234567891234567891));
-        assert_eq!(cur_index, 41);
+        assert_eq!(cur_index, 21);
 
         let input = b"i0e";
         let mut cur_index = 0;
@@ -140,54 +158,66 @@ mod torrent_parser_tests {
     }
 
     #[test]
-    #[should_panic(expected = "Invalid bencoded integer: negative integer")]
     fn test_create_int_negative_int() {
         let input = b"i-123e";
-        let _result = create_int(input, &mut 0);
+        if let Err(e) = create_int(input, &mut 0) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: missing 'i' prefix")]
     fn test_create_int_missing_i() {
         let input = b"123e";
-        let _result = create_int(input, &mut 0);
+        if let Err(e) = create_int(input, &mut 0) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: missing 'e' suffix")]
     fn test_create_int_missing_e() {
         let input = b"i123d";
-        let _result = create_int(input, &mut 0);
+        if let Err(e) = create_int(input, &mut 0) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: parsing an empty number")]
     fn test_create_int_empty_number() {
         let input = b"ie";
-        let _result = create_int(input, &mut 0);
+        if let Err(e) = create_int(input, &mut 0) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: leading zeros")]
     fn test_create_int_leading_zeros() {
         let input = b"i0123e";
-        let _result = create_int(input, &mut 0);
+        if let Err(e) = create_int(input, &mut 0) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     #[should_panic(expected = "Invalid bencoded integer: empty input")]
     fn test_create_int_empty_input() {
         let input = b"";
-        let _result = create_int(input, &mut 0);
+        if let Err(e) = create_int(input, &mut 0) {
+            panic!("{}", e);
+        }
     }
 
     #[test]
     fn test_create_dict() {
         let torrent_file = "d8:announce5:url:)4:infod4:name4:name12:piece lengthi262144e6:pieces20:丂丂丂丂丂丂AA6:lengthi89eee".as_bytes();
 
-        let _dict = create_dict(&torrent_file, &mut 0);
-
-        assert!(true);
+        match create_dict(&torrent_file, &mut 0) {
+            Ok(_) => assert!(true),
+            Err(e) => panic!("{}", e)
+        }
     }
 
     #[test]
@@ -195,7 +225,9 @@ mod torrent_parser_tests {
     fn test_create_dict_torrent_file_too_short() {
         let torrent_file = "d8:announce5:url:)3:inti89e".as_bytes();
 
-        let _dict = create_dict(&torrent_file, &mut 0);
+        if let Err(e) = create_dict(&torrent_file, &mut 0) {
+            panic!("{}", e);
+        }
     }
 
     #[test]

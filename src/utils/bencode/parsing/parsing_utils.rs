@@ -242,6 +242,7 @@ pub fn parse_bencoded_integer(bytes: &[u8]) -> Result<i64> {
     let mut number = String::new();
     if bytes[index] == b'-' {
         number.push(b'-' as char);
+        index += 1;
     }
 
     while bytes[index].is_ascii_digit() {
@@ -274,13 +275,16 @@ pub fn parse_integer(bytes: &[u8]) -> Result<i64> {
     if bytes.is_empty() {
         return Err(anyhow!("Invalid integer: empty input"));
     }
+    let mut bytes = bytes;
 
     let mut number = String::new();
     if bytes[0] == b'-' {
         number.push(b'-' as char);
+        bytes = &bytes[1..];
     }
 
     for i in bytes {
+
         if !i.is_ascii_digit() {
             break;
         }
