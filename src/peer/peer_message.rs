@@ -182,6 +182,7 @@ pub struct PeerSession {
     pub connection_type: ConnectionType,
 
     pub peer_handshake: Handshake,
+    pub message_buffer: Vec<u8>,
 }
 
 impl PeerSession {
@@ -191,6 +192,7 @@ impl PeerSession {
             connection_type,
 
             peer_handshake,
+            message_buffer: Vec::new(),
         }
     }
 
@@ -261,41 +263,36 @@ impl PeerSession {
         Ok(())
     }
 
-    pub async fn recv_message(&mut self, message_size: u32) -> Result<PeerMessage> {
-        if message_size == 0 {
-            return Ok(PeerMessage::KeepAlive);
-        }
-
-        let mut message = vec![0; message_size as usize];
-        self.stream.read_exact(&mut message).await?;
-
-        PeerMessage::from_bytes(&message)
-    }
-
-    pub async fn recv_message_size(&mut self) -> Result<u32> {
-        let mut message_size_bytes = [0; 4];
-        self.stream.read_exact(&mut message_size_bytes).await?;
-
-        Ok(u32::from_be_bytes(message_size_bytes))
-    }
-
-    // pub async fn recv(&mut self) -> Result<PeerMessage> {
-    //     let mut message_size_bytes = [0; 4];
-    //     self.stream.read_exact(&mut message_size_bytes).await?;
-
-    //     let mut message_size_bytes = Vec::with_capacity(4);
-    //     self.stream.read_buf(&mut message_size_bytes).await?;
-
-    //     let message_size = u32::from_be_bytes(message_size_bytes[0..4].try_into().unwrap()) as usize;
+    // pub async fn recv_message(&mut self, message_size: u32) -> Result<PeerMessage> {
     //     if message_size == 0 {
     //         return Ok(PeerMessage::KeepAlive);
     //     }
 
-    //     let mut message = vec![0; message_size];
-    //     self.stream.read_buf(&mut message).await?;
+    //     let mut message = vec![0; message_size as usize];
+    //     self.stream.read_exact(&mut message).await?;
 
     //     PeerMessage::from_bytes(&message)
     // }
+
+    // pub async fn recv_message_size(&mut self) -> Result<u32> {
+    //     let mut message_size_bytes = [0; 4];
+    //     self.stream.read_exact(&mut message_size_bytes).await?;
+
+    //     Ok(u32::from_be_bytes(message_size_bytes))
+    // }
+
+    pub async fn recv(&mut self) -> Result<PeerMessage> {
+        while self.message_buffer.len() < 4 {
+            self.stream.read_buf(&mut self.message_buffer).await?;
+        }
+        let message_size = u32::from_be_bytes(self.message_buffer[0..4].try_into().unwrap()) as usize;
+        while self.message_buffer.len() < message_size + 4 {
+            self.stream.read_buf(&mut self.message_buffer).await?;
+        }
+
+        self.message_buffer.clear();
+        PeerMessage::from_bytes(&self.message_buffer)
+    }
 
     pub async fn recv_handshake(&mut self) -> Result<PeerMessage> {
         let mut message = vec![0; 68];

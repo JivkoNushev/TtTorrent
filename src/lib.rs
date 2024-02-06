@@ -13,7 +13,7 @@ pub const DEBUG_MODE: bool = true;
 // DEBUG - показва ми когато записвам или рекуествам нещо и др.
 // INFO - показва ми къде започват и спират функциите
 
-pub const TRACING_LEVEL: tracing::Level = tracing::Level::TRACE; 
+pub const TRACING_LEVEL: tracing::Level = tracing::Level::DEBUG; 
 pub const MAX_CHANNEL_SIZE: usize = 100;
 pub const BLOCK_SIZE: usize = 1 << 14;
 pub const BLOCK_REQUEST_COUNT: usize = 5;
