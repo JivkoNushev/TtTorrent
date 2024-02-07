@@ -1272,6 +1272,7 @@ dependencies = [
  "getrandom",
  "hex",
  "interprocess",
+ "once_cell",
  "percent-encoding",
  "reqwest",
  "serde",

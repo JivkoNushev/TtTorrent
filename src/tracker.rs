@@ -27,7 +27,7 @@ impl Tracker {
             }
         }) {
             Some(interval) => interval as u64,
-            None => crate::TRACKER_REGULAR_REQUEST_INTERVAL_SECS
+            None => unsafe { crate::CLIENT_OPTIONS.tracker_regular_request_interval_secs }
         }
     }
 

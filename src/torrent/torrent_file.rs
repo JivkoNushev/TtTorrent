@@ -40,7 +40,7 @@ impl TorrentFile {
     }
 
     pub fn get_block_length(&self) -> Result<usize> {
-        Ok(crate::BLOCK_SIZE)
+        Ok(unsafe { crate::CLIENT_OPTIONS.block_size } )
     }
 
     pub fn get_pieces_count(&self) -> Result<usize> {

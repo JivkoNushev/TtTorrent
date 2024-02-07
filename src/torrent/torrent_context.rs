@@ -34,7 +34,7 @@ impl TorrentContext {
     pub async fn from_state(torrent_state: TorrentState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
         let needed = BlockPicker::from_state(torrent_state.needed);
 
-        let torrent_file_path = format!("{}/{}.torrent", crate::STATE_TORRENT_FILES_PATH, torrent_state.torrent_name);
+        let torrent_file_path = format!("{}/{}.torrent", unsafe { crate::CLIENT_OPTIONS.state_torrent_files_path.clone() }, torrent_state.torrent_name);
         let path = std::path::Path::new(&torrent_file_path);
 
         let torrent_file = TorrentFile::new(path).await.context("couldn't create TorrentFile")?;

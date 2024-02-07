@@ -41,6 +41,7 @@ interprocess = {verion = "1.2.1", features = ["tokio_support"]}
 # utility
 getrandom = "0.2.11"
 sha1 = "0.10.6"
+once_cell = "1.19.0"
 
 
 
