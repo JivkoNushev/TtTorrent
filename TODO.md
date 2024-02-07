@@ -23,3 +23,16 @@ loop {
 - fix peer tcp connections
 
 - there are functions that return options but only return values or panic
+
+- is 
+let mut message = serde_json::to_string(&message).context("Failed to serialize message")?;
+message.push('\n');
+
+better than
+
+let message = serde_json::to_string(&message).context("Failed to serialize message")?;
+message = message + '\n';
+
+ON torrent_error the state should be removed
+
+make downloading and seeding better

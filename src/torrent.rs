@@ -1,222 +1,607 @@
-use std::collections::BTreeMap;
+use tokio_stream::StreamExt;
+use tokio::sync::{mpsc, oneshot, Mutex, };
+use tokio::task::JoinHandle;
+use anyhow::{anyhow, Result, Context};
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::messager::ClientMessage;
+use crate::peer::block_picker::Piece;
+use crate::peer::{Block, BlockPicker, PeerAddress, PeerHandle, PeerSession, PeerTorrentContext};
+use crate::tracker::{Tracker, TrackerEvent};
+use crate::peer::peer_message::ConnectionType;
+use crate::disk_manager::{DiskManagerHandle, DiskTorrentContext};
+use crate::utils::CommunicationPipe;
+use crate::utils::sha1hash::Sha1Hash;
+use crate::utils::bencode::BencodedValue;
 
 pub mod torrent_file;
-pub use torrent_file::{BencodedValue, TorrentFile, Sha1Hash};
+pub use torrent_file::TorrentFile;
 
-pub mod torrent_parser;
-pub use torrent_parser::TorrentParser;
+pub mod torrent_info;
+pub use torrent_info::TorrentInfo;
 
-#[derive(Debug)]
-pub struct Torrent {
-    pub torrent_name: String,
-    pub torrent_file: TorrentFile,
-    pub info_hash: Sha1Hash,
-    pub pieces_left: Vec<usize>,
-    pub dest_path: String,
+pub mod torrent_state;
+pub use torrent_state::TorrentState;
+
+pub mod torrent_context;
+pub use torrent_context::TorrentContext;
+
+
+pub struct TorrentHandle {
+    tx: mpsc::Sender<ClientMessage>,
+    join_handle: JoinHandle<()>,
+
+    pub torrent_info_hash: Sha1Hash,
+}
+
+impl TorrentHandle {
+    pub async fn new(client_id: [u8; 20], src: &str, dest: &str) -> Result<Self> {
+        // ---------------------- copy torrent file to state folder for redundancy ----------------------
+        let src_path = std::path::Path::new(src);
+        let torrent_name = src_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        let torrent_file_dest_path = std::path::Path::new(crate::STATE_TORRENT_FILES_PATH).join(torrent_name);
+        tokio::fs::copy(src_path, torrent_file_dest_path.clone()).await?;
+
+        // --------------------------------- create torrent handle ---------------------------------
+        let src = torrent_file_dest_path.to_str().unwrap(); // torrent_file_dest_path is always valid utf8
+        
+        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+        let pipe = CommunicationPipe {
+            tx: sender.clone(),
+            rx: receiver,
+        };
+
+        let torrent = match Torrent::new(client_id, pipe, src, dest).await {
+            Ok(torrent) => torrent,
+            Err(e) => {
+                // remove torrent file from state folder
+                tokio::fs::remove_file(src).await?;
+                return Err(e);
+            }
+        };
+
+        let torrent_info_hash = torrent.torrent_context.info_hash.clone();
+
+        let join_handle = tokio::spawn(async move {
+            if let Err(e) = torrent.run().await {
+                eprintln!("Torrent error: {:?}", e);
+            }
+        });
+
+        Ok(Self {
+            tx: sender,
+            join_handle,
+
+            torrent_info_hash,
+        })
+    }
+
+    pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
+        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+        let pipe = CommunicationPipe {
+            tx: sender.clone(),
+            rx: receiver,
+        };
+
+        let torrent = Torrent::from_state(client_id, pipe, torrent_state, info_hash, connection_type.clone()).await?;
+
+        let torrent_info_hash = torrent.torrent_context.info_hash.clone();
+
+        let join_handle = tokio::spawn(async move {
+            if let Err(e) = torrent.run().await {
+                eprintln!("Torrent error: {:?}", e);
+            }
+        });
+
+        Ok(Self {
+            tx: sender,
+            join_handle,
+
+            torrent_info_hash,
+        })
+    }
+
+    pub async fn join(self) -> Result<()> {
+        self.join_handle.await?;
+        Ok(())
+    }
+
+    pub async fn shutdown(&mut self) -> Result<()> {
+        self.tx.send(ClientMessage::Shutdown).await?;
+        Ok(())
+    }
+
+    pub async fn send_torrent_info(&mut self, tx: oneshot::Sender<TorrentState>) -> Result<()> {
+        self.tx.send(ClientMessage::SendTorrentInfo{tx}).await?;
+        Ok(())
+    }
+
+    pub async fn add_peer_session(&mut self, peer_session: PeerSession) -> Result<()> {
+        self.tx.send(ClientMessage::AddPeerSession{peer_session}).await?;
+        Ok(())
+    }
+}
+
+struct Torrent {
+    self_tx: mpsc::Sender<ClientMessage>,
+
+    rx: mpsc::Receiver<ClientMessage>,
+    peer_handles: Vec<PeerHandle>,
+    disk_handle: DiskManagerHandle,
+    
+    torrent_context: TorrentContext,
+    client_id: [u8; 20],
 }
 
 impl Torrent {
-    pub async fn new(torrent_name: String, dest_path: String) -> Torrent {
-        let torrent_file = TorrentFile::new(&torrent_name).await;
+    pub async fn new(client_id: [u8; 20], self_pipe: CommunicationPipe, src: &str, dest: &str) -> Result<Self> {
+        let torrent_fle_path = std::path::Path::new(src);
 
-        let info_hash = match TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref()) {
-            Some(info_hash) => info_hash,
-            None => panic!("Could not get info hash from torrent file: {}", torrent_name)
-        };
+        let torrent_file = Arc::new(TorrentFile::new(torrent_fle_path).await.context("couldn't create TorrentFile")?);
+        let torrent_info = Arc::new(TorrentInfo::new(&torrent_file)?);
+        
+        let torrent_name = std::path::Path::new(src)
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap(); // src is always valid utf8
+
+        let info_hash = TorrentFile::get_info_hash(torrent_file.get_bencoded_dict_ref())?;
 
         // not downloaded piece indexes
         let pieces_left = {
-            let torrent_dict = match torrent_file.get_bencoded_dict_ref().try_into_dict() {
-                Some(torrent_dict) => torrent_dict,
-                None => panic!("Could not get torrent dict ref from torrent file: {}", torrent_name)
-            };
-            let info_dict = match torrent_dict.get("info") {
+            let torrent_dict = torrent_file.get_bencoded_dict_ref().try_into_dict()?;
+            let info_dict = match torrent_dict.get(&b"info".to_vec()) {
                 Some(info_dict) => info_dict,
-                None => panic!("Could not get info dict from torrent file ref: {}", torrent_name)
+                None => return Err(anyhow!("Could not get info dict from torrent file ref: {}", torrent_name))
             };
-            let pieces = match info_dict.get_from_dict("pieces") {
-                Some(pieces) => pieces,
-                None => panic!("Could not get pieces from info dict ref in torrent file: {}", torrent_name)
-            };
+            let pieces = info_dict.get_from_dict(b"pieces")?;
 
             let pieces = match pieces {
                 BencodedValue::ByteSha1Hashes(pieces) => pieces,
-                _ => panic!("Could not get pieces from info dict ref in torrent file: {}", torrent_name)
+                _ => return Err(anyhow!("Could not get pieces from info dict ref in torrent file: {}", torrent_name))
             };
 
-            let pieces_left = (0..pieces.len()).collect::<Vec<usize>>();
+            let pieces_left = (0u32..pieces.len() as u32)
+                .map(|index| (index, Piece {
+                    index,
+                    block_count: torrent_info.get_specific_piece_block_count(index),
+                })).collect::<HashMap<u32, Piece>>().into_iter()
+                .map(|(_, piece)| piece).collect::<Vec<Piece>>();
 
             pieces_left
         };
 
-        Torrent {
-            torrent_name,
+        let pieces_count = pieces_left.len();
+
+        let downloaded = Arc::new(Mutex::new(0));
+        let uploaded = Arc::new(Mutex::new(0));
+        
+        let torrent_context = DiskTorrentContext::new(
+            self_pipe.tx.clone(),
+            dest.to_string(),
+            torrent_name.to_string(),
+            Arc::clone(&torrent_file),
+            Arc::clone(&downloaded),
+            Arc::clone(&torrent_info),
+        )?;
+
+        let disk_handle = DiskManagerHandle::new(torrent_context);
+
+        let needed = BlockPicker::new(pieces_left, Arc::clone(&torrent_info));
+
+        let torrent_context = TorrentContext {
+            connection_type: ConnectionType::Outgoing,
+
+            src_path: src.to_string(),
+            dest_path: dest.to_string(),
+            torrent_name: torrent_name.to_string(),
             torrent_file,
             info_hash,
-            pieces_left,
-            dest_path
-        }
+            needed: Arc::new(Mutex::new(needed)),
+            bitfield: Arc::new(Mutex::new(vec![0; pieces_count.div_ceil(8)])),
+            peers: Vec::new(),
+
+            torrent_info,
+
+            downloaded,
+            uploaded,
+        };
+
+        Ok(Self {
+            self_tx: self_pipe.tx,
+            
+            rx: self_pipe.rx,
+            peer_handles: Vec::new(),
+            disk_handle,
+
+            torrent_context,
+            client_id,
+        })
     }
 
-    pub fn get_info_hash_ref(&self) -> &Sha1Hash {
-        &self.info_hash
-    }
 
-    pub fn get_dest_path(&self) -> &String {
-        &self.dest_path
-    }
+    pub async fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
+        let torrent_file_path = format!("{}/{}.torrent", crate::STATE_TORRENT_FILES_PATH, torrent_state.torrent_name);
+        let path = std::path::Path::new(&torrent_file_path);
 
-    pub fn get_piece_length(&self, piece_index: usize) -> u64 {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
-        };
-        let info_dict = match torrent_dict.get("info") {
-            Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
-        };
-
-        let piece_length = match info_dict.get_from_dict("piece length") {
-            Some(piece_length) => piece_length.try_into_integer().unwrap().clone() as u64,
-            None => panic!("Could not get piece length from info dict ref in torrent file: {}", self.torrent_name)
-        };
-
-        if piece_index == self.get_pieces_count() - 1 {
-            self.get_file_size() % piece_length
-        }
-        else {
-            piece_length
-        }
-    }
-
-    pub fn get_pieces_count(&self) -> usize {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
-        };
-        let info_dict = match torrent_dict.get("info") {
-            Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
-        };
-        let pieces = match info_dict.get_from_dict("pieces") {
-            Some(pieces) => pieces,
-            None => panic!("Could not get pieces from info dict ref in torrent file: {}", self.torrent_name)
-        };
-
-        if let BencodedValue::ByteSha1Hashes(pieces) = pieces {
-            pieces.len()
-        }
-        else {
-            panic!("Could not get pieces from info dict ref in torrent file: {}", self.torrent_name)
-        }
-    }
-
-    pub fn get_file_size(&self) -> u64 {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
-        };
-        let info_dict = match torrent_dict.get("info") {
-            Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
-        };
-
-        let mut total_size: u64 = 0;
-
-        if let Some(files_dict) = info_dict.get_from_dict("files") {
-            let files = match files_dict {
-                BencodedValue::List(files) => files,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-
-            for file in files {
-                let file = match file {
-                    BencodedValue::Dict(file) => file,
-                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-                };
-
-                let length = match file.get("length") {
-                    Some(length) => length,
-                    None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-                };
-
-                let length = match length {
-                    BencodedValue::Integer(length) => length,
-                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-                };
-
-                total_size += *length as u64;
-            }
-        }
-        else { 
-            let file_length = match info_dict.get_from_dict("length") {
-                Some(file_length) => file_length,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            }; 
-            let file_length = match file_length {
-                BencodedValue::Integer(file_length) => file_length,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-
-            total_size = file_length as u64;
-        }
+        let torrent_file = TorrentFile::new(path).await.context("couldn't create TorrentFile")?;
         
-        total_size
-    }
+        let disk_torrent_context = DiskTorrentContext::new(
+            self_pipe.tx.clone(),
+            torrent_state.dest_path.clone(),
+            torrent_state.torrent_name.clone(),
+            Arc::new(torrent_file),
+            Arc::new(Mutex::new(torrent_state.downloaded)),
+            Arc::new(torrent_state.torrent_info.clone()),
+        )?;
+        
+        let disk_handle = DiskManagerHandle::new(disk_torrent_context);
+        
+        let torrent_context = TorrentContext::from_state(torrent_state, info_hash, connection_type).await?;
+        Ok(Self {
+            self_tx: self_pipe.tx,
 
-    pub fn get_files(&self) -> Vec<BTreeMap<String, BencodedValue>> {
-        let torrent_dict = match self.torrent_file.get_bencoded_dict_ref().try_into_dict() {
-            Some(torrent_dict) => torrent_dict,
-            None => panic!("Could not get torrent dict ref from torrent file: {}", self.torrent_name)
+            rx: self_pipe.rx,
+            peer_handles: Vec::new(),
+            disk_handle,
+
+            torrent_context,
+            client_id,
+        })
+    }   
+
+    async fn save_state(torrent_context: TorrentContext) -> Result<()> {
+        let state_file = std::path::Path::new(crate::STATE_FILE_PATH);
+        let client_state = match tokio::fs::read_to_string(state_file).await {
+            std::result::Result::Ok(client_state) => client_state,
+            Err(_) => String::new(),
         };
-        let info_dict = match torrent_dict.get("info") {
-            Some(info_dict) => info_dict,
-            None => panic!("Could not get info dict from torrent file ref: {}", self.torrent_name)
+        let mut client_state: serde_json::Value = match client_state.len() {
+            0 => serde_json::json!({}),
+            _ => serde_json::from_str(&client_state).unwrap(), // client state is always valid json
         };
         
-        let mut all_files = Vec::new();
+        let torrent_info_hash = torrent_context.info_hash.clone();
+        let torrent_context = TorrentState::new(torrent_context).await;
+        
+        let torrent_context = serde_json::to_value(torrent_context).unwrap(); // torrent context is always valid json
+        
+        client_state[torrent_info_hash.to_hex()] = torrent_context;
 
-        if let Some(files_dict) = info_dict.get_from_dict("files") {
-            let files = match files_dict {
-                BencodedValue::List(files) => files,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
+        let client_state = serde_json::to_string_pretty(&client_state).unwrap(); // client state is always valid json
 
-            for file in files {
-                let file = match file {
-                    BencodedValue::Dict(file) => file,
-                    _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
+        tokio::fs::write(state_file, client_state).await.context("couldn't write to client state file")?;
+
+        Ok(())
+    }
+
+    async fn add_new_peers(&mut self, peer_addresses: Vec<PeerAddress>, connection_type: ConnectionType) -> Result<()> {
+        let old_peer_addresses = self.peer_handles
+            .iter()
+            .map(|peer_handle| peer_handle.peer_address.clone())
+            .collect::<Vec<PeerAddress>>();
+
+        let peer_addresses = peer_addresses
+            .iter()
+            .filter(|peer_address| !old_peer_addresses.contains(peer_address))
+            .cloned()
+            .collect::<Vec<PeerAddress>>();
+
+        let mut peer_addresses_iter = tokio_stream::iter(peer_addresses);
+        while let Some(peer_address) = peer_addresses_iter.next().await {
+            if !self.torrent_context.peers.contains(&peer_address) {
+                self.torrent_context.peers.push(peer_address.clone());
+            }
+
+            let torrent_context = PeerTorrentContext::new(
+                self.self_tx.clone(),
+                Arc::clone(&self.torrent_context.torrent_info),
+                self.torrent_context.info_hash.clone(),
+                Arc::clone(&self.torrent_context.needed),
+                Arc::clone(&self.torrent_context.bitfield),
+                Arc::clone(&self.torrent_context.uploaded)
+            );
+
+            let peer_handle = PeerHandle::new(
+                self.client_id,
+                torrent_context,
+                peer_address,
+                connection_type.clone(),
+                self.disk_handle.tx.clone(),
+            ).await?;
+
+            self.peer_handles.push(peer_handle);
+        }
+
+        Ok(())
+    }
+
+    pub fn load_state(&mut self) {
+
+        // I could try to connect to the peers from the previous session but I don't think it's worth it
+        // because the tracker will return me the best peers to connect to
+        // self.add_new_peers(self.torrent_context.peers.clone(), self.torrent_context.connection_type.clone()).await
+        
+        // removing the previous peers who participated
+        self.torrent_context.peers.clear();
+    }
+
+    async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
+        let peer_addresses = match crate::DEBUG_MODE {
+            true => {
+                vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6881".to_string()}]
+                // vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
+                // vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}, PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
+            },
+            false => {
+                let tracker_response = match self.torrent_context.needed.lock().await.pieces.len() == self.torrent_context.torrent_info.pieces_count {
+                    true => tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Started).await?,
+                    false => tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::None).await?,
                 };
+                PeerAddress::from_tracker_response(tracker_response).await?
+            }
+        };
 
-                all_files.push(file.clone());
+        let peer_addresses = peer_addresses.into_iter().rev().take(10).collect();
+
+        self.add_new_peers(peer_addresses, self.torrent_context.connection_type.clone()).await?;
+
+        Ok(())
+    }
+
+    pub async fn tracker_stopped(&mut self, tracker: &mut Tracker) -> Result<()> {
+        if !crate::DEBUG_MODE {
+            tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Stopped).await.context("couldn't get tracker response")?;
+        }
+
+        Ok(())
+    }
+
+    async fn tracker_completed(&mut self, tracker: &mut Tracker) -> Result<()> {
+        if !crate::DEBUG_MODE {
+            tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Completed).await.context("couldn't get tracker response")?;
+        }
+
+        Ok(())
+    }   
+
+    #[tracing::instrument(
+        name = "Torrent::run",
+        skip(self),
+        fields(
+            torrent_name = self.torrent_context.torrent_name.as_str(),
+            info_hash = self.torrent_context.info_hash.to_hex().as_str(),
+            peers = self.torrent_context.peers.len(),
+        )
+    )]
+    pub async fn run(mut self) -> Result<()> {
+        self.load_state();
+
+        let mut save_state_interval = tokio::time::interval(std::time::Duration::from_secs(crate::SAVE_STATE_INTERVAL_SECS));
+
+        // ------------------------------ create tracker --------------------------------
+        let mut tracker = match Tracker::from_torrent_file(&self.torrent_context.torrent_file) {
+            Ok(tracker) => Some(tracker),
+            Err(e) => {
+                tracing::error!("Failed to create tracker: {}", e);
+                None
+            }
+        };
+        
+        // ------------------------------ connect to peers --------------------------------
+        if let Some(ref mut tracker) = tracker {
+            // connect to peers from tracker response
+            if let Err(e) = self.connect_to_peers(tracker).await {
+                tracing::error!("Failed to connect to peers: {}", e);
             }
         }
-        else {
-            let file_name = match info_dict.get_from_dict("name") {
-                Some(file_name) => file_name,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-            let file_name = match file_name {
-                BencodedValue::ByteString(file_name) => file_name,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
 
-            let length = match info_dict.get_from_dict("length") {
-                Some(length) => length,
-                None => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
-            let length = match length {
-                BencodedValue::Integer(length) => length,
-                _ => panic!("Could not get file size from info dict ref in torrent file: {}", self.torrent_name)
-            };
+        let interval = tracker.as_ref().and_then(|tracker| Some(tracker.get_interval())).unwrap_or(crate::TRACKER_REGULAR_REQUEST_INTERVAL_SECS);
 
-            let mut file_dict = BTreeMap::new();
-            let path = BencodedValue::List(vec![BencodedValue::ByteString(file_name)]);
-            file_dict.insert("path".to_string(), path);
-            file_dict.insert("length".to_string(), BencodedValue::Integer(length.clone()));
-            all_files.push(file_dict);
+        let mut find_new_peers_interval = tokio::time::interval(std::time::Duration::from_secs(interval));
+        
+        // ------------------------------ main loop --------------------------------
+        let mut end_game_blocks: Vec<Block> = Vec::new();
+        loop {
+            tokio::select! {
+                biased;
+
+                Some(msg) = self.rx.recv() => {
+                    match msg {
+                        ClientMessage::Shutdown => {
+                            tracing::info!("Shutting down torrent '{}'", self.torrent_context.torrent_name);
+
+                            if let Some(ref mut tracker) = tracker {
+                                if let Err(e) = self.tracker_stopped(tracker).await {
+                                    tracing::warn!("Failed to send stopped message to tracker: {}", e);
+                                }
+                            }
+
+                            for peer_handle in &mut self.peer_handles {
+                                if let Err(e) = peer_handle.shutdown().await {
+                                    tracing::warn!("Failed to send shutdown message to peer {}: {}", peer_handle.peer_address, e);
+                                }
+                            }
+
+                            if let Err(e) = self.disk_handle.shutdown().await {
+                                tracing::warn!("Failed to send shutdown message to disk handle: {}", e);
+                            }
+                            break;
+                        },
+                        ClientMessage::Have { piece } => {
+                            tracing::debug!("Have piece: {}", piece);                     
+                            self.torrent_context.bitfield.lock().await[piece as usize / 8] |= 1 << (7 - piece % 8);  
+
+                            for peer_handle in &mut self.peer_handles {
+                                let _ = peer_handle.have(piece).await;
+                            }   
+                        },
+                        ClientMessage::Cancel { block } => {
+                            tracing::debug!("Cancel block: {} {} {}", block.index, block.begin, block.length);
+                            if !end_game_blocks.iter().any(|b| b.index == block.index && b.begin == block.begin && b.length == block.length){
+                                
+                                let block_copy = Block {
+                                    index: block.index,
+                                    begin: block.begin,
+                                    length: block.length,
+
+                                    number: 0, // doesn't matter
+                                    data: None, // None is simpler to copy
+                                };
+
+                                {
+                                    // removing piece from block picker when all blocks are downloaded
+                                    let end_game_current_piece_blocks_count = end_game_blocks.iter().filter(|b| b.index == block.index).count() + 1;
+                                    tracing::debug!("End game current piece blocks count: {}", end_game_current_piece_blocks_count);
+                                    let mut needed_guard = self.torrent_context.needed.lock().await;
+                                    let position = match needed_guard.pieces.iter().position(|p| p.index == block.index) {
+                                        Some(position) => position,
+                                        None => {
+                                            tracing::error!("Block picker already removed end game piece {}.", block.index);
+                                            continue;
+                                        }
+                                    };
+
+                                    if end_game_current_piece_blocks_count == needed_guard.pieces[position].block_count {
+                                        needed_guard.pieces.remove(position);
+                                    }   
+                                }
+
+                                self.disk_handle.write_block(block).await?;
+                                
+                                for peer_handle in &mut self.peer_handles {
+                                    if let Err(e) = peer_handle.cancel(block_copy.clone()).await {
+                                        tracing::warn!("Failed to send cancel message to peer {}: {}", peer_handle.peer_address, e);
+                                    }
+                                }
+                                end_game_blocks.push(block_copy);
+                            }
+                        },
+                        ClientMessage::FinishedDownloading => {
+                            tracing::info!("Finished downloading torrent '{}'", self.torrent_context.torrent_name);
+
+                            if let Some(ref mut tracker) = tracker {
+                                if let Err(e) = self.tracker_completed(tracker).await {
+                                    tracing::error!("Failed to send completed message to tracker: {}", e);
+                                }
+                            } 
+                        },
+                        ClientMessage::SendTorrentInfo { tx } => {
+                            let torrent_state = TorrentState::new(self.torrent_context.clone()).await;
+                            if let Err(e) = tx.send(torrent_state) {
+                                tracing::error!("Failed to send torrent context to client: {:?}", e);
+                            }
+                        },
+                        ClientMessage::PeerDisconnected { peer_address } => {
+                            self.torrent_context.peers.retain(|peer| peer != &peer_address);
+
+                            let handle_index = self.peer_handles.iter().position(|peer_handle| peer_handle.peer_address == peer_address);
+                            if let Some(handle_index) = handle_index {
+                                if let Err(e) = self.peer_handles.remove(handle_index).join().await {
+                                    tracing::error!("Failed to join peer handle: {}", e);
+                                }
+                            }
+                        },
+                        ClientMessage::AddPeerSession { peer_session } => {
+                            let peer_address = match peer_session.stream.peer_addr() {
+                                Ok(peer_address) => peer_address,
+                                Err(e) => {
+                                    tracing::error!("Failed to get peer address: {}", e);
+                                    continue;
+                                }
+                            };
+                            let peer_address = PeerAddress {
+                                address: peer_address.ip().to_string(),
+                                port: peer_address.port().to_string(),
+                            };
+                            
+                            if self.torrent_context.peers.contains(&peer_address) {
+                                continue;
+                            }
+
+                            let torrent_context = PeerTorrentContext::new(
+                                self.self_tx.clone(),
+                                Arc::clone(&self.torrent_context.torrent_info),
+                                self.torrent_context.info_hash.clone(),
+                                Arc::clone(&self.torrent_context.needed),
+                                Arc::clone(&self.torrent_context.bitfield),
+                                Arc::clone(&self.torrent_context.uploaded),
+                            );
+
+                            let peer_handle = match PeerHandle::from_session(
+                                self.client_id,
+                                torrent_context,
+                                peer_session,
+                                self.disk_handle.tx.clone(),
+                            ).await {
+                                Ok(peer_handle) => peer_handle,
+                                Err(e) => {
+                                    tracing::error!("Failed to create peer handle: {}", e);
+                                    continue;
+                                }
+                            };
+
+                            self.peer_handles.push(peer_handle);
+                        }
+                        _ => {}
+                    }
+                },
+                _ = find_new_peers_interval.tick() => {
+                    // connect to more peers with better tracker request
+                    if !self.torrent_context.needed.lock().await.is_empty() {
+                        if let Some(ref mut tracker) = tracker {
+                            // connect to peers from tracker response
+                            if let Err(e) = self.connect_to_peers(tracker).await {
+                                tracing::error!("Failed to connect to peers: {}", e);
+                            }
+                        }
+                    }
+                },
+                _ = save_state_interval.tick() => {
+                    if let Err(e) = Torrent::save_state(self.torrent_context.clone()).await.context("saving torrent state") {
+                        tracing::error!("Failed to save torrent state for torrent {}: {}", self.torrent_context.torrent_name, e);
+                    }
+                }
+            }
         }
 
-        all_files
+        for peer_handle in self.peer_handles {
+            let peer_addr = peer_handle.peer_address.clone();
+            if let Err(err) = peer_handle.join().await {
+                if let Some(err) = err.downcast_ref::<tokio::io::Error>() {
+                    match err.kind() {
+                        tokio::io::ErrorKind::UnexpectedEof => {
+                            self.torrent_context.peers.retain(|peer| peer != &peer_addr);
+                            tracing::debug!("Peer '{}' UnexpectedEof", peer_addr);
+                        }
+                        tokio::io::ErrorKind::ConnectionReset => {
+                            self.torrent_context.peers.retain(|peer| peer != &peer_addr);
+                            tracing::debug!("Peer '{}' ConnectionReset", peer_addr);
+                        }
+                        tokio::io::ErrorKind::ConnectionAborted => {
+                            self.torrent_context.peers.retain(|peer| peer != &peer_addr);
+                            tracing::debug!("Peer '{}' ConnectionAborted", peer_addr);
+                        }
+                        _ => {
+                            tracing::warn!("Peer '{}' error: {}", peer_addr, err);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.disk_handle.join().await?;
+        Torrent::save_state(self.torrent_context).await?;
+
+        Ok(())
     }
+    
 }

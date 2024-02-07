@@ -1,37 +1,81 @@
-use tokio::sync::Mutex;
+use anyhow::{anyhow, Context, Result};
 
-use std::sync::Arc;
+use crate::torrent::torrent_file::TorrentFile;
+use crate::torrent::TorrentContext;
 
-use crate::torrent::Torrent;
+use crate::utils::bencode::BencodedValue;
+use crate::utils::UrlEncodable;
 
-mod connection;
-use connection::{tracker_params_default, tracker_url_get};
+pub mod tracker_event;
+pub use tracker_event::TrackerEvent;
+
+mod tracker_request;
+use tracker_request::TrackerRequest;
 
 #[derive(Debug, Clone)]
 pub struct Tracker {
-    url: String,
-    params: String,
+    announce: String,
+    last_response: Option<BencodedValue>,
 }
 
 impl Tracker {
-    pub async fn new(torrent: &Arc<Mutex<Torrent>>) -> Tracker {
-        let torrent_file = torrent.lock().await.torrent_file.clone();
-        let info_hash = torrent.lock().await.get_info_hash_ref().clone();
-
-        let url = match tracker_url_get(torrent_file.get_bencoded_dict_ref()) {
-            Some(url) => url,
-            None => panic!("Error: Invalid tracker url")
-        };
-
-        let params = tracker_params_default(&info_hash).await;
-
-        Tracker {
-            url,
-            params,
+    pub fn get_interval(&self) -> u64 {
+        match self.last_response.as_ref().and_then(|last_response| {
+            match last_response.get_from_dict(b"interval") {
+                Ok(BencodedValue::Integer(interval)) => Some(interval),
+                _ => None
+            }
+        }) {
+            Some(interval) => interval as u64,
+            None => crate::TRACKER_REGULAR_REQUEST_INTERVAL_SECS
         }
     }
 
-    pub fn get_url(&self) -> String {
-        format!("{}{}", self.url, self.params)
+    pub fn from_torrent_file(torrent_file: &TorrentFile) -> Result<Tracker> {
+        let tracker_announce = torrent_file.get_bencoded_dict_ref().get_from_dict(b"announce")?;
+    
+        let tracker_announce = match tracker_announce {
+            BencodedValue::ByteString(tracker_announce) => tracker_announce,
+            _ => return Err(anyhow!("No tracker announce key found"))
+        };
+    
+        let announce = String::from_utf8(tracker_announce.clone())?;
+    
+        Ok(Tracker {
+            announce,
+            last_response: None,
+        })
+    }
+
+    pub async fn response(&mut self, client_id: [u8; 20], torrent_context: &TorrentContext, tracker_event: TrackerEvent) -> Result<BencodedValue> {
+        let request = TrackerRequest::new(self, client_id, torrent_context, tracker_event).await.context("creating tracker request")?.as_url()?;
+        tracing::debug!("request: {}", request);
+        
+        let response = reqwest::get(request).await.context("invalid tracker url")?;
+        let response_bytes = response.bytes().await.context("error getting response bytes")?; 
+        tracing::debug!("response: {:?}", response_bytes.to_vec().as_url_encoded()); 
+        
+        let bencoded_response = BencodedValue::from_bytes(&response_bytes).context("creating bencoded response")?;
+
+        let last_tracker_id = self.last_response.as_ref().and_then(|last_response| {
+            match last_response.get_from_dict(b"tracker id") {
+                Ok(BencodedValue::ByteString(tracker_id)) => Some(tracker_id),
+                _ => None
+            }
+        });
+
+        self.last_response = Some(bencoded_response.clone());
+
+        if let Err(_) = bencoded_response.get_from_dict(b"tracker id") {
+            self.last_response.as_mut().and_then(|last_response| {
+                if let Some(last_tracker_id) = last_tracker_id {
+                    last_response.insert_into_dict(b"tracker id".to_vec(), BencodedValue::ByteString(last_tracker_id));
+                }
+
+                Some(())
+            });
+        }
+
+        Ok(bencoded_response)
     }
 }
