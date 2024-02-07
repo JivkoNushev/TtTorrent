@@ -445,6 +445,7 @@ impl Torrent {
                             }   
                         },
                         ClientMessage::Cancel { block } => {
+                            tracing::debug!("Cancel block: {} {} {}", block.index, block.begin, block.length);
                             if !end_game_blocks.iter().any(|b| b.index == block.index && b.begin == block.begin && b.length == block.length){
                                 
                                 let block_copy = Block {
@@ -459,7 +460,7 @@ impl Torrent {
                                 {
                                     // removing piece from block picker when all blocks are downloaded
                                     let end_game_current_piece_blocks_count = end_game_blocks.iter().filter(|b| b.index == block.index).count() + 1;
-                                    
+                                    tracing::debug!("End game current piece blocks count: {}", end_game_current_piece_blocks_count);
                                     let mut needed_guard = self.torrent_context.needed.lock().await;
                                     let position = match needed_guard.pieces.iter().position(|p| p.index == block.index) {
                                         Some(position) => position,

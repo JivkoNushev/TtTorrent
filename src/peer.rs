@@ -313,10 +313,7 @@ impl Peer {
                         _ => {}
                     }
                 }
-                // peer_message = peer_session.recv_message_size() => {
-                //     let peer_message = peer_session.recv_message(peer_message?).await;
                 peer_message = peer_session.recv() => {
-
                     tracing::trace!("Peer '{self}' received message");
                     match peer_message? {
                         PeerMessage::Choke => {
@@ -406,15 +403,19 @@ impl Peer {
                                 };
 
                                 tracing::trace!("Peer '{self}' retaining block: {} {}", block.index, block.begin);
-                                downloading_blocks.retain(|b| !(b.index == index && b.begin == begin));
-
+                                
                                 if end_game_blocks.iter().any(|b| b.number == block.number) {
                                     tracing::trace!("Peer '{self}' received an end game block: {}", block.number);
                                     tracing::trace!("Peer '{self}' sending block to torrent task: {}", block.number);
                                     self.torrent_context.tx.send(ClientMessage::Cancel{ block }).await?;
                                 }
                                 else {
+                                    downloading_blocks.retain(|b| !(b.index == index && b.begin == begin));
+                                tracing::trace!("before Peer '{downloading_blocks:?}' ");
+
                                     tracing::trace!("Peer '{self}' sending block to disk task: {}", block.number);
+                                tracing::trace!("after Peer '{downloading_blocks:?}' ");
+
                                     self.disk_tx.send(ClientMessage::DownloadedBlock{ block }).await?;
                                 }
                             }
@@ -462,7 +463,6 @@ impl Peer {
                     self.request(&mut peer_session, &mut downloading_blocks, &mut end_game_blocks).await?;
                 }
             }
-            tracing::trace!("after if");
 
             // file is fully downloaded and peer doesn't want to download as well
             if !self.peer_context.am_interested && !self.peer_context.interested {
