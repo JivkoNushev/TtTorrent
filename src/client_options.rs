@@ -123,7 +123,7 @@ pub fn setup_options(args: std::env::Args) {
                 std::process::exit(1);
             }
         }
-        else if arg == "--sending-to-ui-interval-secs" {
+        else if arg == "--sending-to-ui-interval" {
             if let Some(arg) = argv_iter.next() {
                 if let Ok(secs) = arg.parse::<u64>() {
                     unsafe { crate::CLIENT_OPTIONS.sending_to_ui_interval_secs = secs; }
@@ -138,7 +138,7 @@ pub fn setup_options(args: std::env::Args) {
                 std::process::exit(1);
             }
         }
-        else if arg == "--save-state-interval-secs" {
+        else if arg == "--save-state-interval" {
             if let Some(arg) = argv_iter.next() {
                 if let Ok(secs) = arg.parse::<u64>() {
                     unsafe { crate::CLIENT_OPTIONS.save_state_interval_secs = secs; }
@@ -153,7 +153,7 @@ pub fn setup_options(args: std::env::Args) {
                 std::process::exit(1);
             }
         }
-        else if arg == "--tracker-regular-request-interval-secs" {
+        else if arg == "--tracker-regular-request-interval" {
             if let Some(arg) = argv_iter.next() {
                 if let Ok(secs) = arg.parse::<u64>() {
                     unsafe { crate::CLIENT_OPTIONS.tracker_regular_request_interval_secs = secs; }
@@ -168,7 +168,7 @@ pub fn setup_options(args: std::env::Args) {
                 std::process::exit(1);
             }
         }
-        else if arg == "--client-keep-alive-message-interval-secs" {
+        else if arg == "--keep-alive-interval" {
             if let Some(arg) = argv_iter.next() {
                 if let Ok(secs) = arg.parse::<u64>() {
                     unsafe { crate::CLIENT_OPTIONS.client_keep_alive_message_interval_secs = secs; }
@@ -264,9 +264,19 @@ fn print_error_menu() {
 }
 
 fn print_help_menu() {
-    println!("Usage: tttorrent-client [options]");
-    println!("Options:");
-    println!("  --help  -  print this help message and exit");
-    println!("  --debug  -  set tracing level to DEBUG");
-    println!("  --trace  -  set tracing level to TRACE");
+    print!("Usage: torrent_client [OPTIONS]\n\n");
+    print!("Options:\n");
+    print!("  --debug\n");
+    print!("  --tracing-level [trace|debug|info|warn|error]\n");
+    print!("  --max-channel-size <size>\n");
+    print!("  --block-size <size>\n");
+    print!("  --block-request-count <count>\n");
+    print!("  --sending-to-ui-interval <secs>\n");
+    print!("  --save-state-interval <secs>\n");
+    print!("  --tracker-regular-request-interval <secs>\n");
+    print!("  --keep-alive-interval <secs>\n");
+    print!("  --socket-path <path>\n");
+    print!("  --state-file-path <path>\n");
+    print!("  --state-torrent-files-path <path>\n");
+    print!("  --listening-port <port>\n");
 }
