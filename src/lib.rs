@@ -6,14 +6,14 @@ pub mod messager;
 pub mod disk_manager;
 pub mod utils;
 
-pub const DEBUG_MODE: bool = true;
+pub const DEBUG_MODE: bool = false;
 
 // TRACE > DEBUG > INFO > WARN > ERROR
 // TRACE - не съм го използвал; използва се от други библиотеки, които използвам като reqwest 
 // DEBUG - показва ми когато записвам или рекуествам нещо и др.
 // INFO - показва ми къде започват и спират функциите
 
-pub const TRACING_LEVEL: tracing::Level = tracing::Level::TRACE; 
+pub const TRACING_LEVEL: tracing::Level = tracing::Level::INFO; 
 pub const MAX_CHANNEL_SIZE: usize = 100;
 pub const BLOCK_SIZE: usize = 1 << 14;
 pub const BLOCK_REQUEST_COUNT: usize = 5;

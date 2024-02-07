@@ -99,7 +99,7 @@ impl DiskManager {
             }
         };
 
-        let mut block_start = (block.index * torrent_context.torrent_info.piece_length as u32 + block.begin) as u64;
+        let mut block_start = block.index as u64 * torrent_context.torrent_info.piece_length as u64 + block.begin as u64;
 
         let mut file_index= 0;
         let mut file_begin = 0;
@@ -163,7 +163,7 @@ impl DiskManager {
 
         let files = torrent_context.files.clone();
 
-        let mut block_start = (block.index * torrent_context.torrent_info.piece_length as u32 + block.begin) as u64;
+        let mut block_start = block.index as u64 * torrent_context.torrent_info.piece_length as u64 + block.begin as u64;
 
         let mut file_index= 0;
         let mut file_begin = 0;
