@@ -156,7 +156,7 @@ async fn main() {
 
     // if command is start, start the daemon process of the client
     if args[1] == "start" {
-        let path = format!("{}/target/debug/tttorrent-daemon", std::env::current_dir().unwrap().to_str().unwrap());
+        let path = format!("{}/target/release/tttorrent-client", std::env::current_dir().unwrap().to_str().unwrap());
         let daemon_path = std::path::Path::new(&path);
 
         let _ = Command::new(daemon_path)
