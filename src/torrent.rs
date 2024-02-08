@@ -46,13 +46,14 @@ impl TorrentHandle {
             .to_str()
             .unwrap();
 
-        let torrent_file_dest_path = std::path::Path::new(crate::STATE_TORRENT_FILES_PATH).join(torrent_name);
+        let torrent_file_dest_path = unsafe { crate::CLIENT_OPTIONS.state_torrent_files_path.clone() };
+        let torrent_file_dest_path = std::path::Path::new(&torrent_file_dest_path).join(torrent_name);
         tokio::fs::copy(src_path, torrent_file_dest_path.clone()).await?;
 
         // --------------------------------- create torrent handle ---------------------------------
         let src = torrent_file_dest_path.to_str().unwrap(); // torrent_file_dest_path is always valid utf8
         
-        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+        let (sender, receiver) = mpsc::channel(unsafe { crate::CLIENT_OPTIONS.max_channel_size });
         let pipe = CommunicationPipe {
             tx: sender.clone(),
             rx: receiver,
@@ -84,7 +85,7 @@ impl TorrentHandle {
     }
 
     pub async fn from_state(client_id: [u8; 20], torrent_state: TorrentState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
-        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+        let (sender, receiver) = mpsc::channel(unsafe { crate::CLIENT_OPTIONS.max_channel_size });
         let pipe = CommunicationPipe {
             tx: sender.clone(),
             rx: receiver,
@@ -229,7 +230,7 @@ impl Torrent {
 
 
     pub async fn from_state(client_id: [u8; 20], self_pipe: CommunicationPipe, torrent_state: TorrentState, info_hash: Sha1Hash, connection_type: ConnectionType) -> Result<Self> {
-        let torrent_file_path = format!("{}/{}.torrent", crate::STATE_TORRENT_FILES_PATH, torrent_state.torrent_name);
+        let torrent_file_path = format!("{}/{}.torrent", unsafe { crate::CLIENT_OPTIONS.state_torrent_files_path.clone() }, torrent_state.torrent_name);
         let path = std::path::Path::new(&torrent_file_path);
 
         let torrent_file = TorrentFile::new(path).await.context("couldn't create TorrentFile")?;
@@ -259,7 +260,8 @@ impl Torrent {
     }   
 
     async fn save_state(torrent_context: TorrentContext) -> Result<()> {
-        let state_file = std::path::Path::new(crate::STATE_FILE_PATH);
+        let state_file = unsafe { crate::CLIENT_OPTIONS.state_file_path.clone() };
+        let state_file = std::path::Path::new(&state_file);
         let client_state = match tokio::fs::read_to_string(state_file).await {
             std::result::Result::Ok(client_state) => client_state,
             Err(_) => String::new(),
@@ -335,7 +337,7 @@ impl Torrent {
     }
 
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
-        let peer_addresses = match crate::DEBUG_MODE {
+        let peer_addresses = match unsafe { crate::CLIENT_OPTIONS.debug_mode } {
             true => {
                 vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6881".to_string()}]
                 // vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
@@ -358,7 +360,7 @@ impl Torrent {
     }
 
     pub async fn tracker_stopped(&mut self, tracker: &mut Tracker) -> Result<()> {
-        if !crate::DEBUG_MODE {
+        if !unsafe { crate::CLIENT_OPTIONS.debug_mode } {
             tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Stopped).await.context("couldn't get tracker response")?;
         }
 
@@ -366,7 +368,7 @@ impl Torrent {
     }
 
     async fn tracker_completed(&mut self, tracker: &mut Tracker) -> Result<()> {
-        if !crate::DEBUG_MODE {
+        if !unsafe { crate::CLIENT_OPTIONS.debug_mode } {
             tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Completed).await.context("couldn't get tracker response")?;
         }
 
@@ -385,7 +387,7 @@ impl Torrent {
     pub async fn run(mut self) -> Result<()> {
         self.load_state();
 
-        let mut save_state_interval = tokio::time::interval(std::time::Duration::from_secs(crate::SAVE_STATE_INTERVAL_SECS));
+        let mut save_state_interval = tokio::time::interval(std::time::Duration::from_secs(unsafe { crate::CLIENT_OPTIONS.save_state_interval_secs }));
 
         // ------------------------------ create tracker --------------------------------
         let mut tracker = match Tracker::from_torrent_file(&self.torrent_context.torrent_file) {
@@ -404,7 +406,7 @@ impl Torrent {
             }
         }
 
-        let interval = tracker.as_ref().and_then(|tracker| Some(tracker.get_interval())).unwrap_or(crate::TRACKER_REGULAR_REQUEST_INTERVAL_SECS);
+        let interval = tracker.as_ref().and_then(|tracker| Some(tracker.get_interval())).unwrap_or(unsafe { crate::CLIENT_OPTIONS.tracker_regular_request_interval_secs });
 
         let mut find_new_peers_interval = tokio::time::interval(std::time::Duration::from_secs(interval));
         

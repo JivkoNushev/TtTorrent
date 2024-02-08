@@ -5,24 +5,8 @@ pub mod peer;
 pub mod messager;
 pub mod disk_manager;
 pub mod utils;
+pub mod client_options;
 
-pub const DEBUG_MODE: bool = false;
+use once_cell::sync::Lazy;
 
-// TRACE > DEBUG > INFO > WARN > ERROR
-// TRACE - не съм го използвал; използва се от други библиотеки, които използвам като reqwest 
-// DEBUG - показва ми когато записвам или рекуествам нещо и др.
-// INFO - показва ми къде започват и спират функциите
-
-pub const TRACING_LEVEL: tracing::Level = tracing::Level::INFO; 
-pub const MAX_CHANNEL_SIZE: usize = 100;
-pub const BLOCK_SIZE: usize = 1 << 14;
-pub const BLOCK_REQUEST_COUNT: usize = 5;
-pub const SENDING_TO_UI_INTERVAL_SECS: u64 = 3;
-pub const SAVE_STATE_INTERVAL_SECS: u64 = 120;
-pub const TRACKER_REGULAR_REQUEST_INTERVAL_SECS: u64 = 120;
-pub const CLIENT_KEEP_ALIVE_MESSAGE_INTERVAL_SECS: u64 = 120;
-
-pub const SOCKET_PATH: &str = "client_state/TtTClient.sock";
-pub const STATE_FILE_PATH: &str = "client_state/TtTClient.state";
-pub const STATE_TORRENT_FILES_PATH: &str = "client_state/torrent_files";
-pub const LISTENING_PORT: u16 = 6881;
+pub static mut CLIENT_OPTIONS: Lazy<client_options::ClientOptions> = Lazy::new(|| client_options::ClientOptions::default());

@@ -30,7 +30,7 @@ pub struct PeerHandle {
 
 impl PeerHandle {
     pub async fn new(client_id: [u8; 20], torrent_context: PeerTorrentContext, peer_address: PeerAddress, connection_type: ConnectionType, disk_tx: mpsc::Sender<ClientMessage>) -> Result<Self> {
-        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+        let (sender, receiver) = mpsc::channel(unsafe { crate::CLIENT_OPTIONS.max_channel_size });
 
         let self_pipe = CommunicationPipe {
             tx: sender.clone(),
@@ -57,7 +57,7 @@ impl PeerHandle {
 
         let connection_type = session.connection_type.clone();
 
-        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+        let (sender, receiver) = mpsc::channel(unsafe { crate::CLIENT_OPTIONS.max_channel_size });
 
         let self_pipe = CommunicationPipe {
             tx: sender.clone(),
@@ -178,9 +178,9 @@ impl Peer {
 
     async fn request(&mut self, peer_session: &mut PeerSession, downloading_blocks: &mut Vec<Block>, end_game_blocks: &mut Vec<Block>) -> Result<()> {
         tracing::trace!("before not end game block");
-        if self.torrent_context.needed.lock().await.block_count() > crate::BLOCK_REQUEST_COUNT {
+        if self.torrent_context.needed.lock().await.block_count() > unsafe { crate::CLIENT_OPTIONS.block_request_count } {
             tracing::trace!("before while");
-            while downloading_blocks.len() < crate::BLOCK_REQUEST_COUNT {
+            while downloading_blocks.len() < unsafe { crate::CLIENT_OPTIONS.block_request_count } {
                 tracing::trace!("before pick random");
                 match self.torrent_context.needed.lock().await.pick_random(&self.peer_context.bitfield).await? {
                     Some(block) => {
@@ -354,7 +354,7 @@ impl Peer {
                             }
 
                             let block_index = {
-                                index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(crate::BLOCK_SIZE as u32) as usize
+                                index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(unsafe { crate::CLIENT_OPTIONS.block_size } as u32) as usize
                             };
 
                             let block = Block {
@@ -391,7 +391,7 @@ impl Peer {
 
                             if downloading_blocks.iter().any(|b| b.index == index && b.begin == begin) {
                                 let block_index = {
-                                    index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(crate::BLOCK_SIZE as u32) as usize
+                                    index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(unsafe { crate::CLIENT_OPTIONS.block_size } as u32) as usize
                                 };
                                 let block = Block {
                                     index: index,
@@ -437,7 +437,7 @@ impl Peer {
                         }
                     }
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(crate::CLIENT_KEEP_ALIVE_MESSAGE_INTERVAL_SECS)) => {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(unsafe { crate::CLIENT_OPTIONS.client_keep_alive_message_interval_secs })) => {
                     // 2 minutes without any message from peer elapsed, sending keep alive
                     self.keep_alive(&mut peer_session).await?;
                 }

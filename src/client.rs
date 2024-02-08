@@ -21,7 +21,7 @@ impl ClientHandle {
         // let id = "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap();
         let id = crate::utils::generate_random_client_id();
 
-        let (sender, receiver) = mpsc::channel(crate::MAX_CHANNEL_SIZE);
+        let (sender, receiver) = mpsc::channel(unsafe { crate::CLIENT_OPTIONS.max_channel_size });
         
         let pipe = CommunicationPipe{tx, rx: receiver};
         let client = Client::new(id, pipe);
@@ -99,7 +99,8 @@ impl Client {
     }
 
     async fn load_state(&mut self) -> Result<()> {
-        let path = std::path::Path::new(crate::STATE_FILE_PATH);
+        let path = unsafe { crate::CLIENT_OPTIONS.state_file_path.clone() };
+        let path = std::path::Path::new(&path);
 
         let client_state = match tokio::fs::read_to_string(path).await {
             Ok(state) => state,
@@ -141,10 +142,10 @@ impl Client {
 
         self.load_state().await?;
         
-        let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(crate::SENDING_TO_UI_INTERVAL_SECS));
+        let mut sending_interval = tokio::time::interval(std::time::Duration::from_secs(unsafe { crate::CLIENT_OPTIONS.sending_to_ui_interval_secs }));
         let mut sending_to_terminal_client = false;
 
-        let seeding_socket = tokio::net::TcpListener::bind("0.0.0.0:".to_owned() + &crate::LISTENING_PORT.to_string()).await?;
+        let seeding_socket = tokio::net::TcpListener::bind("0.0.0.0:".to_owned() + &unsafe { crate::CLIENT_OPTIONS.listening_port }.to_string()).await?;
         
         loop {
             tokio::select! {

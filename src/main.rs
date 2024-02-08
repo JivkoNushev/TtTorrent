@@ -2,6 +2,7 @@ use anyhow::{Result, Context, anyhow};
 use interprocess::local_socket::tokio::LocalSocketListener;
 
 use torrent_client::client::ClientHandle;
+use torrent_client::client_options;
 use torrent_client::messager::{TerminalClientMessage, ClientMessage};
 use torrent_client::utils::{ExitCode, valid_src_and_dst};
 use torrent_client::utils::terminal::TerminalClient;
@@ -10,17 +11,21 @@ use std::path::Path;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    // ------------------------ setup options for client ------------------------
+
+    client_options::setup_options(std::env::args());
+
     // ------------------------ setup tracing ------------------------
     let subscriber = tracing_subscriber::fmt()
-        .with_max_level(torrent_client::TRACING_LEVEL)
+        .with_max_level(unsafe { torrent_client::CLIENT_OPTIONS.tracing_level.clone() })
         .pretty()
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)?;
 
     // ------------------------ create socket for client ------------------------
-
-    let sock_path = Path::new(torrent_client::SOCKET_PATH);
+    let sock_path = unsafe { torrent_client::CLIENT_OPTIONS.socket_path.clone() };
+    let sock_path = Path::new(&sock_path);
 
     // remove socket if it exists and create new one
     let _ = tokio::fs::remove_file(sock_path).await;
@@ -29,7 +34,7 @@ async fn main() -> Result<()> {
     let mut terminal_client_sockets: Vec<TerminalClient> = Vec::new();
 
     // ------------------------ create client ------------------------
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(torrent_client::MAX_CHANNEL_SIZE);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(unsafe { torrent_client::CLIENT_OPTIONS.max_channel_size });
     let mut client = ClientHandle::new(tx);
 
     // client.client_download_torrent("test_folder/torrents/ospdf.torrent".to_string(), "test_folder/data".to_string()).await?;
