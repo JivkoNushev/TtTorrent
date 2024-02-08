@@ -339,8 +339,8 @@ impl Torrent {
     async fn connect_to_peers(&mut self, tracker: &mut Tracker) -> Result<()> {
         let peer_addresses = match unsafe { crate::CLIENT_OPTIONS.debug_mode } {
             true => {
-                vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6881".to_string()}]
-                // vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
+                // vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6881".to_string()}]
+                vec![PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
                 // vec![PeerAddress{address: "192.168.0.24".to_string(), port: "6969".to_string()}, PeerAddress{address: "127.0.0.1".to_string(), port: "51413".to_string()}, PeerAddress{address: "192.168.0.24".to_string(), port: "51413".to_string()}]
             },
             false => {

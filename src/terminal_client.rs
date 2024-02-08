@@ -159,10 +159,13 @@ async fn main() {
         let path = format!("{}/target/release/tttorrent-client", std::env::current_dir().unwrap().to_str().unwrap());
         let daemon_path = std::path::Path::new(&path);
 
+        let args_ = &args[2..];
+
         let _ = Command::new(daemon_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
+            .args(args_)
             .spawn();
 
         exit(0);
