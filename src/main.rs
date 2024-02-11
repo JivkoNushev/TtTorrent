@@ -37,9 +37,6 @@ async fn main() -> Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ClientMessage>(unsafe { torrent_client::CLIENT_OPTIONS.max_channel_size });
     let mut client = ClientHandle::new(tx);
 
-    // client.client_download_torrent("test_folder/torrents/ospdf.torrent".to_string(), "test_folder/data".to_string()).await?;
-    // client.client_download_torrent("test_folder/torrents/torrent_image.torrent".to_string(), "test_folder/data".to_string()).await?;
-
     loop {
         tokio::select! {
             biased;

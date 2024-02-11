@@ -243,7 +243,6 @@ impl Peer {
         };
         tracing::info!("Peer '{self}' connected");
 
-        // handshake with peer
         self.handshake(&mut peer_session).await?;
 
         let mut end_game_blocks: Vec<Block> = Vec::new();

@@ -263,24 +263,6 @@ impl PeerSession {
         Ok(())
     }
 
-    // pub async fn recv_message(&mut self, message_size: u32) -> Result<PeerMessage> {
-    //     if message_size == 0 {
-    //         return Ok(PeerMessage::KeepAlive);
-    //     }
-
-    //     let mut message = vec![0; message_size as usize];
-    //     self.stream.read_exact(&mut message).await?;
-
-    //     PeerMessage::from_bytes(&message)
-    // }
-
-    // pub async fn recv_message_size(&mut self) -> Result<u32> {
-    //     let mut message_size_bytes = [0; 4];
-    //     self.stream.read_exact(&mut message_size_bytes).await?;
-
-    //     Ok(u32::from_be_bytes(message_size_bytes))
-    // }
-
     pub async fn recv(&mut self) -> Result<PeerMessage> {
         while self.message_buffer.len() < 4 {
             self.stream.read_buf(&mut self.message_buffer).await?;
