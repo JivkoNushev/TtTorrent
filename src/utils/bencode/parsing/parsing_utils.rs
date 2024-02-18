@@ -12,22 +12,18 @@ pub fn parse_from_bencoded_value(bencoded_value: &BencodedValue) -> Result<Vec<u
         BencodedValue::List(_) => to_bencoded_list(bencoded_value),
         BencodedValue::Integer(i) => Ok(("i".to_owned() + &i.to_string() + "e").as_bytes().to_vec()),
         BencodedValue::ByteString(byte_string) => Ok(byte_string.clone()),
-        BencodedValue::ByteSha1Hashes(sha1hashes) => {
-            Ok(
-                sha1hashes.iter()
-                    .map(|sha1hash| sha1hash.0.clone())
-                    .flatten()
-                    .collect::<Vec<u8>>()
-            )
-        },
-        BencodedValue::ByteAddresses(byte_addresses) => {
-            Ok(
-                byte_addresses.iter()
-                .map(|peer_address| peer_address.to_vec())
+        BencodedValue::ByteSha1Hashes(sha1hashes) => Ok(
+            sha1hashes.iter()
+                .map(|sha1hash| sha1hash.0.clone())
                 .flatten()
                 .collect::<Vec<u8>>()
-            )
-        },
+        ),
+        BencodedValue::ByteAddresses(byte_addresses) => Ok(
+            byte_addresses.iter()
+            .map(|peer_address| peer_address.to_vec())
+            .flatten()
+            .collect::<Vec<u8>>()
+        ),
     }
 }
 
