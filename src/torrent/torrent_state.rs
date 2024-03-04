@@ -32,8 +32,8 @@ impl TorrentState {
             peers: torrent_context.peers,
 
             torrent_info: (*torrent_context.torrent_info).clone(),
-            downloaded: torrent_context.downloaded.lock().await.clone(),
-            uploaded: torrent_context.uploaded.lock().await.clone(),
+            downloaded: *torrent_context.downloaded.lock().await,
+            uploaded: *torrent_context.uploaded.lock().await,
         }
     }
 }

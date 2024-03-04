@@ -22,7 +22,7 @@ pub enum BencodedValue {
 
 impl BencodedValue {
     pub fn from_bytes(bytes: &[u8]) -> Result<BencodedValue> {
-        parsing::encode(&bytes)
+        parsing::encode(bytes)
     }
 
     pub fn as_bytes(&self) -> Result<Vec<u8>> {
@@ -105,17 +105,8 @@ impl BencodedValue {
         }
 
         let info = match dict.get(&b"info".to_vec()) {
-            Some(info) => {
-                match info {
-                    BencodedValue::Dict(info) => info,
-                    _ => {
-                        return false;
-                    }
-                }
-            }
-            None => {
-                return false
-            }
+            Some(BencodedValue::Dict(info)) => info,
+            _ => return false
         };
 
         if [b"name".to_vec(), b"piece length".to_vec(), b"pieces".to_vec()].iter().any(|key| !info.contains_key(key)) {
@@ -129,17 +120,8 @@ impl BencodedValue {
 
         if info.contains_key(&b"files".to_vec()) {
             let files = match info.get(&b"files".to_vec()) {
-                Some(files) => {
-                    match files {
-                        BencodedValue::List(files) => files,
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
-                None => {
-                    return false;
-                }
+                Some(BencodedValue::List(files)) => files,
+                _ => return false
             };
 
             return files

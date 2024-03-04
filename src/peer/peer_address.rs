@@ -32,7 +32,7 @@ impl PeerAddress {
 
     pub fn to_vec(&self) -> Vec<u8> {
         let mut bytes = self.address
-            .split(".")
+            .split('.')
             .map(|octet| octet.parse::<u8>().unwrap())
             .collect::<Vec<u8>>();
         bytes.append(

@@ -145,7 +145,7 @@ impl Peer {
 
     async fn handshake(&mut self, peer_session: &mut PeerSession) -> Result<()> {
         let bitfield = self.torrent_context.bitfield.lock().await.clone();
-        peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id.clone(), bitfield).await?;
+        peer_session.handshake(self.torrent_context.info_hash.clone(), self.client_id, bitfield).await?;
        
         self.peer_context.id = peer_session.peer_handshake.peer_id;
 
@@ -194,23 +194,21 @@ impl Peer {
                 tracing::trace!("after pick random");
             }
         }
-        else {
-            if downloading_blocks.is_empty() {
-                match self.torrent_context.needed.lock().await.get_end_game_blocks(&self.peer_context.bitfield).await? {
-                    Some(blocks) => {
-                        for block in blocks {
-                            peer_session.send(PeerMessage::Request(block.index, block.begin, block.length)).await?;
-                            tracing::debug!("Requested end game block {} from peer: '{self}' with piece index {}, offset {} and size {}", block.number, block.index, block.begin, block.length);
-                            
-                            if !end_game_blocks.iter().any(|b| b.number == block.number) {
-                                end_game_blocks.push(block.clone());
-                            }
-
-                            downloading_blocks.push(block);
+        else if downloading_blocks.is_empty() {
+            match self.torrent_context.needed.lock().await.get_end_game_blocks(&self.peer_context.bitfield).await? {
+                Some(blocks) => {
+                    for block in blocks {
+                        peer_session.send(PeerMessage::Request(block.index, block.begin, block.length)).await?;
+                        tracing::debug!("Requested end game block {} from peer: '{self}' with piece index {}, offset {} and size {}", block.number, block.index, block.begin, block.length);
+                        
+                        if !end_game_blocks.iter().any(|b| b.number == block.number) {
+                            end_game_blocks.push(block.clone());
                         }
-                    },
-                    None => return Ok(())
-                }
+
+                        downloading_blocks.push(block);
+                    }
+                },
+                None => return Ok(())
             }
         }
 
@@ -289,7 +287,7 @@ impl Peer {
                                 
                                 let length = block.length as u64;
 
-                                peer_session.send(PeerMessage::Piece(block.index as u32, block.begin as u32, data)).await?;
+                                peer_session.send(PeerMessage::Piece(block.index, block.begin, data)).await?;
                                 *self.torrent_context.uploaded.lock().await += length;
                             }
                             else {
@@ -393,8 +391,8 @@ impl Peer {
                                     index as usize * self.torrent_context.torrent_info.blocks_in_piece + begin.div_ceil(unsafe { crate::CLIENT_OPTIONS.block_size } as u32) as usize
                                 };
                                 let block = Block {
-                                    index: index,
-                                    begin: begin,
+                                    index,
+                                    begin,
                                     length: block.len() as u32,
     
                                     number: block_index,

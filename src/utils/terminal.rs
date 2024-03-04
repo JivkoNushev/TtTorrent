@@ -56,15 +56,14 @@ impl TerminalClient {
 pub async fn create_client_socket() -> LocalSocketStream {
     let path = unsafe { crate::CLIENT_OPTIONS.socket_path.clone() };
     let path = std::path::Path::new(&path);
-    let client_socket = match LocalSocketStream::connect(path).await {
+    
+    match LocalSocketStream::connect(path).await {
         Ok(socket) => socket,
         Err(e) => {
             eprintln!("[Error] Failed to connect to the client: {}", e);
             exit(1);
         }
-    };
-
-    client_socket
+    }
 }
 
 pub fn create_message (message: &TerminalClientMessage) -> Vec<u8> {

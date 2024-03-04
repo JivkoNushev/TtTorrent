@@ -1,14 +1,14 @@
 use anyhow::{anyhow, Result};
 
 use std::env::args;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{exit, Command, Stdio};
 
 use torrent_client::messager::TerminalClientMessage;
 use torrent_client::torrent::TorrentState;
 use torrent_client::utils::terminal::{TerminalClient, create_client_socket};
 
-fn check_file(path: &PathBuf) -> bool {
+fn check_file(path: &Path) -> bool {
     path.exists() && path.is_file()
 }
 
@@ -16,7 +16,7 @@ fn check_dir(path: &PathBuf) -> bool {
     std::fs::create_dir_all(path).is_ok()
 }
 
-fn check_add_arguments(torrent_path: &PathBuf, dest_path: &PathBuf) -> Result<()> {
+fn check_add_arguments(torrent_path: &Path, dest_path: &PathBuf) -> Result<()> {
     if !check_file(torrent_path) {
         return Err(anyhow!("Invalid torrent file path"));
     }
@@ -84,12 +84,12 @@ Commands:
 }
 
 async fn add(mut client: TerminalClient, src: &str, dest: &str) -> Result<()> {
-    let mut torrent_path = PathBuf::from(src);
-    let mut dest_path = PathBuf::from(dest);
+    let torrent_path = PathBuf::from(src);
+    let dest_path = PathBuf::from(dest);
 
-    check_add_arguments(&mut torrent_path, &mut dest_path)?;
-    let torrent_path = PathBuf::from(torrent_path).canonicalize()?;
-    let dest_path = PathBuf::from(dest_path).canonicalize()?;
+    check_add_arguments(&torrent_path, &dest_path)?;
+    let torrent_path = torrent_path.canonicalize()?;
+    let dest_path = dest_path.canonicalize()?;
 
     let torrent_path = torrent_path.to_str().unwrap().to_string();
     let dest_path = dest_path.to_str().unwrap().to_string();
@@ -213,7 +213,7 @@ async fn main() {
                 exit(1);
             }
 
-            while let Ok(_) = terminal_client.send_message(&TerminalClientMessage::Shutdown).await {}
+            while terminal_client.send_message(&TerminalClientMessage::Shutdown).await.is_ok() {}
             
             println!("Stopping client daemon...");
         },

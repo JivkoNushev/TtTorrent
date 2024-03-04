@@ -46,7 +46,7 @@ impl TorrentContext {
             dest_path: torrent_state.dest_path,
             torrent_name: torrent_state.torrent_name,
             torrent_file: Arc::new(torrent_file),
-            info_hash: info_hash,
+            info_hash,
             needed: Arc::new(Mutex::new(needed)),
             bitfield: Arc::new(Mutex::new(torrent_state.bitfield)),
             peers: torrent_state.peers,

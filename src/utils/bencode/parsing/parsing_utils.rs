@@ -14,14 +14,12 @@ pub fn parse_from_bencoded_value(bencoded_value: &BencodedValue) -> Result<Vec<u
         BencodedValue::ByteString(byte_string) => Ok(byte_string.clone()),
         BencodedValue::ByteSha1Hashes(sha1hashes) => Ok(
             sha1hashes.iter()
-                .map(|sha1hash| sha1hash.0.clone())
-                .flatten()
+                .flat_map(|sha1hash| sha1hash.0)
                 .collect::<Vec<u8>>()
         ),
         BencodedValue::ByteAddresses(byte_addresses) => Ok(
             byte_addresses.iter()
-            .map(|peer_address| peer_address.to_vec())
-            .flatten()
+            .flat_map(|peer_address| peer_address.to_vec())
             .collect::<Vec<u8>>()
         ),
     }
@@ -33,7 +31,7 @@ pub fn parse_to_bencoded_value(bytes: &[u8]) -> Result<BencodedValue> {
         b'l' => create_list(bytes, &mut 0),
         b'i' => create_int(bytes, &mut 0),
         _ => {
-            let word_len = parse_integer(&bytes[..])? as usize;
+            let word_len = parse_integer(bytes)? as usize;
             let word_len_chars_len = (word_len.checked_ilog10().unwrap_or(0) + 1) as usize;
 
             let word = bytes[word_len_chars_len + 1..word_len_chars_len + 1 + word_len].to_vec();
@@ -63,12 +61,12 @@ pub fn to_bencoded_dict(bencoded_dict: &BencodedValue) -> Result<Vec<u8>> {
 
         match value {
             BencodedValue::Dict(_dict) => {
-                let mut bencoded_d = to_bencoded_dict(&value)?;
+                let mut bencoded_d = to_bencoded_dict(value)?;
 
                 bencoded_dict.append(&mut bencoded_d);
             }
             BencodedValue::List(_list) => {
-                let mut bencoded_l = to_bencoded_list(&value)?;
+                let mut bencoded_l = to_bencoded_list(value)?;
 
                 bencoded_dict.append(&mut bencoded_l);
             }
@@ -146,12 +144,12 @@ pub fn to_bencoded_list(bencoded_list: &BencodedValue) -> Result<Vec<u8>> {
     for value in list {
         match value {
             BencodedValue::Dict(_dict) => {
-                let mut bencoded_d = to_bencoded_dict(&value)?;
+                let mut bencoded_d = to_bencoded_dict(value)?;
 
                 bencoded_list.append(&mut bencoded_d);
             }
             BencodedValue::List(_list) => {
-                let mut bencoded_l = to_bencoded_list(&value)?;
+                let mut bencoded_l = to_bencoded_list(value)?;
 
                 bencoded_list.append(&mut bencoded_l);
             }

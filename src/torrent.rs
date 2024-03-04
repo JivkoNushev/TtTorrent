@@ -48,6 +48,7 @@ impl TorrentHandle {
 
         let torrent_file_dest_path = unsafe { crate::CLIENT_OPTIONS.state_torrent_files_path.clone() };
         let torrent_file_dest_path = std::path::Path::new(&torrent_file_dest_path).join(torrent_name);
+        std::fs::create_dir_all(&torrent_file_dest_path.parent().unwrap())?;
         tokio::fs::copy(src_path, torrent_file_dest_path.clone()).await?;
 
         // --------------------------------- create torrent handle ---------------------------------
@@ -170,14 +171,12 @@ impl Torrent {
                 _ => return Err(anyhow!("Could not get pieces from info dict ref in torrent file: {}", torrent_name))
             };
 
-            let pieces_left = (0u32..pieces.len() as u32)
+            (0u32..pieces.len() as u32)
                 .map(|index| (index, Piece {
                     index,
                     block_count: torrent_info.get_specific_piece_block_count(index),
-                })).collect::<HashMap<u32, Piece>>().into_iter()
-                .map(|(_, piece)| piece).collect::<Vec<Piece>>();
-
-            pieces_left
+                })).collect::<HashMap<u32, Piece>>()
+                .into_values().collect::<Vec<Piece>>()
         };
 
         let pieces_count = pieces_left.len();
@@ -345,8 +344,8 @@ impl Torrent {
             },
             false => {
                 let tracker_response = match self.torrent_context.needed.lock().await.pieces.len() == self.torrent_context.torrent_info.pieces_count {
-                    true => tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Started).await?,
-                    false => tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::None).await?,
+                    true => tracker.response(self.client_id, &self.torrent_context, TrackerEvent::Started).await?,
+                    false => tracker.response(self.client_id, &self.torrent_context, TrackerEvent::None).await?,
                 };
                 PeerAddress::from_tracker_response(tracker_response).await?
             }
@@ -361,7 +360,7 @@ impl Torrent {
 
     pub async fn tracker_stopped(&mut self, tracker: &mut Tracker) -> Result<()> {
         if !unsafe { crate::CLIENT_OPTIONS.debug_mode } {
-            tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Stopped).await.context("couldn't get tracker response")?;
+            tracker.response(self.client_id, &self.torrent_context, TrackerEvent::Stopped).await.context("couldn't get tracker response")?;
         }
 
         Ok(())
@@ -369,7 +368,7 @@ impl Torrent {
 
     async fn tracker_completed(&mut self, tracker: &mut Tracker) -> Result<()> {
         if !unsafe { crate::CLIENT_OPTIONS.debug_mode } {
-            tracker.response(self.client_id.clone(), &self.torrent_context, TrackerEvent::Completed).await.context("couldn't get tracker response")?;
+            tracker.response(self.client_id, &self.torrent_context, TrackerEvent::Completed).await.context("couldn't get tracker response")?;
         }
 
         Ok(())
@@ -406,8 +405,7 @@ impl Torrent {
             }
         }
 
-        let interval = tracker.as_ref().and_then(|tracker| Some(tracker.get_interval())).unwrap_or(unsafe { crate::CLIENT_OPTIONS.tracker_regular_request_interval_secs });
-
+        let interval = tracker.as_ref().map(|tracker| tracker.get_interval()).unwrap_or(unsafe { crate::CLIENT_OPTIONS.tracker_regular_request_interval_secs });
         let mut find_new_peers_interval = tokio::time::interval(std::time::Duration::from_secs(interval));
         
         // ------------------------------ main loop --------------------------------

@@ -9,4 +9,4 @@ pub mod client_options;
 
 use once_cell::sync::Lazy;
 
-pub static mut CLIENT_OPTIONS: Lazy<client_options::ClientOptions> = Lazy::new(|| client_options::ClientOptions::default());
+pub static mut CLIENT_OPTIONS: Lazy<client_options::ClientOptions> = Lazy::new(client_options::ClientOptions::default);

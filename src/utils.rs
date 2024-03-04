@@ -47,7 +47,7 @@ pub async fn read_file_as_bytes(path: &std::path::Path) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-pub fn print_as_string(char_vec: &Vec<u8>) {
+pub fn print_as_string(char_vec: &[u8]) {
     println!("{}", char_vec.iter().map(|&c| c as char).collect::<String>());
 }
 
@@ -62,10 +62,7 @@ pub fn valid_src_and_dst(src: &str, dst: &str) -> bool {
         return false;
     }
 
-    match std::fs::create_dir_all(directory) {
-        Ok(_) => true,
-        Err(_) => false
-    }
+    std::fs::create_dir_all(directory).is_ok()
 }
 
 pub fn is_zero_aligned(buf: &[u8]) -> bool {
@@ -114,7 +111,7 @@ pub fn print_bencoded_value(bencoded_value: &BencodedValue) {
             println!("Byte Sha1 Hashes: ");
             for byte_sha1_hash in byte_sha1_hashes {
                 print!("Byte Sha1 Hash: ");
-                print_as_string(&byte_sha1_hash.as_bytes().to_vec());
+                print_as_string(byte_sha1_hash.as_bytes().as_ref());
             }
         },
         _ => {

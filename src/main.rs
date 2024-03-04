@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
 
     // ------------------------ setup tracing ------------------------
     let subscriber = tracing_subscriber::fmt()
-        .with_max_level(unsafe { torrent_client::CLIENT_OPTIONS.tracing_level.clone() })
+        .with_max_level(unsafe { torrent_client::CLIENT_OPTIONS.tracing_level })
         .pretty()
         .finish();
 
@@ -29,6 +29,7 @@ async fn main() -> Result<()> {
 
     // remove socket if it exists and create new one
     let _ = tokio::fs::remove_file(sock_path).await;
+    std::fs::create_dir_all(sock_path.parent().context("couldn't get parent of socket path")?).context("couldn't create parent directory for socket")?;
     let client_socket = LocalSocketListener::bind(sock_path).context("couldn't bind to local socket")?;
 
     let mut terminal_client_sockets: Vec<TerminalClient> = Vec::new();

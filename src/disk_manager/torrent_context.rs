@@ -61,7 +61,7 @@ fn get_files(torrent_file: &TorrentFile) -> Result<Vec<BTreeMap<Vec<u8>, Bencode
         let mut file_dict = BTreeMap::new();
         let path = BencodedValue::List(vec![BencodedValue::ByteString(file_name.clone())]);
         file_dict.insert(b"path".to_vec(), path);
-        file_dict.insert(b"length".to_vec(), BencodedValue::Integer(length.clone()));
+        file_dict.insert(b"length".to_vec(), BencodedValue::Integer(length));
         all_files.push(file_dict);
     }
 

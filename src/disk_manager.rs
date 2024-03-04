@@ -220,7 +220,7 @@ impl DiskManager {
         let mut reader_handles = Vec::new();
 
         loop {
-            let _ = tokio::select! {
+            tokio::select! {
                 Some(message) = self.rx.recv() => {
                     match message {
                         ClientMessage::Shutdown => {
@@ -283,7 +283,6 @@ impl DiskManager {
                                 if *downloaded_pieces_count.lock().await == torrent_context.torrent_info.pieces_count {
                                     if let Err(e) = torrent_context.tx.send(ClientMessage::FinishedDownloading).await {
                                         tracing::error!("Disk writer error: {:?}", e);
-                                        return;
                                     }
                                 }
                                 

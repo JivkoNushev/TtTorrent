@@ -87,7 +87,7 @@ impl PeerMessage {
         Ok(message)
     } 
 
-    fn to_vec(self) -> Vec<u8> {
+    fn to_vec(&self) -> Vec<u8> {
         match self {
             PeerMessage::Choke => vec![0, 0, 0, 1, 0],
             PeerMessage::Unchoke => vec![0, 0, 0, 1, 1],
@@ -105,7 +105,7 @@ impl PeerMessage {
                 
                 data.extend_from_slice(size.to_be_bytes().as_ref());
                 data.push(5);
-                data.extend_from_slice(&bitfield);
+                data.extend_from_slice(bitfield);
 
                 data
             },
@@ -125,7 +125,7 @@ impl PeerMessage {
                 data.push(7);
                 data.extend_from_slice(&index.to_be_bytes());
                 data.extend_from_slice(&begin.to_be_bytes());
-                data.extend_from_slice(&block);
+                data.extend_from_slice(block);
 
                 data
             },
@@ -147,7 +147,7 @@ impl PeerMessage {
             PeerMessage::KeepAlive => vec![0, 0, 0, 0],
             PeerMessage::Handshake(handshake) => {
                 let mut data = Vec::new();
-                data.push(handshake.protocol_len.clone());
+                data.push(handshake.protocol_len);
                 data.extend_from_slice(&handshake.protocol.clone());
                 data.extend_from_slice(&handshake.reserved.clone());
                 data.extend_from_slice(&handshake.info_hash.clone());

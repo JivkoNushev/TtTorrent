@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use percent_encoding::percent_encode;
 use serde::{Serialize, Deserialize};
 use anyhow::{anyhow, Result};
@@ -11,6 +13,12 @@ pub struct Sha1Hash(pub [u8; 20]);
 impl UrlEncodable for Sha1Hash {
     fn as_url_encoded(&self) -> String {
         percent_encode(&self.0, percent_encoding::NON_ALPHANUMERIC).to_string()
+    }
+}
+
+impl Display for Sha1Hash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", String::from_utf8_lossy(self.0.as_slice()))
     }
 }
 
@@ -32,11 +40,7 @@ impl Sha1Hash {
     }
 
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
-    }
-
-    pub fn to_string(&self) -> String {
-        String::from_utf8_lossy(self.0.as_slice()).to_string()
+        hex::encode(self.0)
     }
 }
 

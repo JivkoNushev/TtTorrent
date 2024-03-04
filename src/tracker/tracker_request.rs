@@ -31,8 +31,8 @@ impl TrackerRequest {
         let info_hash = torrent_context.info_hash.clone();
         let peer_id = client_id;
         let port = unsafe { crate::CLIENT_OPTIONS.listening_port };
-        let uploaded = torrent_context.uploaded.lock().await.clone();
-        let downloaded = torrent_context.downloaded.lock().await.clone();
+        let uploaded = *torrent_context.uploaded.lock().await;
+        let downloaded = *torrent_context.downloaded.lock().await;
         let left = torrent_context.torrent_file.get_torrent_length()? - downloaded;
         let compact = 1;
         let no_peer_id = 0;
@@ -65,7 +65,7 @@ impl TrackerRequest {
         })
     }
 
-    pub fn as_url(self) -> Result<String> {
+    pub fn as_url(&self) -> Result<String> {
         let mut url = format!{
             "{announce}?info_hash={info_hash}\
             &peer_id={peer_id}\
@@ -88,7 +88,7 @@ impl TrackerRequest {
             event = self.event.as_url_encoded(),
         };
 
-        if let Some(ip) = self.ip {
+        if let Some(ip) = &self.ip {
             url.push_str(&format!("&ip={}", ip));
         }
 
@@ -96,11 +96,11 @@ impl TrackerRequest {
             url.push_str(&format!("&numwant={}", numwant));
         }
 
-        if let Some(key) = self.key {
+        if let Some(key) = &self.key {
             url.push_str(&format!("&key={}", key));
         }
 
-        if let Some(tracker_id) = self.tracker_id {
+        if let Some(tracker_id) = &self.tracker_id {
             url.push_str(&format!("&trackerid={}", tracker_id));
         }
 

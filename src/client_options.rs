@@ -24,9 +24,8 @@ pub struct ClientOptions {
     pub state_torrent_files_path: String,
     pub listening_port: u16,
 }
-
-impl ClientOptions {
-    pub fn default() -> ClientOptions {
+ impl Default for ClientOptions {
+    fn default() -> Self {
         ClientOptions {
             debug_mode: DEBUG_MODE,
             tracing_level: TRACING_LEVEL,
@@ -264,19 +263,19 @@ fn print_error_menu() {
 }
 
 fn print_help_menu() {
-    print!("Usage: torrent_client [OPTIONS]\n\n");
-    print!("Options:\n");
-    print!("  --debug\n");
-    print!("  --tracing-level [trace|debug|info|warn|error]\n");
-    print!("  --max-channel-size <size>\n");
-    print!("  --block-size <size>\n");
-    print!("  --block-request-count <count>\n");
-    print!("  --sending-to-ui-interval <secs>\n");
-    print!("  --save-state-interval <secs>\n");
-    print!("  --tracker-regular-request-interval <secs>\n");
-    print!("  --keep-alive-interval <secs>\n");
-    print!("  --socket-path <path>\n");
-    print!("  --state-file-path <path>\n");
-    print!("  --state-torrent-files-path <path>\n");
-    print!("  --listening-port <port>\n");
+    println!("Usage: torrent_client [OPTIONS]\n");
+    println!("Options:");
+    println!("  --debug");
+    println!("  --tracing-level [trace|debug|info|warn|error]");
+    println!("  --max-channel-size <size>");
+    println!("  --block-size <size>");
+    println!("  --block-request-count <count>");
+    println!("  --sending-to-ui-interval <secs>");
+    println!("  --save-state-interval <secs>\n");
+    println!("  --tracker-regular-request-interval <secs>");
+    println!("  --keep-alive-interval <secs>");
+    println!("  --socket-path <path>");
+    println!("  --state-file-path <path>");
+    println!("  --state-torrent-files-path <path>");
+    println!("  --listening-port <port>");
 }

@@ -66,14 +66,17 @@ impl Tracker {
 
         self.last_response = Some(bencoded_response.clone());
 
-        if let Err(_) = bencoded_response.get_from_dict(b"tracker id") {
-            self.last_response.as_mut().and_then(|last_response| {
+        if bencoded_response.get_from_dict(b"tracker id").is_err() {
+            if let Some(last_response) = self.last_response.as_mut() {
                 if let Some(last_tracker_id) = last_tracker_id {
                     last_response.insert_into_dict(b"tracker id".to_vec(), BencodedValue::ByteString(last_tracker_id));
                 }
-
-                Some(())
-            });
+            }
+            // self.last_response.as_mut().map(|last_response| {
+            //     if let Some(last_tracker_id) = last_tracker_id {
+            //         last_response.insert_into_dict(b"tracker id".to_vec(), BencodedValue::ByteString(last_tracker_id));
+            //     }
+            // });
         }
 
         Ok(bencoded_response)

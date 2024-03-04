@@ -58,7 +58,7 @@ impl BlockPicker {
         self.pieces.iter().map(|p| p.block_count).sum()
     }
 
-    pub async fn pick_random(&mut self, peer_bitfield: &Vec<u8>) -> Result<Option<Block>> {
+    pub async fn pick_random(&mut self, peer_bitfield: &[u8]) -> Result<Option<Block>> {
         if self.is_empty() {
             tracing::warn!("Trying to pick a random block from an empty block picker.");
             return Ok(None);
@@ -69,16 +69,14 @@ impl BlockPicker {
             piece.block_count -= 1;
 
             let block_number = piece.index as usize * self.torrent_info.blocks_in_piece + piece.block_count;
-            let block = Block {
+            Block {
                 index: piece.index,
                 begin: (piece.block_count * self.torrent_info.block_length) as u32,
                 length: self.torrent_info.get_specific_block_length(block_number as u32) as u32,
 
                 number: block_number,
                 data: None,
-            };
-
-            block
+            }
         }
         else {
             tracing::trace!("No piece found in block picker.");
@@ -94,7 +92,7 @@ impl BlockPicker {
         Ok(Some(block))
     }
 
-    pub async fn get_end_game_blocks(&mut self, peer_bitfield: &Vec<u8>) -> Result<Option<Vec<Block>>> {
+    pub async fn get_end_game_blocks(&mut self, peer_bitfield: &[u8]) -> Result<Option<Vec<Block>>> {
         if self.is_empty() {
             tracing::warn!("Trying to pick a random block from an empty block picker.");
             return Ok(None);
