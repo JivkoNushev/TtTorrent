@@ -37,7 +37,6 @@ fn calculate_percentage(pieces_count: usize, pieces_left: usize) -> f64 {
 }
 
 fn print_torrent_infos(torrents: Vec<TorrentState>) {
-    // print!("{}[2J", 27 as char);
     print!("{esc}c", esc = 27 as char);
 
     if torrents.is_empty() {

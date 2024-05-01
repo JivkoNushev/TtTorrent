@@ -18,7 +18,6 @@ pub struct ClientHandle {
 
 impl ClientHandle {
     pub fn new(tx: mpsc::Sender<ClientMessage>) -> Self {
-        // let id = "TtT-1-0-0-TESTCLIENT".as_bytes().try_into().unwrap();
         let id = crate::utils::generate_random_client_id();
 
         let (sender, receiver) = mpsc::channel(unsafe { crate::CLIENT_OPTIONS.max_channel_size });

@@ -182,7 +182,7 @@ impl Peer {
             tracing::trace!("before while");
             while downloading_blocks.len() < unsafe { crate::CLIENT_OPTIONS.block_request_count } {
                 tracing::trace!("before pick random");
-                match self.torrent_context.needed.lock().await.pick_random(&self.peer_context.bitfield).await? {
+                match self.torrent_context.needed.lock().await.pick_random(&self.peer_context.bitfield).await {
                     Some(block) => {
                         peer_session.send(PeerMessage::Request(block.index, block.begin, block.length)).await?;
                         tracing::debug!("Requested block {} from peer: '{self}' with piece index {}, offset {} and size {}", block.number, block.index, block.begin, block.length);

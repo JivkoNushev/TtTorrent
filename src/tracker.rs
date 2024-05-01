@@ -72,11 +72,6 @@ impl Tracker {
                     last_response.insert_into_dict(b"tracker id".to_vec(), BencodedValue::ByteString(last_tracker_id));
                 }
             }
-            // self.last_response.as_mut().map(|last_response| {
-            //     if let Some(last_tracker_id) = last_tracker_id {
-            //         last_response.insert_into_dict(b"tracker id".to_vec(), BencodedValue::ByteString(last_tracker_id));
-            //     }
-            // });
         }
 
         Ok(bencoded_response)
