@@ -1,4 +1,4 @@
-use std::fmt::{format, Display};
+use std::fmt::Display;
 
 use percent_encoding::percent_encode;
 use serde::{Serialize, Deserialize};

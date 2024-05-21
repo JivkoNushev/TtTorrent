@@ -67,8 +67,37 @@ Usage:
         torrent_client <command> [args]
 
 Commands:
+        --help - Print this help menu
 
+        
         start - Start the client daemon
+
+            --debug - starts the client in debug mode
+
+            --tracing-level - sets the trace library level; it can be either \"trace\", \"debug\", \"info\", \"warn\", \"error\"
+
+            --max-channel-size - sets the max number of messages that can be sent through channels
+
+            --block-size - sets the size of the blocks
+
+            --block-request-count - sets the max number of simultanious requests for blocks of data
+
+            --sending-to-ui-interval - sets the time interval in seconds for sending information to the ui programs
+
+            --save-state-interval - sets the interval in seconds for saving the state of the client
+
+            --tracker-regular-request-interval - sets the interval in seconds for regular tracker requests
+
+            --keep-alive-interval - sets the interval in seconds for sending keep-alive messages
+
+            --socket-path - sets in which directory to save the socket file
+
+            --state-file-path - sets in which directory to save the state file
+
+            --state-torrent-files-path - sets in which directory to save the torrent files
+
+            --listening-port - sets the port on which the client listens for incoming connections
+
 
         stop - Stop the client daemon
 
@@ -77,7 +106,6 @@ Commands:
         list - List all torrents
 
 
-        --help - Print this help menu
 "
     );
 }
