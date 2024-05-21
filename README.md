@@ -6,7 +6,9 @@
 # Usage
 
 Build
+
 `cargo build --release`
 
 Run
-./target/release/tttorrent-ui --help
+
+`./target/release/tttorrent-ui --help`
